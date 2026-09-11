@@ -1,0 +1,67 @@
+name: Backup (manual until offsite credentials are configured)
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_run_id:
+        description: Optional UTC run id; defaults to the current time
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uniform-co-backup-production
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    environment: backup-production
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+      - name: Export DB and Auth
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_ROOT: ${{ runner.temp }}/uniform-co-backups
+          BACKUP_RUN_ID: ${{ inputs.backup_run_id }}
+        run: |
+          export BACKUP_RUN_ID="${BACKUP_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)}"
+          node scripts/backup/validate-run-id.mjs "${BACKUP_RUN_ID}"
+          echo "BACKUP_RUN_ID=${BACKUP_RUN_ID}" >> "$GITHUB_ENV"
+          bash scripts/backup/export-db.sh
+          bash scripts/backup/export-auth.sh
+      - name: Export private Storage objects
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BACKUP_ROOT: ${{ runner.temp }}/uniform-co-backups
+          BACKUP_RUN_ID: ${{ env.BACKUP_RUN_ID }}
+          BACKUP_STORAGE_BUCKETS: uniform-imports,uniform-artifacts,uniform-render-temp,uniform-pdf,uniform-erp
+        run: node scripts/backup/export-storage.mjs
+      - name: Build complete generation manifest
+        env:
+          BACKUP_ROOT: ${{ runner.temp }}/uniform-co-backups
+          BACKUP_RUN_ID: ${{ env.BACKUP_RUN_ID }}
+        run: node scripts/backup/create-manifest.mjs "${BACKUP_ROOT}/${BACKUP_RUN_ID}"
+      - name: Verify manifest and require offsite handoff
+        env:
+          BACKUP_ROOT: ${{ runner.temp }}/uniform-co-backups
+          BACKUP_RUN_ID: ${{ env.BACKUP_RUN_ID }}
+          BACKUP_OFFSITE_COMMAND: ${{ secrets.BACKUP_OFFSITE_COMMAND }}
+          BACKUP_ENCRYPT_COMMAND: ${{ secrets.BACKUP_ENCRYPT_COMMAND }}
+        run: |
+          test -n "${BACKUP_ENCRYPT_COMMAND}" || { echo "Configure BACKUP_ENCRYPT_COMMAND (must encrypt and remove plaintext sensitive dumps) before production use" >&2; exit 1; }
+          bash -c "${BACKUP_ENCRYPT_COMMAND}" -- "${BACKUP_ROOT}/${BACKUP_RUN_ID}" "${BACKUP_RUN_ID}"
+          test ! -e "${BACKUP_ROOT}/${BACKUP_RUN_ID}/auth-data.sql" || { echo "Encryption command must remove plaintext auth-data.sql" >&2; exit 1; }
+          test ! -e "${BACKUP_ROOT}/${BACKUP_RUN_ID}/application.dump" || { echo "Encryption command must remove plaintext application.dump" >&2; exit 1; }
+          node scripts/backup/create-manifest.mjs "${BACKUP_ROOT}/${BACKUP_RUN_ID}"
+          node scripts/backup/verify-manifest.mjs "${BACKUP_ROOT}/${BACKUP_RUN_ID}" --for-offsite
+          test -n "${BACKUP_OFFSITE_COMMAND}" || { echo "Configure BACKUP_OFFSITE_COMMAND for the approved offsite remote before enabling scheduled backups" >&2; exit 1; }
+          bash -c "${BACKUP_OFFSITE_COMMAND}" -- "${BACKUP_ROOT}/${BACKUP_RUN_ID}" "${BACKUP_RUN_ID}"
