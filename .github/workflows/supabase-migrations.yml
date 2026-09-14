@@ -1,0 +1,87 @@
+name: Supabase migrations (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Protected Supabase environment to migrate
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      confirmation:
+        description: Type STAGING_MIGRATION or PRODUCTION_MIGRATION to confirm
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uniform-co-supabase-migration-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  validate-target:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm selected environment
+        env:
+          MIGRATION_TARGET: ${{ inputs.target }}
+          MIGRATION_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          case "${MIGRATION_TARGET}" in
+            staging) expected="STAGING_MIGRATION" ;;
+            production) expected="PRODUCTION_MIGRATION" ;;
+            *) echo "Unsupported migration target" >&2; exit 1 ;;
+          esac
+          test "${MIGRATION_CONFIRMATION}" = "${expected}" || {
+            echo "Confirmation does not match selected migration target" >&2
+            exit 1
+          }
+
+  push-staging-migrations:
+    if: ${{ inputs.target == 'staging' }}
+    needs: validate-target
+    runs-on: ubuntu-latest
+    environment: supabase-staging-migrations
+    steps:
+      - uses: actions/checkout@v5
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          test -n "${SUPABASE_PROJECT_REF}" || { echo "Missing protected SUPABASE_PROJECT_REF" >&2; exit 1; }
+          supabase link --project-ref "${SUPABASE_PROJECT_REF}"
+      - name: Push migrations
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push
+
+  push-production-migrations:
+    if: ${{ inputs.target == 'production' }}
+    needs: validate-target
+    runs-on: ubuntu-latest
+    environment: supabase-production-migrations
+    steps:
+      - uses: actions/checkout@v5
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Link project
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          test -n "${SUPABASE_PROJECT_REF}" || { echo "Missing protected SUPABASE_PROJECT_REF" >&2; exit 1; }
+          supabase link --project-ref "${SUPABASE_PROJECT_REF}"
+      - name: Push migrations
+        env:
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push

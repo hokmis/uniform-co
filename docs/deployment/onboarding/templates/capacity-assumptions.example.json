@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "projectionYears": 3,
+  "evidence": {
+    "source": "TEMPLATE",
+    "evidenceReference": "",
+    "syntheticThreeYearDbBytes": null,
+    "syntheticThreeYearStorageBytes": null,
+    "peakPerformancePassed": false,
+    "restoreDrillPassed": false,
+    "backupEgressQuotaRatio": null,
+    "actionsMinutesQuotaRatio": null
+  },
+  "assumptions": {
+    "entities": {
+      "currentEmployees": 500,
+      "year3Employees": 650,
+      "institutions": 8,
+      "departments": 24,
+      "uniformItems": 120
+    },
+    "annualTransactions": {
+      "issues": 3000,
+      "restocks": 600,
+      "stocktakes": 500,
+      "corrections": 100,
+      "returns": 600,
+      "seasonalDemand": 400,
+      "purchases": 200,
+      "receipts": 200
+    },
+    "imports": {
+      "perMonth": 12,
+      "averageRows": 50,
+      "maximumRows": 3000,
+      "averageRawJsonBytes": 600
+    },
+    "auditAmplification": 1.5,
+    "database": {
+      "masterRowAverageBytes": 1200,
+      "transactionRowAverageBytes": 1800,
+      "importRowAverageBytes": 1500,
+      "auditEventAverageBytes": 650,
+      "indexOverheadRatio": 0.45,
+      "toastOverheadRatio": 0.1,
+      "deadTupleHeadroomRatio": 0.15,
+      "migrationHeadroomRatio": 0.2
+    },
+    "storage": {
+      "pdf": {
+        "annualCount": 600,
+        "averageBytes": 200000,
+        "p95Bytes": 350000,
+        "onlineRetentionMonths": 36
+      },
+      "erp": {
+        "annualCount": 120,
+        "averageBytes": 50000,
+        "p95Bytes": 120000,
+        "onlineRetentionMonths": 36
+      },
+      "importSource": {
+        "annualCount": 144,
+        "averageBytes": 250000,
+        "p95Bytes": 900000,
+        "onlineRetentionMonths": 6
+      }
+    },
+    "backup": {
+      "generationsPerMonth": 30,
+      "averageDbDumpBytes": 60000000,
+      "averageAuthDumpBytes": 3000000,
+      "averageStorageIncrementalBytes": 12000000,
+      "archiveMetadataBytesPerGeneration": 100000
+    }
+  }
+}

@@ -1,0 +1,12 @@
+systemGuide:
+  mode: APPLY
+  outputDir: docs/system-guide
+  frontendRoute: /system-guide
+  language: zh-TW
+  baseBranch: main
+  roles:
+    user: [HR, WAREHOUSE, PROCUREMENT, CEO, DEMAND_COORDINATOR]
+    admin: [SYSTEM_ADMIN]
+    agent: [developer, maintainer, devops]
+  scan:
+    exclude: [node_modules, .next, coverage, .git, prototype]

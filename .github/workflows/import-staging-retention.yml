@@ -1,0 +1,54 @@
+name: Import staging retention
+
+on:
+  schedule:
+    - cron: "41 18 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Retention mode
+        type: choice
+        required: true
+        default: dry-run
+        options:
+          - dry-run
+          - execute
+      confirmation:
+        description: For execute only, type PURGE_ELIGIBLE_IMPORT_STAGING
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: import-staging-retention-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  retention:
+    runs-on: ubuntu-latest
+    environment: staging-import-retention
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Reject unconfirmed execute request
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'execute' && inputs.confirmation != 'PURGE_ELIGIBLE_IMPORT_STAGING'
+        run: |
+          echo "Execute mode requires the exact destructive confirmation."
+          exit 1
+      - name: Daily or manual dry-run
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run')
+        env:
+          IMPORT_RETENTION_DATABASE_URL: ${{ secrets.IMPORT_RETENTION_DATABASE_URL }}
+        run: npm run retention:import-staging
+      - name: Manually confirmed staging payload purge
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'execute' && inputs.confirmation == 'PURGE_ELIGIBLE_IMPORT_STAGING'
+        env:
+          IMPORT_RETENTION_DATABASE_URL: ${{ secrets.IMPORT_RETENTION_DATABASE_URL }}
+          IMPORT_RETENTION_EXECUTE_CONFIRM: PURGE_ELIGIBLE_IMPORT_STAGING
+        run: npm run retention:import-staging -- --execute

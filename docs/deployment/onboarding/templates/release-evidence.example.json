@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "evidenceKind": "TEMPLATE",
+  "releaseId": "",
+  "gates": {
+    "repositoryDeploymentSmoke": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "stagingMigrationReadOnlySmoke": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "rlsSixRole": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "storagePrivateSignedUrlAcl": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "durableImportWorkerConcurrency": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "rendererPdfErp": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "storageDestructiveCleanup": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "databaseRetention": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "backupFromZeroRestore": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "rpoRtoAcceptance": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "capacityValidated": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "externalErrorMonitoring": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "erpImportAcceptance": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "formalPdfApproval": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "firstProductionAccounts": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "ownerBackupOwnerHandoff": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" },
+    "productionCutoverApproval": { "passed": false, "source": "TEMPLATE", "evidenceReference": "" }
+  }
+}

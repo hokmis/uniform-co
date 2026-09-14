@@ -1,0 +1,56 @@
+name: Storage cleanup
+
+on:
+  schedule:
+    - cron: "23 18 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Cleanup mode
+        type: choice
+        required: true
+        default: dry-run
+        options:
+          - dry-run
+          - execute
+      confirmation:
+        description: For execute only, type DELETE_ELIGIBLE_STORAGE
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-cleanup-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    environment: staging-storage-cleanup
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Reject unconfirmed execute request
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'execute' && inputs.confirmation != 'DELETE_ELIGIBLE_STORAGE'
+        run: |
+          echo "Execute mode requires the exact destructive confirmation."
+          exit 1
+      - name: Daily or manual dry-run
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run')
+        env:
+          CLEANUP_DATABASE_URL: ${{ secrets.CLEANUP_DATABASE_URL }}
+        run: npm run cleanup:storage
+      - name: Manually confirmed cleanup
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'execute' && inputs.confirmation == 'DELETE_ELIGIBLE_STORAGE'
+        env:
+          CLEANUP_DATABASE_URL: ${{ secrets.CLEANUP_DATABASE_URL }}
+          CLEANUP_SUPABASE_URL: ${{ secrets.CLEANUP_SUPABASE_URL }}
+          CLEANUP_STORAGE_ADMIN_KEY: ${{ secrets.CLEANUP_STORAGE_ADMIN_KEY }}
+          CLEANUP_EXECUTE_CONFIRM: DELETE_ELIGIBLE_STORAGE
+        run: npm run cleanup:storage -- --execute

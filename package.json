@@ -1,0 +1,56 @@
+{
+  "name": "uniform-co",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "renderer:pdf": "node scripts/renderer/renderer-worker.mjs --kind=PDF",
+    "renderer:erp": "node scripts/renderer/renderer-worker.mjs --kind=ERP",
+    "renderer:erp:demo": "node scripts/renderer/adapters/uniform-erp-sales-v0.mjs",
+    "renderer:storage-proxy": "node scripts/renderer/storage-proxy.mjs",
+    "import:worker": "tsx scripts/import/import-worker.ts",
+    "cleanup:storage": "node scripts/cleanup/storage-cleanup.mjs",
+    "retention:import-staging": "node scripts/cleanup/import-staging-retention.mjs",
+    "deployment:preflight": "node scripts/deployment/staging-preflight.mjs",
+    "deployment:smoke": "node scripts/deployment/staging-smoke.mjs",
+    "deployment:active-smoke": "node scripts/deployment/staging-active-smoke.mjs",
+    "deployment:renderer-smoke": "node scripts/deployment/staging-renderer-smoke.mjs",
+    "deployment:release-gate": "node scripts/deployment/release-gate.mjs",
+    "deployment:release-evidence": "node scripts/deployment/release-evidence.mjs",
+    "capacity:plan": "node scripts/capacity/capacity-plan.mjs"
+  },
+  "dependencies": {
+    "@gsap/react": "^2.1.2",
+    "@supabase/ssr": "^0.6.1",
+    "@supabase/supabase-js": "^2.57.4",
+    "fflate": "^0.8.3",
+    "gsap": "^3.15.0",
+    "next": "^15.5.24",
+    "pg": "^8.16.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "tsx": "^4.23.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/pg": "^8.21.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "next": {
+      "postcss": "8.5.23",
+      "sharp": "0.35.3"
+    }
+  }
+}
