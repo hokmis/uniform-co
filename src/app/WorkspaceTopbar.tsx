@@ -8,16 +8,15 @@ import {
   type WorkspaceSearchResult,
 } from "./workspaces/workspace-config";
 import { appearanceThemes, type AppearanceTheme } from "./use-appearance-theme";
-import { accountLabelFromUser } from "@/src/lib/account-login";
 
 type Props = {
   activeDefinition: { label: string; eyebrow: string; description: string };
-  user: User;
+  user?: User;
   appearanceTheme: AppearanceTheme;
   onAppearanceChange: (theme: AppearanceTheme) => void;
   onNavigate: (workspaceId: WorkspaceId, anchor: string) => void;
   onOpenSystemGuide?: () => void;
-  onSignOut: () => Promise<void>;
+  onSignOut?: () => Promise<void>;
 };
 
 function SearchIcon() {
@@ -82,13 +81,11 @@ function SearchResults({ results, onSelect }: { results: WorkspaceSearchResult[]
  * and account authentication controls.
  * Updated by: eagle99dd@gmail.com
  */
-export default function WorkspaceTopbar({ activeDefinition, user, appearanceTheme, onAppearanceChange, onNavigate, onOpenSystemGuide, onSignOut }: Props) {
+export default function WorkspaceTopbar({ activeDefinition, appearanceTheme, onAppearanceChange, onNavigate, onOpenSystemGuide }: Props) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [signingOut, setSigningOut] = useState(false);
   const results = searchWorkspaceModules(query);
-  const accountLabel = accountLabelFromUser(user);
 
   useEffect(() => {
     function closeTransientPanels(event: KeyboardEvent) {
@@ -114,15 +111,6 @@ export default function WorkspaceTopbar({ activeDefinition, user, appearanceThem
 
   function submitSearch() {
     if (results[0]) selectSearchResult(results[0]);
-  }
-
-  async function signOut() {
-    setSigningOut(true);
-    try {
-      await onSignOut();
-    } finally {
-      setSigningOut(false);
-    }
   }
 
   return (
@@ -158,12 +146,6 @@ export default function WorkspaceTopbar({ activeDefinition, user, appearanceThem
         <AppearanceSelect theme={appearanceTheme} onChange={onAppearanceChange} />
         <span className="workspace-date-pill">正式資料工作區</span>
         <span className="status-pill">SUPABASE + RLS</span>
-        <div className="workspace-account-actions">
-          <span className="workspace-account-email" title={accountLabel}>{accountLabel}</span>
-          <button className="secondary-button workspace-signout" type="button" onClick={() => void signOut()} disabled={signingOut}>
-            {signingOut ? "登出中…" : "登出"}
-          </button>
-        </div>
       </div>
     </header>
   );

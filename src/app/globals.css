@@ -222,6 +222,31 @@ body {
 .app-avatar { display: grid; place-items: center; flex: 0 0 auto; width: 31px; height: 31px; border-radius: 50%; color: var(--accent-dark); background: #d9efe8; font-size: 12px; font-weight: 800; }
 .app-user-chip strong { color: #fff; font-size: 12px; }
 .app-user-chip div span { margin-top: 3px; color: #8db0ad; font-size: 10px; }
+.sidebar-signout {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 8px;
+  color: #fff;
+  background: rgba(255, 255, 255, .08);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.sidebar-signout:hover:not(:disabled) {
+  background: rgba(255, 255, 255, .18);
+  border-color: rgba(255, 255, 255, .3);
+}
+.sidebar-signout:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
 
 .app-main {
   min-width: 0;
@@ -424,6 +449,7 @@ body {
   .app-nav button { justify-content: center; padding: 12px 0; }
   .app-sidebar-bottom { padding-right: 4px; padding-left: 4px; }
   .app-user-chip { justify-content: center; }
+  .sidebar-signout { padding: 6px 2px; font-size: 11px; }
   .app-main { padding-right: 22px; padding-left: 22px; }
 }
 
@@ -1013,6 +1039,18 @@ body {
 .app-avatar { color: #fff; background: var(--accent); }
 .app-user-chip strong { color: var(--ink); font-size: 11px; }
 .app-user-chip div span { color: var(--muted); }
+.sidebar-signout {
+  border-color: rgba(60, 60, 67, .18);
+  background: rgba(255, 255, 255, .78);
+  color: var(--ink);
+  font-weight: 650;
+}
+.sidebar-signout:hover:not(:disabled) {
+  background: #fff;
+  border-color: rgba(60, 60, 67, .32);
+  color: var(--danger);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .06);
+}
 
 .app-main {
   position: relative;
@@ -1634,6 +1672,17 @@ html[data-appearance="sh"] .app-user-chip strong {
 
 html[data-appearance="sh"] .app-user-chip div span {
   color: var(--sh-muted-foreground);
+}
+
+html[data-appearance="sh"] .sidebar-signout {
+  border-color: var(--sh-border);
+  background: transparent;
+  color: var(--sh-foreground);
+}
+
+html[data-appearance="sh"] .sidebar-signout:hover:not(:disabled) {
+  background: var(--sh-accent);
+  color: var(--sh-accent-foreground);
 }
 
 html[data-appearance="sh"] .app-main {

@@ -94,6 +94,7 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
   const { theme: appearanceTheme, setTheme: setAppearanceTheme } = useAppearanceTheme();
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("overview");
   const [activeModuleByWorkspace, setActiveModuleByWorkspace] = useState<Partial<Record<WorkspaceId, string>>>({});
+  const [signingOut, setSigningOut] = useState(false);
   const activeDefinition = workspaceDefinitions.find((workspace) => workspace.id === activeWorkspace) ?? workspaceDefinitions[0];
   const activeHeaderDefinition = initialSystemGuide ? systemGuideDefinition : activeDefinition;
   const activeModule = activeModuleByWorkspace[activeWorkspace] ?? activeDefinition.modules[0].anchor;
@@ -191,6 +192,22 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
               <span>角色與資料範圍由 RLS 判定</span>
             </div>
           </div>
+          <button
+            className="secondary-button sidebar-signout"
+            type="button"
+            onClick={async () => {
+              setSigningOut(true);
+              try {
+                const { error } = await client.auth.signOut();
+                if (error) throw error;
+              } finally {
+                setSigningOut(false);
+              }
+            }}
+            disabled={signingOut}
+          >
+            {signingOut ? "登出中…" : "登出"}
+          </button>
         </div>
       </aside>
 
@@ -202,10 +219,6 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
           onAppearanceChange={(theme: AppearanceTheme) => setAppearanceTheme(theme)}
           onNavigate={selectWorkspace}
           onOpenSystemGuide={systemGuide.allowed && !initialSystemGuide ? () => router.push("/system-guide") : undefined}
-          onSignOut={async () => {
-            const { error } = await client.auth.signOut();
-            if (error) throw error;
-          }}
         />
 
         <div className="workspace-mobile-switcher">
