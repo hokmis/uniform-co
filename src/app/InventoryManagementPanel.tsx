@@ -3,10 +3,10 @@
 import { useState } from "react";
 import InventoryAvailabilityPanel from "./InventoryAvailabilityPanel";
 import InventoryCalculator from "./InventoryCalculator";
-import DurableImportPanel from "./DurableImportPanel";
 import InventoryHistoryExportPanel from "./InventoryHistoryExportPanel";
 import InventoryOperationHub from "./InventoryOperationHub";
 import ModuleWorkbench from "./ModuleWorkbench";
+import OpeningBalanceDirectImportPanel from "./OpeningBalanceDirectImportPanel";
 import type { WorkspaceId } from "./workspaces/workspace-config";
 
 type Props = {
@@ -33,9 +33,9 @@ export default function InventoryManagementPanel({ onNavigate, headingId }: Prop
         {
           id: "opening",
           label: "期初庫存",
-          content: <DurableImportPanel
-            allowedImportTypes={["OPENING_BALANCE"]}
-            recoveryStorageKey="uniform-co:durable-import-opening-recovery"
+          content: <OpeningBalanceDirectImportPanel
+            onNavigate={onNavigate}
+            onGoToAvailability={() => setActiveTab("availability")}
           />,
         },
         { id: "history", label: "歷史匯出", content: <InventoryHistoryExportPanel /> },
