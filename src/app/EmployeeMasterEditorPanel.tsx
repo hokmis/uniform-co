@@ -80,11 +80,21 @@ export default function EmployeeMasterEditorPanel({ editRequest, intent = "EDIT"
     return () => { active = false; };
   }, [client, confirmationOnly, editRequest]);
 
-  const selectedInstitution = institutions.find((institution) => institution.code === form.institutionCode);
-  const institutionOptions = useMemo(() => institutions.filter((institution) => institution.is_active || institution.code === form.institutionCode), [form.institutionCode, institutions]);
-  const departmentOptions = useMemo(() => departments.filter((department) =>
-    department.institution_id === selectedInstitution?.id
-    && (department.is_active || department.code === form.departmentCode)), [departments, form.departmentCode, selectedInstitution?.id]);
+  const selectedInstitution = useMemo(
+    () => institutions.find((institution) => institution.code.trim() === form.institutionCode.trim() || institution.code === form.institutionCode),
+    [form.institutionCode, institutions],
+  );
+  const institutionOptions = useMemo(
+    () => institutions.filter((institution) => institution.is_active || institution.code.trim() === form.institutionCode.trim() || institution.code === form.institutionCode),
+    [form.institutionCode, institutions],
+  );
+  const departmentOptions = useMemo(
+    () => departments.filter((department) =>
+      (selectedInstitution && department.institution_id === selectedInstitution.id)
+      && (department.is_active !== false || department.code.trim() === form.departmentCode.trim() || department.code === form.departmentCode)
+    ),
+    [departments, form.departmentCode, selectedInstitution],
+  );
 
   function updateField<K extends keyof EmployeeEditorForm>(field: K, value: EmployeeEditorForm[K]) {
     operationRef.current = null;
@@ -162,8 +172,8 @@ export default function EmployeeMasterEditorPanel({ editRequest, intent = "EDIT"
       <div className="form-grid employee-editor-grid">
         <label className="field"><span>員工工號</span><input value={form.employeeNo} onChange={(event) => updateField("employeeNo", event.target.value)} disabled={fieldDisabled || Boolean(editRequest)} maxLength={100} /></label>
         <label className="field"><span>姓名</span><input value={form.name} onChange={(event) => updateField("name", event.target.value)} disabled={fieldDisabled} maxLength={255} /></label>
-        <label className="field"><span>機構</span><select value={form.institutionCode} onChange={(event) => selectInstitution(event.target.value)} disabled={fieldDisabled}><option value="">請選擇機構</option>{institutionOptions.map((institution) => <option key={institution.id} value={institution.code}>{institution.code}｜{institution.name}{institution.is_active ? "" : "（停用）"}</option>)}</select></label>
-        <label className="field"><span>部門</span><select value={form.departmentCode} onChange={(event) => updateField("departmentCode", event.target.value)} disabled={fieldDisabled || !form.institutionCode}><option value="">請選擇部門</option>{departmentOptions.map((department) => <option key={department.id} value={department.code}>{department.code}｜{department.name}{department.is_active ? "" : "（停用）"}</option>)}</select></label>
+        <label className="field"><span>機構</span><select value={form.institutionCode} onChange={(event) => selectInstitution(event.target.value)} disabled={fieldDisabled}><option value="">請選擇機構</option>{institutionOptions.map((institution) => <option key={institution.id} value={institution.code.trim()}>{institution.code.trim()}｜{institution.name}{institution.is_active ? "" : "（停用）"}</option>)}</select></label>
+        <label className="field"><span>部門</span><select value={form.departmentCode} onChange={(event) => updateField("departmentCode", event.target.value)} disabled={fieldDisabled || !form.institutionCode}><option value="">請選擇部門</option>{departmentOptions.map((department) => <option key={department.id} value={department.code.trim()}>{department.code.trim()}｜{department.name}{department.is_active ? "" : "（停用）"}</option>)}</select></label>
         <label className="field"><span>在職狀態</span><select value={form.employmentStatus} onChange={(event) => selectStatus(event.target.value as EmploymentStatus)} disabled={fieldDisabled}><option value="ACTIVE">在職</option><option value="INACTIVE">離職／停用</option></select></label>
         <label className="field"><span>職稱（選填）</span><input value={form.jobTitle} onChange={(event) => updateField("jobTitle", event.target.value)} disabled={fieldDisabled} maxLength={255} /></label>
         <label className="field"><span>到職日（選填）</span><input type="date" value={form.hireDate} onChange={(event) => updateField("hireDate", event.target.value)} disabled={fieldDisabled} /></label>
