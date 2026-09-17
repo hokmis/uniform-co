@@ -306,7 +306,11 @@ export default function DurableImportPanel({ allowedImportTypes, recoveryStorage
       metadata: { mimetype: mimeType, size: String(file.size), sha256: fileHash },
     });
     if (uploadResult.error) {
-      setMessage(`檔案上傳結果未知：${uploadResult.error.message}。請保留同一檔案與批次重試，不會另建 batch。`);
+      if (uploadResult.error.message.toLowerCase().includes("already exists")) {
+        setMessage(`檔案先前已成功傳送至 Storage；等待 worker 核對 MIME／大小／SHA-256 後進入解析。批次：${activeBatch.batch_no ?? "未知批次"}`);
+      } else {
+        setMessage(`檔案上傳結果未知：${uploadResult.error.message}。請保留同一檔案與批次重試，不會另建 batch。`);
+      }
     } else {
       setMessage(`檔案已直傳固定 private key；等待 worker 核對 MIME／大小／SHA-256 後進入解析。批次：${activeBatch.batch_no ?? "未知批次"}`);
     }
