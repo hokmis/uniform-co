@@ -47,7 +47,7 @@ export default function OrganizationMasterEditorPanel({
     ? `即將停用 ${organizationEditorKey(entityType, formFromRequest(editRequest))}；請確認後執行`
     : editRequest
       ? `已載入 ${organizationEditorKey(entityType, formFromRequest(editRequest))}；穩定代碼不可在修改模式變更`
-      : client ? `新增${entityType === "INSTITUTIONS" ? "機構" : "部門"}模式` : "預覽模式：登入後才能保存組織主檔");
+      : client ? `新增${entityType === "INSTITUTIONS" ? "課室部門" : "單位"}模式` : "預覽模式：登入後才能保存組織主檔");
   const confirmationOnly = intent === "DEACTIVATE";
   const keyLocked = Boolean(editRequest);
 
@@ -57,7 +57,7 @@ export default function OrganizationMasterEditorPanel({
     let active = true;
     void supabase.from("institutions").select("id,code,name,is_active").order("code").limit(1000).then((result) => {
       if (!active) return;
-      if (result.error) setMessage(`機構清單載入失敗：${result.error.message}`);
+      if (result.error) setMessage(`課室部門清單載入失敗：${result.error.message}`);
       else setInstitutions((result.data ?? []) as Institution[]);
     });
     return () => { active = false; };
@@ -100,7 +100,7 @@ export default function OrganizationMasterEditorPanel({
     onSaved(stableKey, formToSave.isActive);
   }
 
-  const entityLabel = entityType === "INSTITUTIONS" ? "機構" : "部門";
+  const entityLabel = entityType === "INSTITUTIONS" ? "課室部門" : "單位";
   return (
     <section className="panel organization-editor-panel" aria-label={`${entityLabel}新增修改停用`}>
       <div className="panel-heading">
@@ -112,13 +112,13 @@ export default function OrganizationMasterEditorPanel({
       <div className="form-grid">
         {entityType === "DEPARTMENTS" ? (
           <label className="field">
-            <span>所屬機構</span>
+            <span>所屬課室部門</span>
             <select
               value={form.institutionCode}
               onChange={(event) => updateField("institutionCode", event.target.value)}
               disabled={busy || keyLocked || confirmationOnly}
             >
-              <option value="">請選擇機構</option>
+              <option value="">請選擇課室部門</option>
               {institutions
                 .filter((institution) => institution.is_active || institution.code.trim() === form.institutionCode.trim() || institution.code === form.institutionCode)
                 .map((institution) => (

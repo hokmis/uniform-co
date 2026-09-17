@@ -80,8 +80,8 @@ export default function OrganizationManagementPanel() {
       actions={screen === "EDITOR"
         ? <button className="secondary-button" type="button" onClick={openCatalog}>返回組織清單</button>
         : <>
-          <button className="primary-button" type="button" onClick={() => createEntity("INSTITUTIONS")}>＋ 新增機構</button>
-          <button className="secondary-button" type="button" onClick={() => createEntity("DEPARTMENTS")}>＋ 新增部門</button>
+          <button className="primary-button" type="button" onClick={() => createEntity("INSTITUTIONS")}>＋ 新增課室部門</button>
+          <button className="secondary-button" type="button" onClick={() => createEntity("DEPARTMENTS")}>＋ 新增單位</button>
           <button className="secondary-button" type="button" onClick={() => selectTab("IMPORT_EXPORT")}>匯入／匯出</button>
         </>}
       feedback={notice ? <p className="success-note organization-management-notice" role="status">{notice}</p> : null}
@@ -95,8 +95,8 @@ export default function OrganizationManagementPanel() {
             <section className="panel organization-boundary-card" aria-label="組織主檔管理說明">
               <div className="panel-heading"><div><p className="eyebrow">DATA CONTRACT</p><h2>組織資料規則</h2></div><span className="status-pill">MASTER DATA</span></div>
               <div className="summary-list">
-                <div className="summary-row"><span><strong>穩定代碼</strong><small>修改模式不變更機構／部門代碼，避免誤建立另一筆主檔或破壞外部對照。</small></span></div>
-                <div className="summary-row"><span><strong>部門隸屬</strong><small>部門固定隸屬一個機構；需要移轉時建立新部門並停用舊關係。</small></span></div>
+                <div className="summary-row"><span><strong>穩定代碼</strong><small>修改模式不變更課室部門／單位代碼，避免誤建立另一筆主檔或破壞外部對照。</small></span></div>
+                <div className="summary-row"><span><strong>單位隸屬</strong><small>單位固定隸屬一個課室部門；需要移轉時建立新單位並停用舊關係。</small></span></div>
                 <div className="summary-row"><span><strong>大量匯入</strong><small>此處適合小批次 CSV／JSON；大型檔案請使用「耐久匯入」保留批次、差異與恢復狀態。</small></span></div>
                 <div className="summary-row"><span><strong>停用代替刪除</strong><small>既有員工、需求、單據與稽核紀錄完整保留，停用資料不再供新流程選用。</small></span></div>
               </div>

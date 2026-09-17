@@ -145,12 +145,12 @@ export default function EmployeeCatalogPanel({ refreshToken = 0, onEdit, onDeact
         <div className="metric"><span>全部員工</span><strong>{rows.length}</strong><small>目前角色可讀取資料</small></div>
         <div className="metric"><span>在職</span><strong>{rows.filter((row) => row.employmentStatus === "ACTIVE").length}</strong><small>可供新需求與活動選用</small></div>
         <div className="metric"><span>離職／停用</span><strong>{rows.filter((row) => row.employmentStatus === "INACTIVE").length}</strong><small>保留歷史，不供新流程選用</small></div>
-        <div className="metric"><span>機構數</span><strong>{institutionOptions.length}</strong><small>依目前可讀員工統計</small></div>
+        <div className="metric"><span>課室部門數</span><strong>{institutionOptions.length}</strong><small>依目前可讀員工統計</small></div>
       </div>
       <div className="employee-catalog-filters">
-        <label className="field"><span>搜尋員工</span><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜尋工號、姓名、機構、部門或職稱…" /></label>
+        <label className="field"><span>搜尋員工</span><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜尋工號、姓名、課室部門、單位或職稱…" /></label>
         <label className="field"><span>在職狀態</span><select value={status} onChange={(event) => { setStatus(event.target.value as EmployeeCatalogStatus); setPage(1); }}><option value="ALL">全部狀態</option><option value="ACTIVE">在職</option><option value="INACTIVE">離職／停用</option></select></label>
-        <label className="field"><span>機構</span><select value={institutionCode} onChange={(event) => { setInstitutionCode(event.target.value); setPage(1); }}><option value="">全部機構</option>{institutionOptions.map(([code, name]) => <option key={code} value={code}>{code}｜{name}</option>)}</select></label>
+        <label className="field"><span>課室部門</span><select value={institutionCode} onChange={(event) => { setInstitutionCode(event.target.value); setPage(1); }}><option value="">全部課室部門</option>{institutionOptions.map(([code, name]) => <option key={code} value={code}>{code}｜{name}</option>)}</select></label>
       </div>
       <div className="management-catalog-result"><p className="muted" role="status">{message}；符合條件 {sortedRows.length} 筆</p>{query || status !== "ALL" || institutionCode ? <button className="text-button product-filter-reset" type="button" onClick={() => { setQuery(""); setStatus("ALL"); setInstitutionCode(""); setPage(1); }}>清除篩選</button> : null}</div>
       <ManagementCatalogTable<EmployeeCatalogEntry, EmployeeCatalogSortKey>
@@ -167,8 +167,8 @@ export default function EmployeeCatalogPanel({ refreshToken = 0, onEdit, onDeact
         columns={[
           { id: "employee-no", label: "工號", sortKey: "employeeNo", locked: true, render: (row) => <strong>{row.employeeNo}</strong> },
           { id: "name", label: "姓名", sortKey: "name", render: (row) => row.name },
-          { id: "institution", label: "機構", sortKey: "institution", render: (row) => `${row.institutionCode}｜${row.institutionName}` },
-          { id: "department", label: "部門", sortKey: "department", render: (row) => `${row.departmentCode}｜${row.departmentName}` },
+          { id: "institution", label: "課室部門", sortKey: "institution", render: (row) => `${row.institutionCode}｜${row.institutionName}` },
+          { id: "department", label: "單位", sortKey: "department", render: (row) => `${row.departmentCode}｜${row.departmentName}` },
           { id: "job-title", label: "職稱", render: (row) => row.jobTitle || "—" },
           { id: "hire-date", label: "到職日", sortKey: "hireDate", render: (row) => row.hireDate || "—" },
           { id: "termination-date", label: "離職日", defaultVisible: false, render: (row) => row.terminationDate || "—" },
