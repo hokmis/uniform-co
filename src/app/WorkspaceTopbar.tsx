@@ -76,6 +76,11 @@ function SearchResults({ results, onSelect }: { results: WorkspaceSearchResult[]
   );
 }
 
+/**
+ * WorkspaceTopbar component renders the main workspace header actions,
+ * including global module search, system guide access, appearance theme toggle,
+ * and account authentication controls.
+ */
 export default function WorkspaceTopbar({ activeDefinition, user, appearanceTheme, onAppearanceChange, onNavigate, onOpenSystemGuide, onSignOut }: Props) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
