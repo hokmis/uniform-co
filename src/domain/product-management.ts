@@ -4,6 +4,11 @@ export type ProductCatalogStatus = "ALL" | "ACTIVE" | "INACTIVE";
 export type ProductCatalogSortKey = "item_code" | "item_name" | "category" | "supplier";
 export type ProductCatalogSortDirection = "asc" | "desc";
 
+export const PRODUCT_CATEGORY_PRESETS = ["上衣", "下身"] as const;
+export const PRODUCT_SEASON_PRESETS = ["冬季", "夏季"] as const;
+export const PRODUCT_GENDER_PRESETS = ["男", "女"] as const;
+export const PRODUCT_STYLE_PRESETS = ["行政", "照服", "工務", "護理", "廚師", "幼兒園"] as const;
+
 export type ProductCatalogEntry = {
   id: string;
   item_code: string;
@@ -12,6 +17,8 @@ export type ProductCatalogEntry = {
   size: string | null;
   category: string | null;
   season: string | null;
+  gender: string | null;
+  style: string | null;
   is_active: boolean;
   supplierSummary: string[];
 };
@@ -19,6 +26,9 @@ export type ProductCatalogEntry = {
 export type ProductCatalogFilter = {
   query: string;
   category: string;
+  season?: string;
+  gender?: string;
+  style?: string;
   status: ProductCatalogStatus;
 };
 
@@ -29,6 +39,8 @@ export type ProductEditorForm = {
   size: string;
   category: string;
   season: string;
+  gender: string;
+  style: string;
   supplierCode: string;
   supplierName: string;
   defaultCurrency: string;
@@ -44,6 +56,8 @@ export const emptyProductEditorForm: ProductEditorForm = {
   size: "",
   category: "",
   season: "",
+  gender: "",
+  style: "",
   supplierCode: "",
   supplierName: "",
   defaultCurrency: "TWD",
@@ -66,8 +80,15 @@ export function productCatalogCategories(rows: readonly ProductCatalogEntry[]): 
 
 export function filterProductCatalog(rows: readonly ProductCatalogEntry[], filter: ProductCatalogFilter): ProductCatalogEntry[] {
   const query = clean(filter.query).toLocaleLowerCase("zh-Hant");
+  const seasonFilter = filter.season && filter.season !== "ALL" ? filter.season : null;
+  const genderFilter = filter.gender && filter.gender !== "ALL" ? filter.gender : null;
+  const styleFilter = filter.style && filter.style !== "ALL" ? filter.style : null;
+
   return rows.filter((row) => {
     if (filter.category !== "ALL" && row.category !== filter.category) return false;
+    if (seasonFilter && row.season !== seasonFilter) return false;
+    if (genderFilter && row.gender !== genderFilter) return false;
+    if (styleFilter && row.style !== styleFilter) return false;
     if (filter.status === "ACTIVE" && !row.is_active) return false;
     if (filter.status === "INACTIVE" && row.is_active) return false;
     if (!query) return true;
@@ -78,6 +99,8 @@ export function filterProductCatalog(rows: readonly ProductCatalogEntry[], filte
       row.size,
       row.category,
       row.season,
+      row.gender,
+      row.style,
       ...row.supplierSummary,
     ].filter(Boolean).join(" ").toLocaleLowerCase("zh-Hant");
     return searchable.includes(query);
@@ -112,6 +135,8 @@ export function productEditorImportRow(entityType: ProductEntityType, form: Prod
       size: clean(form.size),
       category: clean(form.category),
       season: clean(form.season),
+      gender: clean(form.gender),
+      style: clean(form.style),
       isActive: form.isActive,
     };
   }

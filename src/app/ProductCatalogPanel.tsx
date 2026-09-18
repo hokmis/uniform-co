@@ -5,6 +5,9 @@ import {
   filterProductCatalog,
   productCatalogCategories,
   sortProductCatalog,
+  PRODUCT_SEASON_PRESETS,
+  PRODUCT_GENDER_PRESETS,
+  PRODUCT_STYLE_PRESETS,
   type ProductCatalogEntry,
   type ProductCatalogSortDirection,
   type ProductCatalogSortKey,
@@ -29,6 +32,8 @@ function buildProductRows(items: ItemSource[], suppliers: SupplierSource[], rela
   });
   return items.map((item) => ({
     ...item,
+    gender: item.gender ?? null,
+    style: item.style ?? null,
     supplierSummary: (relationByItem.get(item.id) ?? []).map((relation) => {
       const supplier = supplierById.get(relation.supplier_id);
       const supplierLabel = supplier ? `${supplier.supplier_code} ${supplier.name}` : relation.supplier_id;
@@ -48,6 +53,9 @@ export default function ProductCatalogPanel({ refreshToken = 0, onEditItem, onDe
   const [rows, setRows] = useState<ProductCatalogEntry[]>([]);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("ALL");
+  const [season, setSeason] = useState("ALL");
+  const [gender, setGender] = useState("ALL");
+  const [style, setStyle] = useState("ALL");
   const [status, setStatus] = useState<ProductCatalogStatus>("ALL");
   const [sortKey, setSortKey] = useState<ProductCatalogSortKey>("item_code");
   const [sortDirection, setSortDirection] = useState<ProductCatalogSortDirection>("asc");
@@ -62,8 +70,13 @@ export default function ProductCatalogPanel({ refreshToken = 0, onEditItem, onDe
     let active = true;
     async function load() {
       setBusy(true);
-      const [itemResult, supplierResult, relationResult] = await Promise.all([
-        supabase.from("uniform_items").select("id,item_code,item_name,unit,size,category,season,is_active").order("item_code").limit(1000),
+      let itemResult = await supabase.from("uniform_items").select("id,item_code,item_name,unit,size,category,season,gender,style,is_active").order("item_code").limit(1000);
+      if (itemResult.error && (itemResult.error.message.includes("gender") || itemResult.error.message.includes("style") || itemResult.error.code === "42703")) {
+        // Fallback if migration 0082 has not yet been applied
+        itemResult = await supabase.from("uniform_items").select("id,item_code,item_name,unit,size,category,season,is_active").order("item_code").limit(1000);
+      }
+
+      const [supplierResult, relationResult] = await Promise.all([
         supabase.from("suppliers").select("id,supplier_code,name").eq("is_active", true).order("supplier_code").limit(1000),
         supabase.from("supplier_uniform_items").select("item_id,supplier_id,minimum_order_quantity,supplier_item_code").eq("is_active", true).limit(5000),
       ]);
@@ -88,8 +101,8 @@ export default function ProductCatalogPanel({ refreshToken = 0, onEditItem, onDe
 
   const categories = useMemo(() => productCatalogCategories(rows), [rows]);
   const filteredRows = useMemo(
-    () => sortProductCatalog(filterProductCatalog(rows, { query, category, status }), sortKey, sortDirection),
-    [category, query, rows, sortDirection, sortKey, status],
+    () => sortProductCatalog(filterProductCatalog(rows, { query, category, season, gender, style, status }), sortKey, sortDirection),
+    [category, gender, query, rows, season, sortDirection, sortKey, status, style],
   );
   const associatedCount = rows.filter((row) => row.supplierSummary.length > 0).length;
 
@@ -107,6 +120,8 @@ export default function ProductCatalogPanel({ refreshToken = 0, onEditItem, onDe
     }
     setPage(1);
   }
+
+  const hasFilterActive = query || category !== "ALL" || season !== "ALL" || gender !== "ALL" || style !== "ALL" || status !== "ALL";
 
   return (
     <section className="panel product-catalog-panel" aria-label="商品清單">
@@ -133,10 +148,31 @@ export default function ProductCatalogPanel({ refreshToken = 0, onEditItem, onDe
         {categories.map((value) => <button className={category === value ? "active" : ""} key={value} type="button" onClick={() => selectCategory(value)}>{value}</button>)}
       </nav>
 
-      <div className="product-catalog-filters">
+      <div className="product-catalog-filters" style={{ gridTemplateColumns: "minmax(0, 1.4fr) repeat(4, minmax(110px, 1fr))" }}>
         <label className="field">
           <span>搜尋商品</span>
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜尋品號、品名、規格或供應商…" />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜尋品號、品名、規格、款式或供應商…" />
+        </label>
+        <label className="field">
+          <span>季節</span>
+          <select value={season} onChange={(event) => { setSeason(event.target.value); setPage(1); }}>
+            <option value="ALL">全部季節</option>
+            {PRODUCT_SEASON_PRESETS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>性別</span>
+          <select value={gender} onChange={(event) => { setGender(event.target.value); setPage(1); }}>
+            <option value="ALL">全部性別</option>
+            {PRODUCT_GENDER_PRESETS.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>款式</span>
+          <select value={style} onChange={(event) => { setStyle(event.target.value); setPage(1); }}>
+            <option value="ALL">全部款式</option>
+            {PRODUCT_STYLE_PRESETS.map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
         </label>
         <label className="field">
           <span>啟用狀態</span>
@@ -150,7 +186,7 @@ export default function ProductCatalogPanel({ refreshToken = 0, onEditItem, onDe
 
       <div className="product-catalog-result">
         <p className="muted" role="status">{message}；符合條件 {filteredRows.length} 筆</p>
-        {(query || category !== "ALL" || status !== "ALL") ? <button className="text-button product-filter-reset" type="button" onClick={() => { setQuery(""); setCategory("ALL"); setStatus("ALL"); setPage(1); }}>清除篩選</button> : null}
+        {hasFilterActive ? <button className="text-button product-filter-reset" type="button" onClick={() => { setQuery(""); setCategory("ALL"); setSeason("ALL"); setGender("ALL"); setStyle("ALL"); setStatus("ALL"); setPage(1); }}>清除篩選</button> : null}
       </div>
 
       <ManagementCatalogTable<ProductCatalogEntry, ProductCatalogSortKey>
@@ -170,7 +206,8 @@ export default function ProductCatalogPanel({ refreshToken = 0, onEditItem, onDe
           { id: "item-code", label: "品號", sortKey: "item_code", locked: true, render: (row) => <strong>{row.item_code || "—"}</strong> },
           { id: "item-name", label: "品名", sortKey: "item_name", render: (row) => row.item_name || "—" },
           { id: "category", label: "分類", sortKey: "category", render: (row) => row.category || "未分類" },
-          { id: "specification", label: "規格／季別", render: (row) => [row.size, row.season].filter(Boolean).join("／") || "—" },
+          { id: "style", label: "款式", render: (row) => row.style ? <span className="status-pill" style={{ fontSize: 11, padding: "2px 6px" }}>{row.style}</span> : "—" },
+          { id: "specification", label: "規格／季別／性別", render: (row) => [row.size, row.season, row.gender].filter(Boolean).join("／") || "—" },
           { id: "unit", label: "單位", render: (row) => row.unit || "—" },
           { id: "supplier", label: "供應商／MOQ", sortKey: "supplier", className: "product-supplier-cell", render: (row) => row.supplierSummary.length > 0 ? row.supplierSummary.join("；") : <span className="muted">尚未建立供應關係</span> },
           { id: "status", label: "狀態", render: (row) => <span className={`status-pill ${row.is_active ? "success" : ""}`}>{row.is_active ? "啟用" : "停用"}</span> },

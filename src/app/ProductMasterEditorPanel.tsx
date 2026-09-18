@@ -6,6 +6,10 @@ import {
   productEditorImportRow,
   productEditorKey,
   validateProductEditor,
+  PRODUCT_CATEGORY_PRESETS,
+  PRODUCT_SEASON_PRESETS,
+  PRODUCT_GENDER_PRESETS,
+  PRODUCT_STYLE_PRESETS,
   type ProductEditorForm,
   type ProductEntityType,
 } from "@/src/domain/product-management";
@@ -20,6 +24,8 @@ type ItemSource = {
   size: string | null;
   category: string | null;
   season: string | null;
+  gender: string | null;
+  style: string | null;
   is_active: boolean;
 };
 
@@ -57,7 +63,7 @@ function textValue(value: unknown): string {
   return value === null || value === undefined ? "" : String(value);
 }
 
-function formForItem(item: ItemSource): ProductEditorForm {
+function formForItem(item: ItemSource | ProductItemEditRequest): ProductEditorForm {
   return {
     ...emptyProductEditorForm,
     itemCode: item.item_code,
@@ -66,6 +72,8 @@ function formForItem(item: ItemSource): ProductEditorForm {
     size: textValue(item.size),
     category: textValue(item.category),
     season: textValue(item.season),
+    gender: textValue(item.gender),
+    style: textValue(item.style),
     isActive: item.is_active,
   };
 }
@@ -127,13 +135,30 @@ export default function ProductMasterEditorPanel({
     const supabase = client;
     let active = true;
     async function loadSources() {
-      const [itemResult, supplierResult, relationResult] = await Promise.all([
-        supabase.from("uniform_items").select("id,item_code,item_name,unit,size,category,season,is_active").order("item_code").limit(1000),
+      let itemResult = await supabase.from("uniform_items").select("id,item_code,item_name,unit,size,category,season,gender,style,is_active").order("item_code").limit(1000);
+      if (itemResult.error && (itemResult.error.message.includes("gender") || itemResult.error.message.includes("style") || itemResult.error.code === "42703")) {
+        itemResult = await supabase.from("uniform_items").select("id,item_code,item_name,unit,size,category,season,is_active").order("item_code").limit(1000);
+      }
+      const [supplierResult, relationResult] = await Promise.all([
         supabase.from("suppliers").select("id,supplier_code,name,default_currency,is_active").order("supplier_code").limit(1000),
         supabase.from("supplier_uniform_items").select("supplier_id,item_id,minimum_order_quantity,supplier_item_code,is_active").eq("is_active", true).limit(5000),
       ]);
       if (!active) return;
-      const items = itemResult.error ? [] : (itemResult.data ?? []) as ItemSource[];
+      const items = itemResult.error ? [] : (itemResult.data ?? []).map((row) => {
+        const item = row as Record<string, unknown>;
+        return {
+          id: String(item.id ?? ""),
+          item_code: String(item.item_code ?? ""),
+          item_name: String(item.item_name ?? ""),
+          unit: String(item.unit ?? ""),
+          size: item.size == null ? null : String(item.size),
+          category: item.category == null ? null : String(item.category),
+          season: item.season == null ? null : String(item.season),
+          gender: item.gender == null ? null : String(item.gender),
+          style: item.style == null ? null : String(item.style),
+          is_active: Boolean(item.is_active),
+        };
+      }) as ItemSource[];
       const suppliers = supplierResult.error ? [] : (supplierResult.data ?? []) as SupplierSource[];
       const supplierById = new Map(suppliers.map((supplier) => [supplier.id, supplier.supplier_code]));
       const itemById = new Map(items.map((item) => [item.id, item.item_code]));
@@ -262,7 +287,7 @@ export default function ProductMasterEditorPanel({
     <section className="panel" id="product-master-editor" aria-label="商品主檔新增修改停用">
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">{catalogItemEditor ? "PRODUCT FORM" : "SUPPLIER DIRECTORY"}</p>
+          <p className="eyebrow">{catalogItemEditor ? "商品表單" : "供應商名錄"}</p>
           <h2>{editorTitle}</h2>
           <p className="auth-message">{catalogItemEditor
             ? "商品編號建立後不可修改；其餘欄位可直接更新。"
@@ -280,8 +305,32 @@ export default function ProductMasterEditorPanel({
         <label className="field"><span>品名</span><input value={form.itemName} onChange={(event) => updateField("itemName", event.target.value)} disabled={busy || confirmationOnly} maxLength={255} /></label>
         <label className="field"><span>單位</span><input value={form.unit} onChange={(event) => updateField("unit", event.target.value)} disabled={busy || confirmationOnly} maxLength={40} /></label>
         <label className="field"><span>尺寸（選填）</span><input value={form.size} onChange={(event) => updateField("size", event.target.value)} disabled={busy || confirmationOnly} maxLength={80} /></label>
-        <label className="field"><span>分類（選填）</span><input value={form.category} onChange={(event) => updateField("category", event.target.value)} disabled={busy || confirmationOnly} maxLength={80} /></label>
-        <label className="field"><span>季別（選填）</span><input value={form.season} onChange={(event) => updateField("season", event.target.value)} disabled={busy || confirmationOnly} maxLength={80} /></label>
+        <label className="field">
+          <span>分類（選填）</span>
+          <input list="product-category-list" value={form.category} onChange={(event) => updateField("category", event.target.value)} disabled={busy || confirmationOnly} placeholder="例：上衣、下身" maxLength={80} />
+          <datalist id="product-category-list">{PRODUCT_CATEGORY_PRESETS.map((c) => <option key={c} value={c} />)}</datalist>
+        </label>
+        <label className="field">
+          <span>季節（選填）</span>
+          <select value={form.season} onChange={(event) => updateField("season", event.target.value)} disabled={busy || confirmationOnly}>
+            <option value="">未指定／全年</option>
+            {PRODUCT_SEASON_PRESETS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>性別（選填）</span>
+          <select value={form.gender} onChange={(event) => updateField("gender", event.target.value)} disabled={busy || confirmationOnly}>
+            <option value="">未指定／通用</option>
+            {PRODUCT_GENDER_PRESETS.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </label>
+        <label className="field">
+          <span>款式（選填）</span>
+          <select value={form.style} onChange={(event) => updateField("style", event.target.value)} disabled={busy || confirmationOnly}>
+            <option value="">未指定</option>
+            {PRODUCT_STYLE_PRESETS.map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
+        </label>
       </div> : null}
       {entityType === "SUPPLIERS" ? <div className="form-grid">
         <label className="field"><span>供應商代碼</span><input value={form.supplierCode} onChange={(event) => updateField("supplierCode", event.target.value)} disabled={busy || keyLocked} maxLength={100} /></label>
