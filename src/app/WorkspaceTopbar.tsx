@@ -8,12 +8,6 @@ import {
   type WorkspaceSearchResult,
 } from "./workspaces/workspace-config";
 import { appearanceThemes, type AppearanceTheme } from "./use-appearance-theme";
-import { accountLabelFromUser } from "@/src/lib/account-login";
-
-type NotificationItem = {
-  id: string;
-  title: string;
-  description: string;
 
 type Props = {
   activeDefinition: { label: string; eyebrow: string; description: string };
