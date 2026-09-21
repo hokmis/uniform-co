@@ -38,6 +38,9 @@ Supabase migrations 位於 `supabase/migrations/`：`0001_uniform_foundation.sql
 
 正式 Next.js 應用已部署至 [uniform-co.vercel.app](https://uniform-co.vercel.app/)，程式碼由 GitHub `Kevin72333/uniform-co` 的 `main` 分支提供，資料與登入由 Supabase project 提供。正式操作必須先登入；未設定 Supabase env 或未有有效 session 時只顯示登入／設定畫面，不載入工作區資料。
 
+- **主要推送工作區**：`uniform-co-main`（已同步完整架構、migrations 與 UI 佈局調整）
+- **最後同步推送**：2026-09-21
+
 ### 2026-09-21 repository-local 最新快照
 
 目前版本庫內能以程式、migration、測試與文件完成的安全防線已收尾；這不等於 production cutover 已通過。下一位 AI agent 接手時，先讀 [`agents.md`](./agents.md)，再執行 `git status --short` 與 `git log -5 --oneline`。目前工作樹保留使用者既有的 `package.json`／`package-lock.json` 修改與未追蹤 `prototype/`；除非需求明確指向這些項目，否則不要納入提交。使用者已要求每次修改驗證完成後自動推送 GitHub，推送前須 fetch／比較 `origin/main` 並只 stage 本次檔案。
