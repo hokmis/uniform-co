@@ -1,3 +1,5 @@
+import { effectiveAccountRoles } from "./account-roles";
+
 export type AccountDirectoryRecord = {
   id: string;
   loginName: string;
@@ -7,6 +9,46 @@ export type AccountDirectoryRecord = {
   authBound: boolean;
   roles: string[];
 };
+
+export type AccountDirectoryAccount = {
+  id: string;
+  login_name: string | null;
+  display_name: string;
+  email_snapshot: string | null;
+  is_active: boolean;
+  auth_user_id: string | null;
+};
+
+export type AccountDirectoryRoleRow = {
+  account_id: string;
+  role_code: string;
+};
+
+/**
+ * Build the visible directory once per data change instead of filtering every
+ * role row once for every account during each render.
+ */
+export function buildAccountDirectoryRows(
+  accounts: readonly AccountDirectoryAccount[],
+  roleRows: readonly AccountDirectoryRoleRow[],
+): AccountDirectoryRecord[] {
+  const rolesByAccount = new Map<string, string[]>();
+  for (const roleRow of roleRows) {
+    const roles = rolesByAccount.get(roleRow.account_id) ?? [];
+    roles.push(roleRow.role_code);
+    rolesByAccount.set(roleRow.account_id, roles);
+  }
+
+  return accounts.map((account) => ({
+    id: account.id,
+    loginName: account.login_name ?? "",
+    displayName: account.display_name,
+    email: account.email_snapshot ?? "",
+    isActive: account.is_active,
+    authBound: Boolean(account.auth_user_id),
+    roles: effectiveAccountRoles(rolesByAccount.get(account.id) ?? []),
+  }));
+}
 
 export type AccountDirectoryStatusFilter = "ALL" | "ACTIVE" | "INACTIVE";
 export type AccountDirectorySortKey = "display_name" | "login_name" | "roles" | "status" | "auth";

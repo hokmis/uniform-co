@@ -1,5 +1,10 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { searchWorkspaceModules, workspaceDefinitions } from "./workspace-config";
+import {
+  resolveWorkspaceSelectorTarget,
+  searchWorkspaceModules,
+  workspaceDefinitions,
+} from "./workspace-config";
 
 describe("workspace module index", () => {
   it("exposes product management as a dedicated overview module", () => {
@@ -22,5 +27,23 @@ describe("workspace module index", () => {
     const hr = workspaceDefinitions.find((workspace) => workspace.id === "hr");
     expect(hr?.modules).toContainEqual(expect.objectContaining({ anchor: "hr-employee-title", label: "員工主檔管理" }));
     expect(searchWorkspaceModules("離職")[0]?.anchor).toBe("hr-employee-title");
+  });
+
+  it("routes the mobile System Guide option only when its entry is visible", () => {
+    expect(resolveWorkspaceSelectorTarget("system-guide", true)).toEqual({ kind: "system-guide" });
+    expect(resolveWorkspaceSelectorTarget("system-guide", false)).toBeNull();
+    expect(resolveWorkspaceSelectorTarget("warehouse", false)).toEqual({ kind: "workspace", workspaceId: "warehouse" });
+    expect(resolveWorkspaceSelectorTarget("unknown", true)).toBeNull();
+  });
+
+  it("dispatches the mobile System Guide option instead of treating it as a workspace id", () => {
+    const source = readFileSync("src/app/WorkspaceShell.tsx", "utf8");
+    const mobileSelector = source.slice(
+      source.indexOf('<select\n            id="workspace-mobile-select"'),
+      source.indexOf("</select>", source.indexOf('<select\n            id="workspace-mobile-select"')),
+    );
+
+    expect(mobileSelector).toContain("resolveWorkspaceSelectorTarget");
+    expect(mobileSelector).toContain('router.push("/system-guide")');
   });
 });

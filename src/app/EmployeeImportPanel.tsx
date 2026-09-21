@@ -4,9 +4,17 @@ import { useEffect, useRef, useState } from "react";
 import { parseEmployeeCsv, type EmployeeImportResult } from "@/src/domain/employee-import";
 import { masterRowsToCsv } from "@/src/domain/master-data";
 import { sampleEmployeeRows } from "@/src/domain/master-data-samples";
-import { getSupabaseBrowserClient } from "@/src/lib/supabase-browser";
+import { invalidateMasterDataCache } from "@/src/lib/master-data-cache";
+import { invalidateEmployeeDirectory, loadEmployeeDirectory } from "@/src/lib/employee-directory-read";
+import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseMutationErrorMessage, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
+import { usePanelActivity } from "./RetainedPanelSet";
+import { useWorkspaceSession } from "./workspace-session";
 
 export default function EmployeeImportPanel() {
+  const panelActive = usePanelActivity();
+  const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
+  const hasSession = isAuthenticated;
+  const identityReady = Boolean(client && panelActive && hasSession && accountId && !identityLoading && !identityError);
   const [result, setResult] = useState<EmployeeImportResult | null>(null);
   const [fileName, setFileName] = useState("");
   const [message, setMessage] = useState("");
@@ -18,32 +26,25 @@ export default function EmployeeImportPanel() {
   const [hasOperation, setHasOperation] = useState(false);
   const [existingEmployees, setExistingEmployees] = useState<Map<string, { name: string; institutionCode: string; departmentCode: string; employmentStatus: string }>>(new Map());
   const operationRef = useRef<{ key: string; fingerprint: string } | null>(null);
+  const displayMessage = identityError ?? message;
 
   useEffect(() => {
-    if (!getSupabaseBrowserClient()) return;
-    const supabase = getSupabaseBrowserClient();
-    if (!supabase) return;
-    const activeSupabase = supabase;
+    if (!identityReady || !client) return;
+    const activeSupabase = client;
     let active = true;
     async function loadExisting() {
-      const [employeeResult, institutionResult, departmentResult] = await Promise.all([
-        activeSupabase.from("employees").select("employee_no,name,institution_id,department_id,employment_status"),
-        activeSupabase.from("institutions").select("id,code"),
-        activeSupabase.from("departments").select("id,code"),
-      ]);
-      if (!active || employeeResult.error || institutionResult.error || departmentResult.error) return;
-      const institutionCodes = new Map((institutionResult.data ?? []).map((row) => [row.id, row.code]));
-      const departmentCodes = new Map((departmentResult.data ?? []).map((row) => [row.id, row.code]));
-      setExistingEmployees(new Map((employeeResult.data ?? []).map((row) => [row.employee_no, {
+      const directoryResult = await loadEmployeeDirectory(activeSupabase);
+      if (!active || directoryResult.errors.length > 0) return;
+      setExistingEmployees(new Map(directoryResult.employees.map((row) => [row.employee_no, {
         name: row.name,
-        institutionCode: institutionCodes.get(row.institution_id) ?? "",
-        departmentCode: departmentCodes.get(row.department_id) ?? "",
+        institutionCode: row.institution_code ?? "",
+        departmentCode: row.department_code ?? "",
         employmentStatus: row.employment_status,
       }])));
     }
     void loadExisting();
     return () => { active = false; };
-  }, []);
+  }, [client, identityReady, panelActive]);
 
   function previewText(sourceName: string, text: string, isSample = false) {
     setFileName(sourceName);
@@ -60,11 +61,18 @@ export default function EmployeeImportPanel() {
   async function handleFile(file: File | undefined) {
     if (!file) return;
     if (file.size > 10_000_000) {
+      previewText(file.name, "");
       setResult({ headers: [], rows: [], errors: [{ row: 1, code: "INVALID_COLUMN_COUNT", message: "檔案超過 10 MB 上限" }] });
       setMessage("");
       return;
     }
-    previewText(file.name, await file.text());
+    try {
+      previewText(file.name, await file.text());
+    } catch {
+      previewText(file.name, "");
+      setResult({ headers: [], rows: [], errors: [{ row: 1, code: "MALFORMED_CSV", message: "無法讀取所選 CSV 檔案" }] });
+      setMessage("");
+    }
   }
 
   function loadSamplePreview() {
@@ -84,42 +92,57 @@ export default function EmployeeImportPanel() {
   }
 
   async function applyImport() {
-    const client = getSupabaseBrowserClient();
     if (!result || result.errors.length > 0 || result.rows.length === 0) return;
     if (sampleMode && !sampleConfirmed) {
       setMessage("套用測試範例前，請先確認目前是 disposable staging 環境");
       return;
     }
-    if (!client) {
-      setMessage("預覽模式：設定 Supabase env 並登入 HR 帳號後才能原子套用。");
+    if (!identityReady || !client) {
+      setMessage(identityError ?? "正在確認工作區身份，確認完成後才能原子套用。");
       return;
     }
     setBusy(true);
-    const operation = operationRef.current ?? { key: crypto.randomUUID(), fingerprint: "" };
-    operation.fingerprint = JSON.stringify(result.rows);
-    operationRef.current = operation;
-    setHasOperation(true);
-    const { data, error } = await client.rpc("apply_employee_import_checked", {
-      p_source_filename: fileName,
-      p_rows: result.rows,
-      p_idempotency_key: `EMP-IMPORT-${operation.key}`,
-      p_request_fingerprint: operation.fingerprint,
-    });
-    if (error) {
-      setMessage(`匯入結果未知或失敗：${error.message}；再次確認會沿用相同冪等鍵。`);
-    } else if (data?.status === "APPLIED") {
-      setApplied(true);
-      setMessage(`已原子套用 ${data.row_count ?? result.rows.length} 列員工主檔。`);
-    } else if (data?.status === "FAILED" && data?.id) {
-      const { data: rows } = await client.from("employee_import_rows").select("row_number,error_code,error_message").eq("batch_id", data.id).eq("status", "ERROR").order("row_number");
-      setBackendErrors((rows ?? []) as Array<{ row_number: number; error_code: string | null; error_message: string | null }>);
-      setHasOperation(false);
-      operationRef.current = null;
-      setMessage(`整批拒絕：${data.error_count ?? ""} 列需要修正；請修正 CSV 後重新選檔。`);
-    } else {
-      setMessage(`批次狀態：${data?.status ?? "UNKNOWN"}，請檢查逐列錯誤。`);
+    try {
+      const operation = operationRef.current ?? { key: crypto.randomUUID(), fingerprint: "" };
+      operation.fingerprint = JSON.stringify(result.rows);
+      operationRef.current = operation;
+      setHasOperation(true);
+      const { data, error } = await client.rpc("apply_employee_import_checked", {
+        p_source_filename: fileName,
+        p_rows: result.rows,
+        p_idempotency_key: `EMP-IMPORT-${operation.key}`,
+        p_request_fingerprint: operation.fingerprint,
+      });
+      if (error) {
+        setMessage(safeSupabaseMutationErrorMessage(error, "匯入結果未知或失敗；再次確認會沿用相同冪等鍵。"));
+      } else if (data?.status === "APPLIED") {
+        invalidateEmployeeDirectory(client);
+        invalidateMasterDataCache(client, "employee");
+        setApplied(true);
+        setMessage(`已原子套用 ${data.row_count ?? result.rows.length} 列員工主檔。`);
+      } else if (data?.status === "FAILED" && data?.id) {
+        const [rowsResult] = await retrySupabaseQueriesAfterSessionRefresh(
+          client,
+          async () => [await client.from("employee_import_rows").select("row_number,error_code,error_message").eq("batch_id", data.id).eq("status", "ERROR").order("row_number")] as const,
+        );
+        if (rowsResult.error) {
+          setMessage(safeSupabaseReadErrorMessage(rowsResult.error));
+          setHasOperation(false);
+          operationRef.current = null;
+          return;
+        }
+        setBackendErrors((rowsResult.data ?? []) as Array<{ row_number: number; error_code: string | null; error_message: string | null }>);
+        setHasOperation(false);
+        operationRef.current = null;
+        setMessage(`整批拒絕：${data.error_count ?? ""} 列需要修正；請修正 CSV 後重新選檔。`);
+      } else {
+        setMessage("批次尚未完成，請檢查逐列錯誤或使用相同檔案重試。相同操作不會重複建立批次。");
+      }
+    } catch {
+      setMessage("匯入結果未知或逐列結果載入失敗；再次確認會沿用相同冪等鍵。");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   const diffSummary = result ? result.rows.reduce((summary, row) => {
@@ -148,7 +171,8 @@ export default function EmployeeImportPanel() {
         <input
           type="file"
           accept=".csv,text/csv"
-          onChange={(event) => void handleFile(event.target.files?.[0])}
+          onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; input.value = ""; void handleFile(file); }}
+          disabled={busy}
         />
       </label>
       <div className="button-row">
@@ -175,13 +199,13 @@ export default function EmployeeImportPanel() {
           ) : (
             <>
               <p className="success-note">預覽通過；確認後會保留原始檔名、逐列結果與套用批次。</p>
-              <button className="primary-button" type="button" onClick={() => void applyImport()} disabled={busy || applied || (sampleMode && !sampleConfirmed)}>{busy ? "套用中…" : applied ? "已套用" : hasOperation ? "重試套用（沿用冪等鍵）" : "確認並套用整批"}</button>
+              <button className="primary-button" type="button" onClick={() => void applyImport()} disabled={busy || !identityReady || applied || (sampleMode && !sampleConfirmed)}>{busy ? "套用中…" : applied ? "已套用" : hasOperation ? "重試套用（沿用冪等鍵）" : "確認並套用整批"}</button>
             </>
           )}
-          {backendErrors.length > 0 ? <ul className="import-errors">{backendErrors.map((error) => <li key={`${error.row_number}-${error.error_code}`}>第 {error.row_number} 列：{error.error_message ?? error.error_code ?? "資料錯誤"}</li>)}</ul> : null}
+          {backendErrors.length > 0 ? <ul className="import-errors">{backendErrors.map((error) => <li key={`${error.row_number}-${error.error_code}`}>第 {error.row_number} 列：資料未通過伺服器驗證，請依範例格式修正。</li>)}</ul> : null}
         </div>
       ) : null}
-      {message ? <p className={message.startsWith("已") ? "success-note" : "auth-message"} role="status">{message}</p> : null}
+      {displayMessage ? <p className={displayMessage.startsWith("已") ? "success-note" : "auth-message"} role="status">{displayMessage}</p> : null}
     </section>
   );
 }

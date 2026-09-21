@@ -4,7 +4,7 @@
 
 ## 1. 管理範圍與安全界線
 
-管理者負責帳號、角色、需求窗口範圍、主檔匯入、期初切換、部署環境、背景工作、備份還原與上線證據。`SYSTEM_ADMIN` 不是萬用業務角色；需要執行人資、倉庫、採購或執行長流程時，帳號仍須另具對應角色。
+管理者負責帳號、角色、需求窗口範圍、主檔匯入、期初切換、部署環境、背景工作、備份還原與上線證據。套用 `0088_system_admin_all_roles.sql` 後，`SYSTEM_ADMIN` 是所有業務角色的有效權限 umbrella；各流程的狀態、資料範圍、稽核與庫存不可直接改寫規則仍然適用。
 
 正式環境不要直接執行以下操作：
 
@@ -60,11 +60,11 @@ DEMAND_COORDINATOR
 
 ### System Guide 權限
 
-「系統說明」入口暫時只提供 `SYSTEM_ADMIN`。前台使用登入者可由 RLS 讀取的 `user_roles` 快速判斷並在目前分頁快取顯示狀態；真正的文件內容仍由 `/api/system-guide` 重新驗證 bearer session、有效業務帳號與 `SYSTEM_ADMIN` 角色。移除角色後，即使舊分頁短暫保留入口，受保護 API 仍會拒絕內容並清除該分頁的顯示快取。
+「系統說明」入口暫時只提供 `SYSTEM_ADMIN`。前台使用登入者可由 RLS 讀取的 `user_roles` 快速判斷並在目前分頁快取顯示狀態；登入後會同步預取 route 與文件 API，真正的文件內容仍由 `/api/system-guide` 重新驗證 bearer session、有效業務帳號與 `SYSTEM_ADMIN` 角色。移除角色後，即使舊分頁短暫保留入口，受保護 API 仍會拒絕內容並清除該分頁的顯示快取。
 
 ## 4. Migration 管理
 
-Migration 正式來源為 `supabase/migrations/`，目前版本到 `0079_employee_master_management.sql`。Migration 須按版本順序套用，並在受保護環境記錄 `supabase_migrations.schema_migrations`。
+Migration 正式來源為 `supabase/migrations/`，目前版本到 `0085_uniform_item_delete.sql`。Migration 須按版本順序套用，並在受保護環境記錄 `supabase_migrations.schema_migrations`。
 
 建議使用 GitHub Actions 的「Supabase migrations (manual)」workflow：
 
@@ -82,7 +82,7 @@ Migration 正式來源為 `supabase/migrations/`，目前版本到 `0079_employe
 1. 核准第一批正式帳號、角色與需求窗口 scope。
 2. 匯入機構。
 3. 匯入部門。
-4. 匯入制服品號。
+4. 匯入制服品號。若使用 `SYSTEM_ADMIN` 維護主檔，先確認 `0080_master_data_system_admin_access.sql`、`0081_jsonb_object_length_compatibility.sql`、`0082_master_data_item_code_qualification.sql` 與 `0083_master_data_conflict_targets.sql` 已套用；若需要商品刪除，再套用 `0085_uniform_item_delete.sql`。
 5. 匯入供應商。
 6. 匯入供應商品號／MOQ。
 7. 匯入員工。
@@ -97,7 +97,7 @@ CSV 範本位於 `docs/deployment/onboarding/templates/`。正式資料不要覆
 `OPENING_BALANCE` 是期初庫存。必須先完成全部主檔與倉庫核對，再由 `SYSTEM_ADMIN` 在 `PRE_CUTOVER` 狀態執行：
 
 1. 上傳「倉庫代碼＋制服品號＋非負整數數量」。
-2. 等待 worker 驗證檔案、列資料與 SHA-256。
+2. 等待 Edge Function 或受控 worker 驗證檔案、列資料與 SHA-256。
 3. 確認所有 preview 差異與錯誤。
 4. 核准後發布唯一一次 opening batch。
 5. 確認同一交易建立 opening posting、兩倉餘額並切到 `LIVE`。
@@ -106,11 +106,11 @@ CSV 範本位於 `docs/deployment/onboarding/templates/`。正式資料不要覆
 
 ## 6. Durable import 與 Storage
 
-前台只取得資料庫產生的固定 private object key，檔案直接上傳 Supabase Storage，不經 Vercel request。`scripts/import/import-worker.ts` 是持續背景 worker；`npm run import:worker -- --once` 只跑一輪，移除 `--once` 才會持續輪詢。
+前台只取得資料庫產生的固定 private object key，檔案直接上傳 Supabase Storage，不經 Vercel request。正式線上站可使用 `supabase/functions/import-worker` 的 Edge serverless adapter；上傳後由前台按需觸發，每次沿用既有 durable batch／chunk／lease RPC，不需要常駐 worker 主機。`scripts/import/import-worker.ts` 仍保留給受保護 staging smoke 或高量常駐部署；設定與 secret 參見 [`docs/deployment/edge-import.md`](../deployment/edge-import.md)。
 
 管理重點：
 
-- `job_import_worker` 必須是獨立 LOGIN／NOINHERIT，並有 active `private.job_actor_bindings`。
+- `job_import_worker` 必須是獨立 LOGIN／NOINHERIT，並有 active `private.job_actor_bindings`；Edge Function 使用同名受保護 DB connection，不把 password 或 service-role 傳到瀏覽器。
 - Worker 只透過 `list_import_work` 與受保護 PARSE／VALIDATE／APPLY RPC，不取得前台 session。
 - 匯入檔、staging payload、批次 evidence 與 audit evidence 的保存責任不同，不可用同一 cleanup job 混刪。
 - FAILED／CANCELLED source object 的 Storage eligibility 與 90-day staging payload retention 由 DB RPC 決定，runner 不自行推論。
@@ -186,6 +186,13 @@ npm run deployment:release-gate -- --input docs/deployment/onboarding/private/re
 | 全站只有登入或設定畫面 | Vercel public Supabase URL／anon key、Supabase Auth、部署環境 |
 | 登入成功但資料為空 | `app_accounts` 綁定、帳號啟用狀態、角色與 scope、來源表 RLS |
 | 帳號管理 503 | server-only service role／secret key 是否存在，且沒有放入 public env |
+| 新增商品顯示 `Role cannot manage this master data` | 是否已套用 `0080_master_data_system_admin_access.sql`，且目前登入帳號具有有效 `SYSTEM_ADMIN` 角色；套用後重新載入 PostgREST schema |
+| 新增商品顯示 `function jsonb_object_length(jsonb) does not exist` | 是否已套用 `0081_jsonb_object_length_compatibility.sql`；套用後重新登入並用相同資料重試，不要另建重複商品 |
+| 新增商品顯示 `column reference "item_code" is ambiguous` | 是否已套用 `0082_master_data_item_code_qualification.sql`；套用後重新登入並用相同資料重試，不要另建重複商品 |
+| 新增商品顯示 `there is no unique or exclusion constraint matching the ON CONFLICT specification` | 是否已套用 `0083_master_data_conflict_targets.sql`；若 migration 回報重複業務鍵，先整理 `item_code`／`supplier_code` 或其他提示的重複資料，再重新執行 0083，最後用相同資料重試 |
+| 商品刪除顯示有庫存紀錄 | 這是預期防線；`inventory_balances` 或 `inventory_ledger_entries` 只要有一筆就不能硬刪除，請改用「停用」保留歷史 |
+| 商品刪除顯示有業務或供應商關聯 | 其他資料表仍以外鍵引用商品，請保留商品並使用「停用」；不要直接刪除庫存餘額或 append-only 流水 |
+| 商品刪除顯示 RPC 不存在 | 請在網站相同 Supabase project 執行 `supabase/manual/0085_uniform_item_delete.sql`，完成後重新登入 |
 | 單筆員工保存或匯出找不到 RPC | 是否已套用 `0079` 並重新載入 PostgREST schema |
 | Durable import 卡住 | Worker 是否持續執行、LOGIN／actor binding、lease、Storage object、batch status |
 | PDF／ERP 卡在處理中 | 對應 renderer、Storage proxy、attempt lease、active artifact pointer、finalize metadata |

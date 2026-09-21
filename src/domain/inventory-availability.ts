@@ -1,3 +1,5 @@
+import { isSupabaseSessionSyncError } from "../lib/supabase-session";
+
 export type InventoryAvailabilityRow = {
   itemId: string;
   itemCode: string;
@@ -33,6 +35,31 @@ export type InventoryAvailabilityFilters = {
   category: string;
   status: InventoryAvailabilityStatusFilter;
 };
+
+type InventoryAvailabilityError = {
+  code?: string | null;
+  message?: string | null;
+};
+
+/**
+ * Supabase may briefly reject a read while the browser session is being
+ * refreshed. Keep this classification narrow so ordinary RLS/schema errors
+ * are not retried or exposed to the user as raw database messages.
+ */
+export function isInventoryAvailabilitySessionSyncError(
+  error: InventoryAvailabilityError | null | undefined,
+): boolean {
+  return isSupabaseSessionSyncError(error);
+}
+
+export function inventoryAvailabilityLoadErrorMessage(
+  error: InventoryAvailabilityError | null | undefined,
+): string {
+  if (isInventoryAvailabilitySessionSyncError(error)) {
+    return "登入狀態尚未同步，已重新整理登入狀態；請按「重新整理」再試。";
+  }
+  return "庫存清單暫時無法載入，請按「重新整理」再試。";
+}
 
 function textValue(value: unknown): string {
   return value === null || value === undefined ? "" : String(value);

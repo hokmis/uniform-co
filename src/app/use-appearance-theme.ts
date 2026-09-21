@@ -3,7 +3,7 @@ import { useEffect, useSyncExternalStore } from "react";
 export const appearanceThemes = [
   { id: "current", label: "AP", description: "目前 Apple-inspired 風格" },
   { id: "previous", label: "MX", description: "修改前 Prototype 風格" },
-  { id: "ga", label: "GS", description: "GSAP motion workspace" },
+  { id: "ga", label: "GS", description: "輕量動態工作區" },
   { id: "mb", label: "MB", description: "Agent Skills product workspace" },
   { id: "sh", label: "SH", description: "shadcn/ui neutral dashboard" },
 ] as const;

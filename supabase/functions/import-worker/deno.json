@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "fflate": "npm:fflate@0.8.3"
+  }
+}

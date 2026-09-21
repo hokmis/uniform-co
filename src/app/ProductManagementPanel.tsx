@@ -10,7 +10,7 @@ import DurableImportPanel from "./DurableImportPanel";
 const productEntityTypes: readonly MasterEntityType[] = ["UNIFORM_ITEMS", "SUPPLIERS", "SUPPLIER_ITEMS"];
 type ProductScreen = "CATALOG" | "EDITOR" | "SUPPLIERS" | "IMPORT_EXPORT";
 type ProductTab = Exclude<ProductScreen, "EDITOR">;
-type EditorIntent = "EDIT" | "DEACTIVATE";
+type EditorIntent = "EDIT" | "DEACTIVATE" | "DELETE";
 
 export default function ProductManagementPanel() {
   const [screen, setScreen] = useState<ProductScreen>("CATALOG");
@@ -45,6 +45,12 @@ export default function ProductManagementPanel() {
     openCatalog();
   }
 
+  function finishDeleted(key: string) {
+    setCatalogRefreshToken((value) => value + 1);
+    setNotice(`商品 ${key} 已刪除；沒有庫存紀錄的商品才可執行硬刪除。`);
+    openCatalog();
+  }
+
   function selectScreen(nextScreen: ProductTab) {
     setScreen(nextScreen);
     setItemEditRequest(null);
@@ -61,19 +67,21 @@ export default function ProductManagementPanel() {
       intent={editorIntent}
       onCancel={openCatalog}
       onSaved={(key, isActive) => finishItem(isActive ? `商品 ${key} 已保存並重新載入清單。` : `商品 ${key} 已停用；既有交易與庫存歷史仍保留。`)}
+      onDeleted={finishDeleted}
     />
     : <ProductCatalogPanel
       refreshToken={catalogRefreshToken}
       onEditItem={(item) => editItem(item)}
       onDeactivateItem={(item) => editItem(item, "DEACTIVATE")}
+      onDeleteItem={(item) => editItem(item, "DELETE")}
     />;
 
   return (
     <ModuleWorkbench
       idPrefix="product-management"
       eyebrow="PRODUCT MANAGEMENT"
-      title={screen === "EDITOR" ? itemEditRequest ? "編輯商品" : "新增商品" : "商品管理"}
-      description="集中管理商品、供應商、MOQ 與批次資料；商品編輯使用獨立表單，保存仍由 Supabase 權限與稽核契約控管。"
+      title={screen === "EDITOR" ? editorIntent === "DELETE" ? "刪除商品" : editorIntent === "DEACTIVATE" ? "停用商品" : itemEditRequest ? "編輯商品" : "新增商品" : "商品管理"}
+      description="集中管理商品、供應商、MOQ 與批次資料；商品編輯、停用與刪除使用獨立受保護流程，保存仍由 Supabase 權限與稽核契約控管。"
       activeTabId={activeTab}
       onTabChange={(tabId) => selectScreen(tabId as ProductTab)}
       actions={screen === "EDITOR"
@@ -103,7 +111,8 @@ export default function ProductManagementPanel() {
               <div className="summary-list">
                 <div className="summary-row"><span><strong>制服品號</strong><small>品號是 ERP 與庫存穩定識別鍵；匯入同一品號會更新，不會建立重複商品。</small></span></div>
                 <div className="summary-row"><span><strong>供應商與 MOQ</strong><small>MOQ 維護在供應商與品號關係，不是商品的全域欄位。</small></span></div>
-                <div className="summary-row"><span><strong>停用代替刪除</strong><small>保留採購、發放與庫存歷史；停用商品不再出現在新的業務選單。</small></span></div>
+                <div className="summary-row"><span><strong>停用</strong><small>保留採購、發放與庫存歷史；停用商品不再出現在新的業務選單，之後仍可重新啟用。</small></span></div>
+                <div className="summary-row"><span><strong>刪除</strong><small>只有沒有庫存餘額與庫存流水的商品才可硬刪除；若仍有任何業務關聯，資料庫會拒絕刪除，請改用停用。</small></span></div>
               </div>
             </section>
           </div>,

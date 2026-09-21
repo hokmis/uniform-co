@@ -22,6 +22,8 @@
 - 六角色與需求窗口範圍：`replace_account_roles` 可一次取代完整角色集合，仍保留冪等鍵、最後一位 SYSTEM_ADMIN 防線，移除 `DEMAND_COORDINATOR` 時也會撤銷範圍；窗口機構／部門範圍仍使用獨立受保護 RPC。
 - Auth 綁定重設／解除：僅供帳號移交、復原等進階情境，仍要求理由與 recovery ticket。
 
+帳號設定的低頻窗口範圍查詢與其他管理操作分離：`manageDataLoading` 只控制機構／部門／scope 控制，密碼、角色、狀態、Auth 綁定與刪除不等待這組主檔讀取。這是前端操作介面最佳化，不是權限邊界；每個異動仍由 server-side API、資料庫 RPC、理由與 idempotency key 最終驗證。
+
 ## 安全 seam
 
 瀏覽器只持有 anon key 與目前登入 session，操作時以 Bearer access token 呼叫 `/api/admin/accounts`。route 先用呼叫者 JWT 查驗有效的 `app_accounts` 與 `SYSTEM_ADMIN`，再以呼叫者 scoped client 呼叫資料庫 RPC；每個資料庫 RPC 也會再次執行 `private.require_system_admin()`。
@@ -41,9 +43,11 @@
 
 `0070_account_login_minimum_two.sql` 將 `login_name` 最短長度由 3 個字元調整為 2 個字元，其餘字元限制不變。
 
+`0088_system_admin_all_roles.sql` 將 `SYSTEM_ADMIN` 定義為所有業務角色的有效權限 umbrella。資料庫仍保留實際 `user_roles` 指派列，帳號管理畫面也保留可追溯的儲存角色；既有 RPC／RLS 透過 `private.has_role(...)` 判斷時，啟用中的 `SYSTEM_ADMIN` 會通過 HR、WAREHOUSE、PROCUREMENT、CEO 與 DEMAND_COORDINATOR 的角色檢查。需求窗口的明細 scope 與各業務流程自身的狀態／資料完整性規則仍然有效。
+
 ## 初次部署操作
 
-1. 由受保護的 Supabase SQL／migration 流程依序套用 `0067_account_admin_profile_and_auth_audit.sql`、`0068_account_login_and_bulk_roles.sql`、`0069_account_login_alphanumeric_only.sql`、`0070_account_login_minimum_two.sql`。
+1. 由受保護的 Supabase SQL／migration 流程依序套用 `0067_account_admin_profile_and_auth_audit.sql`、`0068_account_login_and_bulk_roles.sql`、`0069_account_login_alphanumeric_only.sql`、`0070_account_login_minimum_two.sql`、`0088_system_admin_all_roles.sql`。
 2. 在 Vercel 專案新增 `SUPABASE_SERVICE_ROLE_KEY`，只勾選需要的 Environment；不要使用 GitHub 的 `SUPABASE_ACCESS_TOKEN` 代替，它是 CLI／管理 API token，不是 Auth Admin runtime key。
 3. 重新部署 Vercel，使用既有 SYSTEM_ADMIN 登入。
 4. 在左側「帳號管理」建立第一個非管理員帳號並同時勾選角色；建立後把登入帳號與初始密碼透過核准的安全管道交付並要求使用者登入後更換。

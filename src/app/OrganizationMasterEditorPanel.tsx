@@ -1,16 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   emptyOrganizationEditorForm,
   organizationEditorImportRow,
   organizationEditorKey,
   validateOrganizationEditor,
+  type OrganizationInstitutionOption,
   type OrganizationEditorForm,
   type OrganizationEntityType,
 } from "@/src/domain/organization-management";
-import { getSupabaseBrowserClient } from "@/src/lib/supabase-browser";
+import { prepareOperationAttempt, type OperationAttempt } from "@/src/domain/operation-attempt";
+import { invalidateEmployeeDirectory } from "@/src/lib/employee-directory-read";
+import { invalidateMasterDataCache, loadOrganizationMasterData } from "@/src/lib/master-data-cache";
+import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
+import { safeSupabaseMutationErrorMessage } from "@/src/lib/supabase-session";
 import type { OrganizationEditRequest } from "./OrganizationCatalogPanel";
+import { usePanelActivity } from "./RetainedPanelSet";
+import { useWorkspaceSession } from "./workspace-session";
 
 type Institution = { id: string; code: string; name: string; is_active: boolean };
 
@@ -39,10 +46,16 @@ export default function OrganizationMasterEditorPanel({
   onCancel,
   onSaved,
 }: Props) {
-  const client = getSupabaseBrowserClient();
+  const { client, accountId, identityError, identityLoading, isAuthenticated } = useWorkspaceSession();
+  const panelActive = usePanelActivity();
+  const identityReady = Boolean(client && panelActive && isAuthenticated && accountId && !identityLoading && !identityError);
   const [form, setForm] = useState(() => formFromRequest(editRequest));
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [institutionSnapshotReady, setInstitutionSnapshotReady] = useState(false);
+  const institutionsRef = useRef<Institution[]>([]);
   const [busy, setBusy] = useState(false);
+  const operationRef = useRef<OperationAttempt | null>(null);
+  const [dataLoading, setDataLoading] = useState(false);
   const [message, setMessage] = useState(() => intent === "DEACTIVATE" && editRequest
     ? `即將停用 ${organizationEditorKey(entityType, formFromRequest(editRequest))}；請確認後執行`
     : editRequest
@@ -52,18 +65,38 @@ export default function OrganizationMasterEditorPanel({
   const keyLocked = Boolean(editRequest);
 
   useEffect(() => {
-    if (!client || entityType !== "DEPARTMENTS") return;
+    if (!identityReady || !client || entityType !== "DEPARTMENTS") return;
     const supabase = client;
     let active = true;
-    void supabase.from("institutions").select("id,code,name,is_active").order("code").limit(1000).then((result) => {
-      if (!active) return;
-      if (result.error) setMessage(`課室部門清單載入失敗：${result.error.message}`);
-      else setInstitutions((result.data ?? []) as Institution[]);
-    });
+    async function loadInstitutions() {
+      setDataLoading(true);
+      try {
+        const sourceResult = await loadOrganizationMasterData(supabase);
+        if (!active) return;
+        if (sourceResult.errors.length > 0) {
+          const preserveSnapshot = shouldPreserveReadSnapshot(institutionsRef.current, sourceResult.errors);
+          if (!preserveSnapshot) {
+            setInstitutionSnapshotReady(false);
+            institutionsRef.current = [];
+            setInstitutions([]);
+          }
+          setMessage(preserveSnapshot ? staleReadSnapshotMessage("機構選項") : "機構清單載入失敗；請重新整理後再試。保存部門前必須先取得有效機構選項。");
+        } else {
+          const loadedInstitutions = sourceResult.institutions as Institution[];
+          institutionsRef.current = loadedInstitutions;
+          setInstitutions(loadedInstitutions);
+          setInstitutionSnapshotReady(true);
+        }
+      } finally {
+        if (active) setDataLoading(false);
+      }
+    }
+    void loadInstitutions();
     return () => { active = false; };
-  }, [client, entityType]);
+  }, [client, entityType, identityReady, panelActive]);
 
   function updateField(field: keyof OrganizationEditorForm, value: string | boolean) {
+    operationRef.current = null;
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -73,62 +106,72 @@ export default function OrganizationMasterEditorPanel({
       setMessage(validationError);
       return;
     }
-    if (!client) {
+    if (!identityReady || !client) {
       setMessage("預覽模式：設定 Supabase env 並登入 HR 帳號後，才會由 apply_master_import 保存主檔");
       return;
     }
-    const row = organizationEditorImportRow(entityType, formToSave);
+    const parentInstitution = entityType === "DEPARTMENTS"
+      ? institutions.find((institution) => institution.code === formToSave.institutionCode.trim())
+      : undefined;
+    if (entityType === "DEPARTMENTS" && (!parentInstitution || !parentInstitution.is_active)) {
+      setMessage("所屬課室部門不存在、已停用或尚未載入；請重新整理課室部門清單後再試。");
+      return;
+    }
+    const row = organizationEditorImportRow(entityType, formToSave, parentInstitution
+      ? { id: parentInstitution.id, code: parentInstitution.code, isActive: parentInstitution.is_active } satisfies OrganizationInstitutionOption
+      : undefined);
     const stableKey = organizationEditorKey(entityType, formToSave);
     setBusy(true);
-    const { data, error } = await client.rpc("apply_master_import", {
-      p_entity_type: entityType,
-      p_source_filename: `organization-editor-${entityType.toLowerCase()}.json`,
-      p_rows: [row],
-      p_idempotency_key: `ORGANIZATION-MASTER-${crypto.randomUUID()}`,
-      p_request_fingerprint: JSON.stringify({ entityType, stableKey, row }),
-    });
-    setBusy(false);
-    if (error) {
-      setMessage(`保存失敗或結果未知：${error.message}；請返回清單重新整理，確認後再重試`);
-      return;
+    try {
+      const fingerprint = JSON.stringify({ entityType, stableKey, row });
+      const operation = prepareOperationAttempt(operationRef.current, fingerprint, () => crypto.randomUUID());
+      operationRef.current = operation;
+      const { data, error } = await client.rpc("apply_master_import", {
+        p_entity_type: entityType,
+        p_source_filename: `organization-editor-${entityType.toLowerCase()}.json`,
+        p_rows: [row],
+        p_idempotency_key: `ORGANIZATION-MASTER-${operation.key}`,
+        p_request_fingerprint: operation.fingerprint,
+      });
+      if (error) {
+        setMessage(safeSupabaseMutationErrorMessage(error, "保存失敗或結果未知；請以相同資料重試，系統會沿用同一冪等鍵。"));
+        return;
+      }
+      const rpcValue = Array.isArray(data) ? data[0] : data;
+      const result = typeof rpcValue === "object" && rpcValue !== null
+        ? rpcValue as { status?: string; error_message?: string | null }
+        : null;
+      if (result?.status === "FAILED") {
+        setMessage("保存被伺服器拒絕；修正資料後再試，未變更的資料重試會沿用同一冪等鍵。");
+        return;
+      }
+      if (result?.status !== "APPLIED") {
+        setMessage("保存結果尚未確認；請以相同資料重試，系統會沿用同一冪等鍵。");
+        return;
+      }
+      operationRef.current = null;
+      invalidateEmployeeDirectory(client);
+      invalidateMasterDataCache(client, "organization");
+      onSaved(stableKey, formToSave.isActive);
+    } catch {
+      setMessage("保存結果尚未確認；請以相同資料重試，系統會沿用同一冪等鍵。");
+    } finally {
+      setBusy(false);
     }
-    const result = data as { status?: string; error_message?: string | null } | null;
-    if (result?.status === "FAILED") {
-      setMessage(`保存被伺服器拒絕：${result.error_message ?? "請查看主檔匯入批次錯誤"}`);
-      return;
-    }
-    onSaved(stableKey, formToSave.isActive);
   }
 
   const entityLabel = entityType === "INSTITUTIONS" ? "課室部門" : "單位";
   return (
-    <section className="panel organization-editor-panel" aria-label={`${entityLabel}新增修改停用`}>
+    <section className="panel organization-editor-panel" aria-label={`${entityLabel}新增修改停用`} aria-busy={dataLoading}>
       <div className="panel-heading">
         <div><p className="eyebrow">ORGANIZATION EDITOR</p><h2>{intent === "DEACTIVATE" ? `停用${entityLabel}` : editRequest ? `編輯${entityLabel}` : `新增${entityLabel}`}</h2></div>
         <span className={`status-pill ${editRequest?.isActive ? "success" : ""}`}>{editRequest ? editRequest.isActive ? "啟用中" : "已停用" : "新增模式"}</span>
       </div>
       <p className="auth-message">清單與表單分離；保存仍透過既有整批驗證／原子 upsert RPC。正式刪除以停用取代，穩定代碼與歷史關聯不會被改寫。</p>
+      {dataLoading ? <p className="auth-message" role="status" aria-live="polite">正在載入可選課室部門；代碼與名稱仍可先行填寫。</p> : null}
 
       <div className="form-grid">
-        {entityType === "DEPARTMENTS" ? (
-          <label className="field">
-            <span>所屬課室部門</span>
-            <select
-              value={form.institutionCode}
-              onChange={(event) => updateField("institutionCode", event.target.value)}
-              disabled={busy || keyLocked || confirmationOnly}
-            >
-              <option value="">請選擇課室部門</option>
-              {institutions
-                .filter((institution) => institution.is_active || institution.code.trim() === form.institutionCode.trim() || institution.code === form.institutionCode)
-                .map((institution) => (
-                  <option key={institution.id} value={institution.code.trim()}>
-                    {institution.code.trim()}｜{institution.name}{institution.is_active ? "" : "（停用）"}
-                  </option>
-                ))}
-            </select>
-          </label>
-        ) : null}
+        {entityType === "DEPARTMENTS" ? <label className="field"><span>所屬課室部門</span><select value={form.institutionCode} onChange={(event) => updateField("institutionCode", event.target.value)} disabled={busy || (dataLoading && !institutionSnapshotReady) || keyLocked || confirmationOnly}><option value="">請選擇課室部門</option>{institutions.filter((institution) => institution.is_active || institution.code === form.institutionCode).map((institution) => <option key={institution.id} value={institution.code}>{institution.code}｜{institution.name}{institution.is_active ? "" : "（停用）"}</option>)}</select></label> : null}
         <label className="field"><span>{entityLabel}代碼</span><input value={form.code} onChange={(event) => updateField("code", event.target.value)} disabled={busy || keyLocked || confirmationOnly} maxLength={100} /></label>
         <label className="field"><span>{entityLabel}名稱</span><input value={form.name} onChange={(event) => updateField("name", event.target.value)} disabled={busy || confirmationOnly} maxLength={255} /></label>
       </div>
@@ -137,10 +180,10 @@ export default function OrganizationMasterEditorPanel({
       <div className="button-row">
         {confirmationOnly
           ? <button className="danger-button" type="button" onClick={() => void save({ ...form, isActive: false })} disabled={busy}>{busy ? "停用中…" : "確認停用"}</button>
-          : <button className="primary-button" type="button" onClick={() => void save()} disabled={busy}>{busy ? "保存中…" : editRequest ? "儲存修改" : `新增${entityLabel}`}</button>}
+          : <button className="primary-button" type="button" onClick={() => void save()} disabled={busy || (entityType === "DEPARTMENTS" && !institutionSnapshotReady)}>{busy ? "保存中…" : entityType === "DEPARTMENTS" && !institutionSnapshotReady ? "載入機構中…" : editRequest ? "儲存修改" : `新增${entityLabel}`}</button>}
         <button className="secondary-button" type="button" onClick={onCancel} disabled={busy}>取消並返回清單</button>
       </div>
-      <p className={message.includes("失敗") || message.includes("拒絕") || message.includes("必須") || message.includes("不可") ? "auth-message" : "success-note"} role="status">{message}</p>
+      <p className={message.includes("失敗") || message.includes("拒絕") || message.includes("必須") || message.includes("不可") || message.includes("未確認") || message.includes("未知") || identityError ? "auth-message" : "success-note"} role="status">{identityError ?? message}</p>
     </section>
   );
 }

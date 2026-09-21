@@ -19,6 +19,8 @@ src/app/page.tsx
 
 `WorkspaceShell` 的介面只有工作區選擇與呈現；它不直接讀取業務 table，也不實作任何 RPC。每個 workspace module 是一個可替換的版面組合，內部面板仍各自擁有 Supabase 查詢、表單狀態、錯誤處理與操作流程。
 
+工作區採兩層按需載入 seam：`WorkspaceShell` 以 `next/dynamic` 載入目前切換到的 workspace；各 `*Workspace.tsx` 再讓主要入口保持同步、次要 panel 透過 `next/dynamic` 延後到第一次開啟時載入。工作區與次要 panel 共用 `WorkspacePanelLoading`，立即呈現同頁骨架及可及載入訊息，不顯示 lazy-loading 的內部實作細節；骨架動畫支援 `prefers-reduced-motion`。載入狀態不改變 hash、模組選擇、`RetainedPanelSet` 的 visited mount policy 或任何資料權限。這是 bundle 與首屏互動性的優化，不是把資料查詢或 RLS 規則搬到前端。
+
 ## 七個工作區契約
 
 工作區 ID 集中在 `src/app/workspaces/workspace-config.ts`。新增或調整工作區時，需同步：
@@ -41,8 +43,14 @@ src/app/page.tsx
 
 - 工作區切換只改變瀏覽器 hash 與顯示中的 `tabpanel`，不新增 localStorage，也不建立第二份業務資料。
 - 各工作區的所有面板都保留在同一個 `AuthSessionBoundary` 下；登入或登出後，資料面板會依新的 session 重新掛載。
+- 總覽會在 `app_accounts` 身分查核期間啟動同一 Auth session 的 read-ahead：優先讀取 `v_overview_core`，只有同一 SQL statement 回傳的 `account_id` 與身份查核結果相同時，才用 account-bound 快照；舊 view 缺少 `account_id` 時以不含該欄位的查詢相容；view 不存在時，則立即並行讀取四個既有摘要 view，避免等身份查核結束才開始 fallback。fallback 仍使用同一 Supabase client 與 RLS，結果以 `authUserId` 綁定；真正的權限／schema 錯誤保持為錯誤、不轉成成功 fallback。任何預讀結果都只能在 `identityReady` 且 Auth user 相同後採用；account-bound 結果還要再次比對 `accountId`。不得移除 `hasCurrentDataSnapshot` 顯示隔離，也不得把這項最佳化擴散到其他面板。
+- 總覽同一帳號已有核心摘要快照時，重新進入或背景刷新期間繼續顯示該快照，並以「背景更新中」提示；只有尚無有效快照時才以 `—` 佔位。活動摘要仍可延後載入，不得讓它阻擋核心摘要；身份錯誤時隱藏數字但不宣告仍在載入。`overviewReadPresentation` 是這些載入／刷新呈現規則的唯一純邏輯 seam，測試須同時涵蓋首次載入、同帳號背景刷新與身份錯誤。
+- 人資需求的員工／品號選項優先讀取 0104 的 RLS read views，明確確認 view 不存在時才走既有資料表 fallback；員工 FK embed 無法解析時才退回分開讀取。資料快照維持 30 秒，schema miss 則沿用 read-model rollout 的 60 秒 TTL，避免每次資料快取更新都重複送出必定失敗的 probe，同時讓仍開啟的頁面可偵測新 migration；有作用域的資料異動只刷新資料，不清除 schema 能力快取。權限錯誤不得被 fallback 隱藏。
+- `WorkspaceShell` 以穩定的 `selectWorkspace` callback、保留上次工作區的 ref、memoized `WorkspaceContent` 與 `workspacePanels`，避免導航／主題等不相關 render 重跑已造訪的隱藏工作區；各 `*Workspace` 以 `useMemo` 固定 `RetainedPanelSet` 的 panel element，工作區頁籤切換只改變可見性，不重建面板內容；Overview／Warehouse 面板只有其真正使用的導航 callback 改變時才重建。`PanelActivityContext` 仍在工作區／子頁籤啟用狀態改變時通知相關消費者；不可為了減少 render 移除訪問後保留、延遲掛載或活動狀態控制。這是程式層 render 去重，尚不能代替已登入瀏覽器的正式操作量測。
+- `WorkspaceSessionProvider` 的共用身份 context 只發布登入布林值、穩定的 Auth user ID、業務帳號／角色與身份載入狀態；輪替中的 Supabase `Session`／access token 不得放回這個共用 context，避免 token refresh 通知所有已造訪面板。只在必須手動組 Authorization header 的 server API 呼叫使用 `useWorkspaceAccessToken()`；登出與換帳號仍需更新身份 context，帳號管理也必須讀取最新 token。
 - `AuthPanel` 是共用登入介面；角色與資料範圍仍由 Supabase Auth、`user_roles` 與 RLS 判定。
 - 報表只讀取 security-invoker views；PDF／ERP 只請求正式 artifact，不在 UI 端自行產生業務數字。
+- **PDF／ERP 狀態互動**：`useWorkflowStatusPoll` 讓背景輪詢與手動重新查詢共用同一個 in-flight promise；純狀態讀取期間仍可再次查詢，點擊會加入既有請求而不增加 RPC。`READY` 成品在讀取期間仍可下載，因為下載 RPC 會重新驗證角色與狀態。建立下一份／批次只受 mutation `busy` 與 artifact 非終態限制，不因 `artifactLoading` 暫時鎖住；啟動下一份或同批重試時，以 `createReadRequestController` 作廢舊狀態讀取，晚到結果不能覆蓋新工作區。終態判斷集中在 `isArtifactTerminalStatus`，`PREPARING` 仍不能另開同類 revision。
 - 倉庫名稱、機構清單、人資需求欄位與需求狀態流程沿用 `agents.md`／README 的既有契約。
 
 ## 延伸規則
@@ -67,5 +75,7 @@ npm run typecheck
 npm run build
 git diff --check
 ```
+
+若新增或移動 workspace 次要 panel，另執行 `src/domain/workspace-loading-contract.test.ts`；測試必須確認 dynamic import 與 loading shell 存在，且沒有為方便而恢復同一 panel 的靜態 import。
 
 瀏覽器再確認七個導航項目都能切換、商品管理與庫存管理頁籤可開啟、每次只有一個可見 `tabpanel`、`#overview`／`#hr` 等 hash 可直接開啟，以及手機寬度會出現工作區下拉選單。

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeWorkbenchId, resolveWorkbenchTabId, shouldMountRetainedPanel } from "./module-workbench";
+import { normalizeWorkbenchId, rememberVisitedPanel, resolveWorkbenchTabId, shouldMountRetainedPanel } from "./module-workbench";
 
 describe("module workbench interface", () => {
   const tabs = [
@@ -26,5 +26,12 @@ describe("module workbench interface", () => {
     expect(shouldMountRetainedPanel("list", "form", visited, "visited")).toBe(true);
     expect(shouldMountRetainedPanel("audit", "form", visited, "visited")).toBe(false);
     expect(shouldMountRetainedPanel("audit", "form", visited, "all")).toBe(true);
+  });
+
+  it("remembers a newly active panel without mutating the existing set", () => {
+    const visited = new Set(["list"]);
+
+    expect([...rememberVisitedPanel(visited, "form")]).toEqual(["list", "form"]);
+    expect(rememberVisitedPanel(visited, "list")).toBe(visited);
   });
 });

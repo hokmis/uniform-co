@@ -1,31 +1,9 @@
 "use client";
 
-import { Fragment, type ReactNode, useEffect, useState } from "react";
-import { getSupabaseBrowserClient } from "@/src/lib/supabase-browser";
+import { Fragment, type ReactNode } from "react";
 
-type Props = { children: ReactNode };
+type Props = { children: ReactNode; sessionKey: string };
 
-export default function AuthSessionBoundary({ children }: Props) {
-  const client = getSupabaseBrowserClient();
-  const [sessionKey, setSessionKey] = useState("anonymous");
-
-  useEffect(() => {
-    if (!client) return;
-
-    let active = true;
-    void client.auth.getSession().then(({ data }) => {
-      if (active) setSessionKey(data.session?.user.id ?? "anonymous");
-    });
-
-    const { data } = client.auth.onAuthStateChange((_event, session) => {
-      setSessionKey(session?.user.id ?? "anonymous");
-    });
-
-    return () => {
-      active = false;
-      data.subscription.unsubscribe();
-    };
-  }, [client]);
-
+export default function AuthSessionBoundary({ children, sessionKey }: Props) {
   return <Fragment key={sessionKey}>{children}</Fragment>;
 }

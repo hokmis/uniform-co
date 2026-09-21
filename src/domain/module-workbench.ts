@@ -29,3 +29,11 @@ export function shouldMountRetainedPanel(
   if (panelId === activePanelId) return true;
   return mountPolicy === "visited" && visitedPanelIds.has(panelId);
 }
+
+export function rememberVisitedPanel(
+  visitedPanelIds: ReadonlySet<string>,
+  activePanelId: string,
+): ReadonlySet<string> {
+  if (!activePanelId || visitedPanelIds.has(activePanelId)) return visitedPanelIds;
+  return new Set([...visitedPanelIds, activePanelId]);
+}

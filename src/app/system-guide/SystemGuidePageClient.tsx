@@ -99,10 +99,10 @@ export default function SystemGuidePageClient({ documents, loading, message, for
         </aside>
 
         <article className="system-guide-document" aria-live="polite" aria-busy={loading}>
-          <div className="system-guide-document-meta"><span className="status-pill">READ ONLY</span><span>{message}</span></div>
+          <div className="system-guide-document-meta"><span className="status-pill">僅供閱讀</span><span>{message}</span></div>
           {activeDocument
             ? activeDocument.blocks.map((block, index) => <Fragment key={`${block.type}-${index}`}><GuideBlock block={block} index={index} /></Fragment>)
-            : <div className="system-guide-loading"><span className="status-pill">LOADING</span><p>{message}</p></div>}
+            : <div className="system-guide-loading"><span className="status-pill">載入中</span><p>{message}</p></div>}
         </article>
       </div>
     </section>

@@ -8,6 +8,12 @@ import {
   type WorkspaceSearchResult,
 } from "./workspaces/workspace-config";
 import { appearanceThemes, type AppearanceTheme } from "./use-appearance-theme";
+import { accountLabelFromUser } from "@/src/lib/account-login";
+
+type NotificationItem = {
+  id: string;
+  title: string;
+  description: string;
 
 type Props = {
   activeDefinition: { label: string; eyebrow: string; description: string };
@@ -24,25 +30,24 @@ function SearchIcon() {
 }
 
 function GuideIcon() {
-  return <svg className="workspace-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5Z" /><path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5Z" /></svg>;
-}
-
-function AppearanceIcon() {
-  return <svg className="workspace-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8" /><path d="M12 4v16M4 12h16" /><circle cx="12" cy="12" r="2.5" /></svg>;
+  return <svg className="workspace-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 16v-4" /><path d="M12 8h.01" /></svg>;
 }
 
 function AppearanceSelect({ theme, onChange }: { theme: AppearanceTheme; onChange: (theme: AppearanceTheme) => void }) {
   return (
-    <label className="workspace-appearance" htmlFor="workspace-appearance-select" title={appearanceThemes.find((option) => option.id === theme)?.description}>
-      <span className="workspace-appearance-label"><AppearanceIcon /><span>風格</span></span>
+    <label className="workspace-appearance">
+      <span className="sr-only">視覺主題</span>
       <select
-        id="workspace-appearance-select"
         className="workspace-appearance-select"
         value={theme}
-        aria-label="切換版面風格"
+        aria-label="切換視覺主題"
         onChange={(event) => onChange(event.target.value as AppearanceTheme)}
       >
-        {appearanceThemes.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+        {appearanceThemes.map((option) => (
+          <option key={option.id} value={option.id}>
+            {option.label}
+          </option>
+        ))}
       </select>
     </label>
   );
@@ -75,12 +80,6 @@ function SearchResults({ results, onSelect }: { results: WorkspaceSearchResult[]
   );
 }
 
-/**
- * WorkspaceTopbar component renders the main workspace header actions,
- * including global module search, system guide access, appearance theme toggle,
- * and account authentication controls.
- * Updated by: eagle99dd@gmail.com
- */
 export default function WorkspaceTopbar({ activeDefinition, appearanceTheme, onAppearanceChange, onNavigate, onOpenSystemGuide }: Props) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -104,9 +103,9 @@ export default function WorkspaceTopbar({ activeDefinition, appearanceTheme, onA
   }, []);
 
   function selectSearchResult(result: WorkspaceSearchResult) {
+    onNavigate(result.workspaceId, result.anchor);
     setSearchOpen(false);
     setQuery("");
-    onNavigate(result.workspaceId, result.anchor);
   }
 
   function submitSearch() {
@@ -116,19 +115,21 @@ export default function WorkspaceTopbar({ activeDefinition, appearanceTheme, onA
   return (
     <header className="workspace-topbar" aria-labelledby="active-workspace-title">
       <div className="workspace-topbar-copy">
-        <p className="eyebrow">{activeDefinition.eyebrow}</p>
+        <p className="workspace-topbar-label">{activeDefinition.eyebrow}</p>
         <h1 id="active-workspace-title">{activeDefinition.label}</h1>
         <p>{activeDefinition.description}</p>
       </div>
+
       <div className="workspace-topbar-actions">
         <div className="workspace-search-wrap">
-          <label className="workspace-search" htmlFor="workspace-global-search">
-            <SearchIcon />
+          <label className="workspace-search">
+            <span className="workspace-search-icon"><SearchIcon /></span>
             <input
-              id="workspace-global-search"
               ref={searchInputRef}
+              type="search"
               value={query}
-              placeholder="搜尋模組與流程"
+              placeholder="搜尋模組與流程（/）…"
+              aria-label="全域模組搜尋"
               autoComplete="off"
               onFocus={() => setSearchOpen(true)}
               onChange={(event) => {
@@ -145,7 +146,7 @@ export default function WorkspaceTopbar({ activeDefinition, appearanceTheme, onA
         {onOpenSystemGuide ? <button className="workspace-icon-button" type="button" aria-label="系統說明" title="開啟 SYSTEM_ADMIN 系統說明" onClick={onOpenSystemGuide}><GuideIcon /></button> : null}
         <AppearanceSelect theme={appearanceTheme} onChange={onAppearanceChange} />
         <span className="workspace-date-pill">正式資料工作區</span>
-        <span className="status-pill">SUPABASE + RLS</span>
+        <span className="status-pill">資料權限已啟用</span>
       </div>
     </header>
   );

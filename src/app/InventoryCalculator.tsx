@@ -99,7 +99,7 @@ export default function InventoryCalculator() {
         <div className="panel-heading">
           <div>
             <p className="eyebrow">02 / VALIDATION</p>
-            <h2>送單與 POST 預覽</h2>
+            <h2>送單與完成預覽</h2>
           </div>
           <span className={`status-pill ${result.error ? "danger" : "success"}`}>
             {result.error ? "規則拒絕" : "規則通過（預覽）"}
@@ -121,11 +121,11 @@ export default function InventoryCalculator() {
             </div>
             <dl className="ledger-preview">
               <div>
-                <dt>POST 後人資倉</dt>
+                <dt>完成後人資倉</dt>
                 <dd>{result.post?.hrOnHandAfter}</dd>
               </div>
               <div>
-                <dt>POST 後總倉</dt>
+                <dt>完成後總倉</dt>
                 <dd>{result.post?.generalOnHandAfter}</dd>
               </div>
               <div>
@@ -134,7 +134,7 @@ export default function InventoryCalculator() {
               </div>
             </dl>
             <p className="success-note">
-              目前此頁只做本機預覽，不會建立資料；正式送單必須由 Supabase RPC 重新驗證並建立合計預留。倉庫完成理貨、準備交付時才 POST，成功後才可將制服交給員工。
+              目前此頁只做本機預覽，不會建立資料；正式送單必須由 Supabase RPC 重新驗證並建立合計預留。倉庫完成理貨、準備交付時才確認完成，成功後才可將制服交給員工。
             </p>
           </>
         )}

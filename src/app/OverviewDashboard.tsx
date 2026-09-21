@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { workflowStatusLabel } from "@/src/domain/workflow-status";
+import { mergeOverviewReloadScope, overviewReadPlanForScope, overviewReadPresentation, type OverviewReloadScope } from "@/src/domain/overview-refresh";
+import { createOverviewReadAheadCoordinator } from "@/src/domain/overview-read-ahead";
 import type { WorkspaceId } from "./workspaces/workspace-config";
-import { getSupabaseBrowserClient } from "@/src/lib/supabase-browser";
+import { retrySupabaseQueriesAfterSessionRefresh, type SupabaseSessionError } from "@/src/lib/supabase-session";
+import { loadOverviewCore, loadOverviewCoreReadAhead, type OverviewCoreReadAhead } from "@/src/lib/overview-dashboard-read";
+import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
+import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
+import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
+import { usePanelActivity } from "./RetainedPanelSet";
+import { useWorkspaceSession } from "./workspace-session";
 
 type Row = Record<string, unknown>;
 
@@ -15,6 +24,8 @@ type DashboardData = {
   audit: Row[];
   errors: string[];
 };
+
+type DashboardQuery = PromiseLike<{ data: unknown[] | null; error: SupabaseSessionError | null }>;
 
 type DashboardTask = {
   key: string;
@@ -66,17 +77,6 @@ function dateLabel(value: unknown): string {
   return new Intl.DateTimeFormat("zh-TW", { month: "2-digit", day: "2-digit", timeZone: "Asia/Taipei" }).format(date);
 }
 
-function statusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    DRAFT: "草稿",
-    SUBMITTED: "待倉庫處理",
-    INVENTORY_REVIEW_REQUIRED: "庫存待覆核",
-    SHIPPED: "已完成",
-    CANCELLED: "已取消",
-  };
-  return labels[status] ?? status;
-}
-
 function percent(value: number, total: number): number {
   if (total <= 0) return 0;
   return Math.min(100, Math.max(0, Math.round((value / total) * 100)));
@@ -92,11 +92,11 @@ function Metric({ label, value, note, tone }: { label: string; value: string | n
   );
 }
 
-function ProgressBar({ label, value, tone }: { label: string; value: number; tone: "green" | "blue" | "amber" }) {
+function ProgressBar({ label, value, tone }: { label: string; value: number | null; tone: "green" | "blue" | "amber" }) {
   return (
     <div className="overview-progress-item">
-      <div className="overview-progress-label"><span>{label}</span><strong>{value}%</strong></div>
-      <div className={`overview-progress ${tone}`}><span style={{ width: `${value}%` }} /></div>
+      <div className="overview-progress-label"><span>{label}</span><strong>{value === null ? "—" : `${value}%`}</strong></div>
+      <div className={`overview-progress ${tone}`} aria-hidden="true">{value === null ? null : <span style={{ width: `${value}%` }} />}</div>
     </div>
   );
 }
@@ -111,58 +111,179 @@ function QuickAction({ label, description, mark, onClick }: { label: string; des
 }
 
 export default function OverviewDashboard({ onNavigate }: Props) {
-  const client = getSupabaseBrowserClient();
+  const { client, isAuthenticated, authUserId: sessionUserId, accountId, identityError, identityLoading } = useWorkspaceSession();
+  const panelActive = usePanelActivity();
+  const hasSession = isAuthenticated;
+  const identityReady = Boolean(client && panelActive && hasSession && accountId && !identityLoading && !identityError);
+  const [coreReadAhead] = useState(() => createOverviewReadAheadCoordinator<OverviewCoreReadAhead>());
   const [data, setData] = useState<DashboardData>(emptyData);
-  const [loading, setLoading] = useState(Boolean(client));
+  const [loading, setLoading] = useState(Boolean(client && isAuthenticated));
+  const [deferredLoading, setDeferredLoading] = useState(Boolean(client && isAuthenticated));
   const [message, setMessage] = useState("登入後從正式 reporting views 讀取總覽資料");
+  const [reloadRequest, setReloadRequest] = useState<{ token: number; scope: OverviewReloadScope }>({ token: 0, scope: "all" });
+  const [dataSnapshotAccountId, setDataSnapshotAccountId] = useState<string | null>(null);
+  const dataSnapshotAccountIdRef = useRef<string | null>(null);
+  const dataRef = useRef<DashboardData>(emptyData);
+  const wasPanelActive = useRef(false);
+  const pendingReloadScope = useRef<OverviewReloadScope | null>(null);
+  const reloadScheduled = useRef(false);
 
   useEffect(() => {
-    if (!client) return;
+    if (!client || !sessionUserId || !panelActive || !identityLoading || identityError) return;
+    coreReadAhead.start(sessionUserId, () => loadOverviewCoreReadAhead(client, sessionUserId));
+  }, [client, coreReadAhead, identityError, identityLoading, panelActive, sessionUserId]);
+
+  useEffect(() => () => {
+    if (sessionUserId) coreReadAhead.clear(sessionUserId);
+  }, [coreReadAhead, panelActive, sessionUserId]);
+
+  const hasCurrentDataSnapshot = Boolean(
+    identityReady
+      && dataSnapshotAccountId
+      && dataSnapshotAccountId === accountId,
+  );
+  const visibleData = hasCurrentDataSnapshot ? data : emptyData;
+
+  const queueReload = useCallback((scope: OverviewReloadScope) => {
+    pendingReloadScope.current = mergeOverviewReloadScope(pendingReloadScope.current, scope);
+    if (reloadScheduled.current) return;
+    reloadScheduled.current = true;
+    queueMicrotask(() => {
+      reloadScheduled.current = false;
+      const nextScope = pendingReloadScope.current;
+      pendingReloadScope.current = null;
+      if (!nextScope) return;
+      setReloadRequest((current) => ({ token: current.token + 1, scope: nextScope }));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!identityReady || !client) {
+      wasPanelActive.current = false;
+      pendingReloadScope.current = null;
+      return;
+    }
     const supabase = client;
+    const sameAccountSnapshot = dataSnapshotAccountIdRef.current === accountId;
+    const scope = sameAccountSnapshot && wasPanelActive.current ? reloadRequest.scope : "all";
+    wasPanelActive.current = true;
     let active = true;
+
+    function commitResults(
+      results: readonly { key: keyof Pick<DashboardData, "availability" | "hrRequests" | "shipments" | "receipts" | "distributions" | "audit">; rows: Row[]; error: SupabaseSessionError | null }[],
+      errors: string[],
+    ): boolean {
+      const canPreserveSnapshot = dataSnapshotAccountIdRef.current === accountId;
+      const previous = canPreserveSnapshot ? dataRef.current : emptyData;
+      const next: DashboardData = { ...previous, errors };
+      let preserved = false;
+      for (const result of results) {
+        const preserve = Boolean(result.error && canPreserveSnapshot && shouldPreserveReadSnapshot(previous[result.key], [result.error]));
+        next[result.key] = preserve ? previous[result.key] : result.rows;
+        preserved ||= preserve;
+      }
+      dataRef.current = next;
+      dataSnapshotAccountIdRef.current = accountId;
+      setData(next);
+      setDataSnapshotAccountId(accountId);
+      return preserved;
+    }
 
     async function loadDashboard() {
       setLoading(true);
-      const [availability, hrRequests, shipments, receipts, distributions, audit] = await Promise.all([
-        supabase.from("v_item_availability").select("item_code,item_name,available_to_request_quantity,combined_on_hand_quantity,active_reserved_quantity").limit(300),
-        supabase.from("v_hr_request_item_totals").select("request_id,request_no,status,distribution_date,created_at,requested_transfer_quantity").limit(300),
-        supabase.from("v_pending_warehouse_shipments").select("shipment_id,shipment_no,request_no,distribution_date,needs_warehouse_attention").limit(300),
-        supabase.from("v_purchase_order_receipt_progress").select("purchase_order_id,po_no,ordered_quantity,accepted_to_date,remaining_to_accept").limit(300),
-        supabase.from("v_employee_distribution_history").select("employee_no,item_code,quantity_delta,occurred_on,event_kind").limit(300),
-        supabase.from("v_audit_event_history").select("id,occurred_at,action,entity_table,entity_id,actor_account_id").limit(20),
-      ]);
+      const readFactories: Record<"distributions" | "audit", () => DashboardQuery> = {
+        distributions: () => supabase.from("v_employee_distribution_history").select("employee_no,item_code,quantity_delta,occurred_on,event_kind").order("occurred_on", { ascending: false }).limit(300) as unknown as DashboardQuery,
+        audit: () => supabase.from("v_audit_event_history").select("id,occurred_at,action,entity_table,entity_id,actor_account_id").order("occurred_at", { ascending: false }).limit(20) as unknown as DashboardQuery,
+      };
+      const plan = overviewReadPlanForScope(scope);
+      const read = async (key: "distributions" | "audit") => {
+        const [result] = await retrySupabaseQueriesAfterSessionRefresh(
+          supabase,
+          async () => [await readFactories[key]()] as const,
+        );
+        return { key, rows: (result.data ?? []) as Row[], error: result.error };
+      };
+      setDeferredLoading(plan.deferred.length > 0);
+
+      const coreKeys = ["availability", "hrRequests", "shipments", "receipts"] as const;
+      const requestedCoreKeys = coreKeys.filter((key) => plan.primary.includes(key));
+      const readAhead = coreReadAhead.take(sessionUserId);
+      const prefetchedCore = readAhead ? await readAhead.catch(() => null) : null;
+      const prefetchedCoreMatchesIdentity = Boolean(
+        prefetchedCore?.authUserId === sessionUserId
+          && (prefetchedCore.binding === "auth-user" || prefetchedCore.accountId === accountId),
+      );
+      const coreRead = prefetchedCoreMatchesIdentity && prefetchedCore
+        ? prefetchedCore.result
+        : await loadOverviewCore(supabase, requestedCoreKeys);
+      const primaryResults = requestedCoreKeys.map((key) => ({
+        key,
+        rows: coreRead.data[key],
+        error: coreRead.errors[key] ?? null,
+      }));
 
       if (!active) return;
-      const resultErrors = [availability, hrRequests, shipments, receipts, distributions, audit]
-        .filter((result) => result.error)
-        .map((result) => result.error?.message ?? "報表讀取失敗");
-      setData({
-        availability: (availability.data ?? []) as Row[],
-        hrRequests: (hrRequests.data ?? []) as Row[],
-        shipments: (shipments.data ?? []) as Row[],
-        receipts: (receipts.data ?? []) as Row[],
-        distributions: (distributions.data ?? []) as Row[],
-        audit: (audit.data ?? []) as Row[],
-        errors: resultErrors,
-      });
-      setMessage(resultErrors.length > 0 ? `部分摘要受目前角色 RLS 限制（${resultErrors.length} 個來源）` : "數字來自正式 security-invoker reporting views");
+      const primaryErrors = primaryResults.filter((result) => result.error).map(() => "報表讀取失敗");
+      const preservedPrimary = commitResults(primaryResults, primaryErrors);
+      setMessage(primaryErrors.length > 0
+        ? preservedPrimary ? staleReadSnapshotMessage("總覽核心摘要") : `部分摘要受目前角色權限限制（${primaryErrors.length} 個來源）`
+        : "核心摘要已載入，活動明細背景更新中");
       setLoading(false);
+
+      if (plan.deferred.length === 0) {
+        setDeferredLoading(false);
+        setMessage(primaryErrors.length > 0 ? `部分摘要受目前角色權限限制（${primaryErrors.length} 個來源）` : "數字來自正式即時資料摘要");
+        return;
+      }
+
+      const deferredKeys = plan.deferred.filter((key): key is "distributions" | "audit" => key === "distributions" || key === "audit");
+      const deferredResults = await Promise.all(deferredKeys.map(read));
+      if (!active) return;
+      const deferredErrors = deferredResults.filter((result) => result.error).map(() => "報表讀取失敗");
+      const preservedDeferred = commitResults(deferredResults, [...primaryErrors, ...deferredErrors]);
+      setDeferredLoading(false);
+      const totalErrors = primaryErrors.length + deferredErrors.length;
+      setMessage(totalErrors > 0
+        ? preservedDeferred ? staleReadSnapshotMessage("總覽活動摘要") : `部分摘要受目前角色權限限制（${totalErrors} 個來源）`
+        : "數字來自正式即時資料摘要");
     }
 
     void loadDashboard();
     return () => { active = false; };
-  }, [client]);
+  }, [accountId, client, coreReadAhead, identityError, identityReady, panelActive, reloadRequest, sessionUserId]);
+
+  useEffect(() => {
+    if (!identityReady || !client) return;
+    const refreshInventory = () => queueReload("inventory");
+    const refreshWorkflow = () => queueReload("workflow");
+    window.addEventListener(inventoryDataChangedEvent, refreshInventory);
+    window.addEventListener(hrRequestWorkflowChangedEvent, refreshWorkflow);
+    return () => {
+      window.removeEventListener(inventoryDataChangedEvent, refreshInventory);
+      window.removeEventListener(hrRequestWorkflowChangedEvent, refreshWorkflow);
+    };
+  }, [client, identityReady, queueReload]);
+
+  const readPresentation = overviewReadPresentation({
+    hasSession,
+    identityReady,
+    identityError: Boolean(identityError),
+    hasCurrentSnapshot: hasCurrentDataSnapshot,
+    coreLoading: loading,
+    deferredLoading,
+  });
+  const displayMessage = identityError ?? message;
 
   const derived = useMemo(() => {
-    const requests = uniqueRows(data.hrRequests, "request_id");
+    const requests = uniqueRows(visibleData.hrRequests, "request_id");
     const pendingRequests = requests.filter((row) => ["SUBMITTED", "INVENTORY_REVIEW_REQUIRED"].includes(textValue(row.status, "")));
-    const shipments = uniqueRows(data.shipments, "shipment_id");
+    const shipments = uniqueRows(visibleData.shipments, "shipment_id");
     const attentionShipments = shipments.filter((row) => row.needs_warehouse_attention === true || String(row.needs_warehouse_attention) === "true");
-    const purchaseOrders = uniqueRows(data.receipts, "purchase_order_id");
-    const remainingToAccept = data.receipts.reduce((sum, row) => sum + numberValue(row.remaining_to_accept), 0);
-    const lowAvailability = data.availability.filter((row) => numberValue(row.available_to_request_quantity) <= 0).length;
+    const purchaseOrders = uniqueRows(visibleData.receipts, "purchase_order_id");
+    const remainingToAccept = visibleData.receipts.reduce((sum, row) => sum + numberValue(row.remaining_to_accept), 0);
+    const lowAvailability = visibleData.availability.filter((row) => numberValue(row.available_to_request_quantity) <= 0).length;
     const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).format(new Date());
-    const monthlyIssued = data.distributions
+    const monthlyIssued = visibleData.distributions
       .filter((row) => String(row.occurred_on ?? "").slice(0, 7) === month && numberValue(row.quantity_delta) > 0)
       .reduce((sum, row) => sum + numberValue(row.quantity_delta), 0);
 
@@ -172,7 +293,7 @@ export default function OverviewDashboard({ onNavigate }: Props) {
         title: textValue(row.request_no),
         type: "人資需求",
         deadline: dateLabel(row.distribution_date),
-        status: statusLabel(textValue(row.status)),
+        status: workflowStatusLabel(textValue(row.status)),
         tone: textValue(row.status) === "INVENTORY_REVIEW_REQUIRED" ? "red" as const : "blue" as const,
         workspaceId: "hr" as const,
         anchor: "hr-request-title",
@@ -200,9 +321,9 @@ export default function OverviewDashboard({ onNavigate }: Props) {
     ];
 
     const shippedRequests = requests.filter((row) => textValue(row.status) === "SHIPPED").length;
-    const accepted = data.receipts.reduce((sum, row) => sum + numberValue(row.accepted_to_date), 0);
-    const ordered = data.receipts.reduce((sum, row) => sum + numberValue(row.ordered_quantity), 0);
-    const healthyAvailability = data.availability.length - lowAvailability;
+    const accepted = visibleData.receipts.reduce((sum, row) => sum + numberValue(row.accepted_to_date), 0);
+    const ordered = visibleData.receipts.reduce((sum, row) => sum + numberValue(row.ordered_quantity), 0);
+    const healthyAvailability = visibleData.availability.length - lowAvailability;
 
     return {
       tasks: tasks.slice(0, 8),
@@ -212,27 +333,27 @@ export default function OverviewDashboard({ onNavigate }: Props) {
       lowAvailability,
       hrProgress: percent(shippedRequests, requests.length),
       receiptProgress: percent(accepted, ordered),
-      availabilityProgress: percent(healthyAvailability, data.availability.length),
+      availabilityProgress: percent(healthyAvailability, visibleData.availability.length),
     };
-  }, [data]);
+  }, [visibleData]);
 
   return (
-    <section className="overview-dashboard" id="overview-dashboard-title" aria-label="營運總覽儀表板">
+    <section className="overview-dashboard" id="overview-dashboard-title" aria-label="營運總覽儀表板" aria-busy={readPresentation.busy}>
       <div className="overview-dashboard-heading">
         <div>
           <p className="eyebrow">TODAY / OPERATIONS SNAPSHOT</p>
           <h2>今天的工作台</h2>
           <p>依正式資料來源整理待處理工作、快速入口、跨角色進度與可追溯活動。</p>
         </div>
-        <span className={`status-pill ${loading ? "" : "success"}`}>{loading ? "讀取摘要…" : "LIVE / RLS"}</span>
+        <div className="heading-actions"><span className={`status-pill ${readPresentation.busy ? "" : "success"}`}>{readPresentation.showCorePlaceholder ? "讀取核心摘要…" : readPresentation.coreRefreshing ? "背景更新中，顯示已載入資料" : readPresentation.showActivityPlaceholder ? "補齊活動摘要…" : "即時資料"}</span><button className="secondary-button" type="button" onClick={() => queueReload("all")} disabled={!identityReady}>重新整理總覽</button></div>
       </div>
-      <p className="overview-data-note" role="status">{message}</p>
+      <p className="overview-data-note" role="status">{displayMessage}</p>
 
       <div className="overview-stats">
-        <Metric label="待處理工作" value={loading ? "—" : derived.pendingWork} note="需求、發貨與入庫佇列" tone="default" />
-        <Metric label="本月發放件數" value={loading ? "—" : derived.monthlyIssued} note="由發放歷史即時計算" tone="blue" />
-        <Metric label="待入庫數量" value={loading ? "—" : derived.remainingToAccept} note="採購進度尚未驗收" tone="amber" />
-        <Metric label="可申請量異常" value={loading ? "—" : derived.lowAvailability} note="品號可申請量小於等於 0" tone="red" />
+        <Metric label="待處理工作" value={readPresentation.showCorePlaceholder ? "—" : derived.pendingWork} note="需求、發貨與入庫佇列" tone="default" />
+        <Metric label="本月發放件數" value={readPresentation.showActivityPlaceholder ? "—" : derived.monthlyIssued} note="由發放歷史即時計算" tone="blue" />
+        <Metric label="待入庫數量" value={readPresentation.showCorePlaceholder ? "—" : derived.remainingToAccept} note="採購進度尚未驗收" tone="amber" />
+        <Metric label="可申請量異常" value={readPresentation.showCorePlaceholder ? "—" : derived.lowAvailability} note="品號可申請量小於等於 0" tone="red" />
       </div>
 
       <div className="overview-dashboard-grid">
@@ -270,14 +391,14 @@ export default function OverviewDashboard({ onNavigate }: Props) {
       <div className="overview-dashboard-grid">
         <section className="panel overview-progress-panel" aria-label="本月作業進度">
           <div className="panel-heading"><div><h2>本月作業進度</h2><p>依目前可讀取的正式資料來源計算</p></div><span className="status-pill success">即時計算</span></div>
-          <ProgressBar label="人資需求 → 發放完成" value={derived.hrProgress} tone="green" />
-          <ProgressBar label="採購 → 正式入庫" value={derived.receiptProgress} tone="blue" />
-          <ProgressBar label="可申請品號健康度" value={derived.availabilityProgress} tone="amber" />
+          <ProgressBar label="人資需求 → 發放完成" value={readPresentation.showCorePlaceholder ? null : derived.hrProgress} tone="green" />
+          <ProgressBar label="採購 → 正式入庫" value={readPresentation.showCorePlaceholder ? null : derived.receiptProgress} tone="blue" />
+          <ProgressBar label="可申請品號健康度" value={readPresentation.showCorePlaceholder ? null : derived.availabilityProgress} tone="amber" />
         </section>
 
         <section className="panel overview-activity-panel" aria-label="最近活動">
           <div className="panel-heading"><div><h2>最近活動</h2><p>可追溯的狀態變更摘要</p></div><button className="secondary-button" type="button" onClick={() => onNavigate("reports", "reports-view-title")}>查看全部</button></div>
-          {data.audit.length > 0 ? <div className="overview-activity-list">{data.audit.slice(0, 3).map((row) => <div className="overview-activity-row" key={textValue(row.id)}><span className="overview-activity-dot" aria-hidden="true" /><div><p><strong>{textValue(row.action, "狀態變更")}</strong>／{textValue(row.entity_table, "正式資料")}</p><small>{dateLabel(row.occurred_at)}・{textValue(row.actor_account_id, "系統")}</small></div></div>)}</div> : <p className="overview-empty-state">目前沒有可顯示的活動摘要，或目前角色沒有稽核報表讀取權限。</p>}
+          {readPresentation.showActivityPlaceholder ? <p className="overview-empty-state">活動摘要載入中…</p> : visibleData.audit.length > 0 ? <div className="overview-activity-list">{visibleData.audit.slice(0, 3).map((row) => <div className="overview-activity-row" key={textValue(row.id)}><span className="overview-activity-dot" aria-hidden="true" /><div><p><strong>{textValue(row.action, "狀態變更")}</strong>／{textValue(row.entity_table, "正式資料")}</p><small>{dateLabel(row.occurred_at)}・{textValue(row.actor_account_id, "系統")}</small></div></div>)}</div> : <p className="overview-empty-state">目前沒有可顯示的活動摘要，或目前角色沒有稽核報表讀取權限。</p>}
         </section>
       </div>
     </section>

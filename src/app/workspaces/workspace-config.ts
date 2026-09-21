@@ -7,7 +7,7 @@ export const workspaceDefinitions = [
     description: "集中處理主檔、商品管理與匯入準備，讓正式作業使用同一份資料基礎。",
     modules: [
       { anchor: "overview-dashboard-title", label: "營運總覽", keywords: "總覽 KPI 工作佇列 快速入口 進度 活動" },
-      { anchor: "overview-access-title", label: "主檔與資料基礎", keywords: "主檔 組織 課室部門 單位 機構 部門 資料基礎 匯入 匯出" },
+      { anchor: "overview-access-title", label: "主檔與資料基礎", keywords: "主檔 機構 部門 課室 單位 資料基礎" },
       { anchor: "overview-products-title", label: "商品管理", keywords: "商品 制服品號 品名 尺寸 季別 供應商 MOQ 供應商品號 新增 修改 停用 刪除 匯入 匯出" },
       { anchor: "overview-import-title", label: "耐久匯入", keywords: "匯入 批次 差異 確認 worker" },
     ],
@@ -114,4 +114,18 @@ export function searchWorkspaceModules(query: string): WorkspaceSearchResult[] {
 
 export function isWorkspaceId(value: string): value is WorkspaceId {
   return workspaceDefinitions.some((workspace) => workspace.id === value);
+}
+
+export type WorkspaceSelectorTarget =
+  | { kind: "workspace"; workspaceId: WorkspaceId }
+  | { kind: "system-guide" };
+
+export function resolveWorkspaceSelectorTarget(
+  value: string,
+  systemGuideVisible: boolean,
+): WorkspaceSelectorTarget | null {
+  if (value === "system-guide") {
+    return systemGuideVisible ? { kind: "system-guide" } : null;
+  }
+  return isWorkspaceId(value) ? { kind: "workspace", workspaceId: value } : null;
 }

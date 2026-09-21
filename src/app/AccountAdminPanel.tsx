@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  buildAccountDirectoryRows,
   filterAccountDirectory,
   sortAccountDirectory,
   type AccountDirectoryRecord,
@@ -9,17 +10,23 @@ import {
   type AccountDirectorySortKey,
   type AccountDirectoryStatusFilter,
 } from "@/src/domain/account-directory";
-import { getSupabaseBrowserClient } from "@/src/lib/supabase-browser";
+import { accountHasEffectiveRole, effectiveAccountRoles } from "@/src/domain/account-roles";
+import { applyAccountAdminLocalResult, type AccountAdminLocalAccount, type AccountAdminLocalRoleRow, type AccountAdminLocalScopeRow } from "@/src/domain/account-admin-local-state";
+import { loadAccountDirectory } from "@/src/lib/account-directory-read";
+import { loadOrganizationMasterData } from "@/src/lib/master-data-cache";
+import { retrySupabaseQueriesAfterSessionRefresh } from "@/src/lib/supabase-session";
 import { validateAccountCreation } from "@/src/lib/account-admin-form";
 import ManagementCatalogTable from "./ManagementCatalogTable";
 import { ModuleWorkbenchNavigation } from "./ModuleWorkbench";
+import RetainedPanelSet, { usePanelActivity } from "./RetainedPanelSet";
+import { useWorkspaceAccessToken, useWorkspaceSession } from "./workspace-session";
 
-type Account = { id: string; auth_user_id: string | null; login_name: string | null; display_name: string; email_snapshot: string | null; is_active: boolean };
+type Account = AccountAdminLocalAccount;
 type Role = "SYSTEM_ADMIN" | "HR" | "WAREHOUSE" | "PROCUREMENT" | "CEO" | "DEMAND_COORDINATOR";
-type RoleRow = { account_id: string; role_code: Role };
+type RoleRow = AccountAdminLocalRoleRow;
 type Institution = { id: string; code: string; name: string };
 type Department = { id: string; institution_id: string; code: string; name: string };
-type ScopeRow = { account_id: string; institution_id: string; department_id: string };
+type ScopeRow = AccountAdminLocalScopeRow;
 type OperationPayload = Record<string, unknown>;
 type OperationResult = { ok: boolean; account?: Account; warning?: string; error?: string };
 type AccountAdminTab = "directory" | "create" | "manage";
@@ -29,7 +36,10 @@ const roles: Role[] = ["SYSTEM_ADMIN", "HR", "WAREHOUSE", "PROCUREMENT", "CEO", 
 type Props = { headingId?: string };
 
 export default function AccountAdminPanel({ headingId }: Props) {
-  const client = getSupabaseBrowserClient();
+  const panelActive = usePanelActivity();
+  const { client, isAuthenticated, accountId: workspaceAccountId, identityError, identityLoading } = useWorkspaceSession();
+  const accessToken = useWorkspaceAccessToken();
+  const identityReady = Boolean(client && panelActive && isAuthenticated && workspaceAccountId && !identityLoading && !identityError);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [roleRows, setRoleRows] = useState<RoleRow[]>([]);
   const [scopeRows, setScopeRows] = useState<ScopeRow[]>([]);
@@ -56,6 +66,9 @@ export default function AccountAdminPanel({ headingId }: Props) {
   const [message, setMessage] = useState("");
   const [messageKind, setMessageKind] = useState<"success" | "error">("success");
   const [busy, setBusy] = useState(false);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [scopeDataLoading, setScopeDataLoading] = useState(false);
+  const [organizationOptionsLoading, setOrganizationOptionsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<AccountAdminTab>("directory");
   const [accountQuery, setAccountQuery] = useState("");
   const [accountStatus, setAccountStatus] = useState<AccountDirectoryStatusFilter>("ALL");
@@ -64,89 +77,180 @@ export default function AccountAdminPanel({ headingId }: Props) {
   const [accountPage, setAccountPage] = useState(1);
   const [deleteConfirming, setDeleteConfirming] = useState(false);
   const operationRefs = useRef<Record<string, string>>({});
+  const manageLoadSequence = useRef(0);
+  const directoryLoadSequence = useRef(0);
+  const [directorySnapshotAccountId, setDirectorySnapshotAccountId] = useState<string | null>(null);
+  const directorySnapshotAccountIdRef = useRef<string | null>(null);
 
-  const selected = accounts.find((account) => account.id === selectedId) ?? null;
-  const selectedRoles = useMemo(() => roleRows.filter((row) => row.account_id === selectedId).map((row) => row.role_code), [roleRows, selectedId]);
+  const hasCurrentDirectorySnapshot = Boolean(
+    identityReady
+      && directorySnapshotAccountId
+      && directorySnapshotAccountId === workspaceAccountId,
+  );
+  const visibleAccounts = useMemo(() => hasCurrentDirectorySnapshot ? accounts : [], [accounts, hasCurrentDirectorySnapshot]);
+  const visibleRoleRows = useMemo(() => hasCurrentDirectorySnapshot ? roleRows : [], [hasCurrentDirectorySnapshot, roleRows]);
+
+  const selected = visibleAccounts.find((account) => account.id === selectedId) ?? null;
+  const selectedRoles = useMemo(
+    () => effectiveAccountRoles(visibleRoleRows.filter((row) => row.account_id === selectedId).map((row) => row.role_code)),
+    [selectedId, visibleRoleRows],
+  );
   const selectedScopes = useMemo(() => scopeRows.filter((row) => row.account_id === selectedId), [scopeRows, selectedId]);
+  const manageOptionsReady = institutions.length > 0 || departments.length > 0;
+  const scopeActionLabel = busy
+    ? "保存中…"
+    : scopeDataLoading
+      ? "讀取範圍中…"
+      : !manageOptionsReady
+        ? organizationOptionsLoading ? "載入機構／部門中…" : "目前沒有可用機構／部門"
+        : scopeEnabled ? "授權窗口範圍" : "撤銷窗口範圍";
   const filteredDepartments = departments.filter((department) => department.institution_id === institutionId);
-  const accountDirectoryRows = useMemo<AccountDirectoryRecord[]>(() => accounts.map((account) => ({
-    id: account.id,
-    loginName: account.login_name ?? "",
-    displayName: account.display_name,
-    email: account.email_snapshot ?? "",
-    isActive: account.is_active,
-    authBound: Boolean(account.auth_user_id),
-    roles: roleRows.filter((row) => row.account_id === account.id).map((row) => row.role_code),
-  })), [accounts, roleRows]);
+  const accountDirectoryRows = useMemo<AccountDirectoryRecord[]>(
+    () => buildAccountDirectoryRows(visibleAccounts, visibleRoleRows),
+    [visibleAccounts, visibleRoleRows],
+  );
   const filteredAccounts = useMemo(
     () => sortAccountDirectory(filterAccountDirectory(accountDirectoryRows, accountQuery, accountStatus), accountSortKey, accountSortDirection),
     [accountDirectoryRows, accountQuery, accountSortDirection, accountSortKey, accountStatus],
   );
+  const displayMessage = identityError ?? message;
 
-  const fetchData = useCallback(async () => {
-    if (!client) return null;
-    const [accountResult, roleResult, scopeResult, institutionResult, departmentResult] = await Promise.all([
-      client.from("app_accounts").select("id,auth_user_id,login_name,display_name,email_snapshot,is_active").order("display_name"),
-      client.from("user_roles").select("account_id,role_code"),
-      client.from("coordinator_scopes").select("account_id,institution_id,department_id"),
-      client.from("institutions").select("id,code,name").eq("is_active", true).order("code"),
-      client.from("departments").select("id,institution_id,code,name").eq("is_active", true).order("code"),
-    ]);
-    if (accountResult.error || roleResult.error || scopeResult.error || institutionResult.error || departmentResult.error) {
+  const fetchDirectoryData = useCallback(async () => {
+    if (!identityReady || !client) return null;
+    const directoryResult = await loadAccountDirectory(client);
+    if (directoryResult.error) {
       throw new Error("帳號資料載入失敗；請確認目前登入帳號具有 SYSTEM_ADMIN 角色。");
     }
     return {
-      accounts: (accountResult.data ?? []) as Account[],
-      roleRows: (roleResult.data ?? []) as RoleRow[],
-      scopeRows: (scopeResult.data ?? []) as ScopeRow[],
-      institutions: (institutionResult.data ?? []) as Institution[],
-      departments: (departmentResult.data ?? []) as Department[],
+      accounts: directoryResult.accounts,
+      roleRows: directoryResult.roleRows,
     };
-  }, [client]);
+  }, [client, identityReady]);
 
-  const applyData = useCallback((data: NonNullable<Awaited<ReturnType<typeof fetchData>>>) => {
+  const fetchScopeRows = useCallback(async (accountId: string) => {
+    if (!identityReady || !client || !accountId) return null;
+    const [scopeResult] = await retrySupabaseQueriesAfterSessionRefresh(
+      client,
+      async () => [await client.from("coordinator_scopes").select("account_id,institution_id,department_id").eq("account_id", accountId)] as const,
+    );
+    if (scopeResult.error) {
+      throw new Error("需求窗口範圍載入失敗；請確認目前登入帳號具有 SYSTEM_ADMIN 角色。");
+    }
+    return (scopeResult.data ?? []) as ScopeRow[];
+  }, [client, identityReady]);
+
+  const fetchManageOptions = useCallback(async () => {
+    if (!identityReady || !client) return null;
+    const organizationResult = await loadOrganizationMasterData(client);
+    if (organizationResult.errors.length > 0) {
+      throw new Error("機構／部門選項載入失敗；請確認目前登入帳號具有 SYSTEM_ADMIN 角色。");
+    }
+    return {
+      institutions: organizationResult.institutions.filter((row) => row.is_active) as Institution[],
+      departments: organizationResult.departments.filter((row) => row.is_active) as Department[],
+    };
+  }, [client, identityReady]);
+
+  const applyDirectoryData = useCallback((data: NonNullable<Awaited<ReturnType<typeof fetchDirectoryData>>>) => {
     setAccounts(data.accounts);
     setRoleRows(data.roleRows);
-    setScopeRows(data.scopeRows);
+    directorySnapshotAccountIdRef.current = workspaceAccountId;
+    setDirectorySnapshotAccountId(workspaceAccountId);
+  }, [workspaceAccountId]);
+
+  const clearDirectorySnapshot = useCallback(() => {
+    setAccounts([]);
+    setRoleRows([]);
+    directorySnapshotAccountIdRef.current = null;
+    setDirectorySnapshotAccountId(null);
+  }, []);
+
+  const applyManageData = useCallback((data: NonNullable<Awaited<ReturnType<typeof fetchScopeRows>>> | null) => {
+    if (data) setScopeRows(data);
+  }, []);
+
+  const applyManageOptions = useCallback((data: NonNullable<Awaited<ReturnType<typeof fetchManageOptions>>> | null) => {
+    if (!data) return;
     setInstitutions(data.institutions);
     setDepartments(data.departments);
   }, []);
 
-  async function load() {
+  const loadDirectory = useCallback(async () => {
+    const sequence = directoryLoadSequence.current + 1;
+    directoryLoadSequence.current = sequence;
+    setDirectoryLoading(true);
     try {
-      const data = await fetchData();
-      if (data) applyData(data);
+      const data = await fetchDirectoryData();
+      if (sequence !== directoryLoadSequence.current) return null;
+      if (data) applyDirectoryData(data);
       return data;
-    } catch (error) {
+    } catch {
+      if (sequence !== directoryLoadSequence.current) return null;
+      clearDirectorySnapshot();
       setMessageKind("error");
-      setMessage(error instanceof Error ? error.message : "帳號資料載入失敗");
+      setMessage("帳號資料載入失敗；請確認目前登入帳號具有 SYSTEM_ADMIN 角色後重新整理。");
       return null;
+    } finally {
+      if (sequence === directoryLoadSequence.current) setDirectoryLoading(false);
     }
+  }, [applyDirectoryData, clearDirectorySnapshot, fetchDirectoryData]);
+
+  async function loadManageData(accountId: string) {
+    if (!client || !accountId) return null;
+    const sequence = manageLoadSequence.current + 1;
+    manageLoadSequence.current = sequence;
+    setScopeDataLoading(true);
+    setOrganizationOptionsLoading(true);
+
+    const scopeRead = (async () => {
+      try {
+        const data = await fetchScopeRows(accountId);
+        if (sequence === manageLoadSequence.current) applyManageData(data);
+      } catch {
+        if (sequence === manageLoadSequence.current) {
+          setMessageKind("error");
+          setMessage("需求窗口範圍載入失敗；請確認目前登入帳號具有 SYSTEM_ADMIN 角色後重試。");
+        }
+      } finally {
+        if (sequence === manageLoadSequence.current) setScopeDataLoading(false);
+      }
+    })();
+
+    const optionsRead = (async () => {
+      try {
+        const data = await fetchManageOptions();
+        if (sequence === manageLoadSequence.current) applyManageOptions(data);
+      } catch {
+        if (sequence === manageLoadSequence.current) {
+          setMessageKind("error");
+          setMessage("機構／部門選項載入失敗；請確認目前登入帳號具有 SYSTEM_ADMIN 角色後重試。");
+        }
+      } finally {
+        if (sequence === manageLoadSequence.current) setOrganizationOptionsLoading(false);
+      }
+    })();
+
+    await Promise.all([scopeRead, optionsRead]);
+    return null;
   }
 
   async function refreshAccounts() {
-    setBusy(true);
-    await load();
-    setBusy(false);
+    if (busy) return;
+    const data = await loadDirectory();
+    if (data && activeTab === "manage" && selectedId) await loadManageData(selectedId);
   }
 
   useEffect(() => {
-    if (!client) return;
+    if (!identityReady || !client) return;
     let active = true;
-    async function loadInitialData() {
-      try {
-        const data = await fetchData();
-        if (active && data) applyData(data);
-      } catch (error) {
-        if (active) {
-          setMessageKind("error");
-          setMessage(error instanceof Error ? error.message : "帳號資料載入失敗");
-        }
-      }
-    }
-    void loadInitialData();
-    return () => { active = false; };
-  }, [applyData, client, fetchData]);
+    queueMicrotask(() => {
+      if (active) void loadDirectory();
+    });
+    return () => {
+      active = false;
+      directoryLoadSequence.current += 1;
+    };
+  }, [client, identityReady, loadDirectory, panelActive]);
 
   function resetOperation(name: string) { delete operationRefs.current[name]; }
   function operationKey(name: string) { return operationRefs.current[name] ?? (operationRefs.current[name] = crypto.randomUUID()); }
@@ -156,7 +260,11 @@ export default function AccountAdminPanel({ headingId }: Props) {
     setEditLoginName(account.login_name ?? "");
     setEditDisplayName(account.display_name);
     setEditEmail(account.email_snapshot ?? "");
-    setEditRoleCodes(roleRows.filter((row) => row.account_id === account.id).map((row) => row.role_code));
+    setEditRoleCodes(visibleRoleRows.filter((row) => row.account_id === account.id).map((row) => row.role_code));
+    setInstitutionId("");
+    setDepartmentId("");
+    setScopeEnabled(true);
+    setScopeRows([]);
     setDeleteConfirming(false);
     setActiveTab("manage");
     resetOperation("profile");
@@ -166,11 +274,18 @@ export default function AccountAdminPanel({ headingId }: Props) {
     resetOperation("delete");
     resetOperation("scope");
     resetOperation("rebind");
+    void loadManageData(account.id);
   }
 
   function selectAccountById(accountId: string) {
-    const account = accounts.find((candidate) => candidate.id === accountId);
+    const account = visibleAccounts.find((candidate) => candidate.id === accountId);
     if (account) selectAccount(account);
+  }
+
+  function handleTabChange(tabId: string) {
+    const nextTab = tabId as AccountAdminTab;
+    setActiveTab(nextTab);
+    if (nextTab === "manage" && selectedId) void loadManageData(selectedId);
   }
 
   function toggleAccountSort(nextKey: AccountDirectorySortKey) {
@@ -183,9 +298,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
   }
 
   async function runOperation(payload: OperationPayload, operationName: string): Promise<OperationResult | null> {
-    if (!client) return null;
-    const { data: sessionData } = await client.auth.getSession();
-    const accessToken = sessionData.session?.access_token;
+    if (!identityReady || !client) return null;
     if (!accessToken) {
       throw new Error("登入工作階段不存在或已過期，請重新登入。");
     }
@@ -196,12 +309,33 @@ export default function AccountAdminPanel({ headingId }: Props) {
     });
     const result = await response.json() as OperationResult;
     if (!response.ok || !result.ok) {
-      throw new Error(result.error ?? "帳號管理操作失敗。");
+      throw new Error("帳號管理操作未完成；請確認權限與操作理由後，使用相同按鈕重試。" );
     }
     resetOperation(operationName);
     setMessageKind(result.warning ? "error" : "success");
-    setMessage(result.warning ?? "帳號管理操作已完成。");
-    await load();
+    setMessage(result.warning ? "帳號資料已保存，但登入服務同步尚未完成；請重新整理後確認。" : "帳號管理操作已完成。");
+    if (result.account) {
+      const roleCodes = Array.isArray(payload.role_codes)
+        ? payload.role_codes.filter((role): role is Role => roles.includes(role as Role))
+        : undefined;
+      const roleCode = roles.includes(payload.role_code as Role) ? payload.role_code as Role : undefined;
+      const scope = typeof payload.institution_id === "string" && typeof payload.department_id === "string" && typeof payload.is_enabled === "boolean"
+        ? { institutionId: payload.institution_id, departmentId: payload.department_id, enabled: payload.is_enabled }
+        : undefined;
+      const nextState = applyAccountAdminLocalResult(
+        { accounts, roleRows, scopeRows },
+        { operation: String(payload.operation ?? ""), account: result.account, roleCodes, roleCode, roleEnabled: payload.is_enabled === true, scope },
+      );
+      setAccounts([...nextState.accounts]);
+      setRoleRows([...nextState.roleRows]);
+      setScopeRows([...nextState.scopeRows]);
+      if (selectedId === result.account.id) {
+        setEditLoginName(result.account.login_name ?? "");
+        setEditDisplayName(result.account.display_name);
+        setEditEmail(result.account.email_snapshot ?? "");
+        setEditRoleCodes(nextState.roleRows.filter((row) => row.account_id === result.account?.id).map((row) => row.role_code));
+      }
+    }
     return result;
   }
 
@@ -235,7 +369,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
       setLoginName(""); setDisplayName(""); setEmail(""); setPassword(""); setCreateRoleCodes(["HR"]);
     } catch (error) {
       setMessageKind("error");
-      setMessage(error instanceof Error ? error.message : "建立帳號失敗。");
+      setMessage("建立帳號失敗；請確認資料、操作理由與權限後使用相同按鈕重試。");
     } finally { setBusy(false); }
   }
 
@@ -243,7 +377,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
     if (!selectedId || editRoleCodes.length === 0 || !reason.trim()) { setMessageKind("error"); setMessage("請選擇帳號、至少一個角色並填寫操作理由。"); return; }
     setBusy(true); setMessage("");
     try { await runOperation({ operation: "set_roles", account_id: selectedId, role_codes: editRoleCodes, reason: reason.trim() }, "roles"); }
-    catch (error) { setMessageKind("error"); setMessage(error instanceof Error ? error.message : "角色權限變更失敗。"); }
+    catch { setMessageKind("error"); setMessage("角色權限變更失敗；請確認資料與操作理由後使用相同按鈕重試。"); }
     finally { setBusy(false); }
   }
 
@@ -251,7 +385,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
     if (!selectedId || !reason.trim()) { setMessageKind("error"); setMessage("請選擇帳號並填寫操作理由。"); return; }
     setBusy(true); setMessage("");
     try { await runOperation({ operation: "set_status", account_id: selectedId, is_active: !selected?.is_active, reason: reason.trim() }, "status"); }
-    catch (error) { setMessageKind("error"); setMessage(error instanceof Error ? error.message : "帳號狀態變更失敗。"); }
+    catch { setMessageKind("error"); setMessage("帳號狀態變更失敗；請確認操作理由後使用相同按鈕重試。"); }
     finally { setBusy(false); }
   }
 
@@ -259,7 +393,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
     if (!selectedId || !institutionId || !departmentId || !reason.trim()) { setMessageKind("error"); setMessage("請選擇需求窗口、機構、部門並填寫理由。"); return; }
     setBusy(true); setMessage("");
     try { await runOperation({ operation: "set_scope", account_id: selectedId, institution_id: institutionId, department_id: departmentId, is_enabled: scopeEnabled, reason: reason.trim() }, "scope"); }
-    catch (error) { setMessageKind("error"); setMessage(error instanceof Error ? error.message : "窗口範圍變更失敗。"); }
+    catch { setMessageKind("error"); setMessage("窗口範圍變更失敗；請確認機構、部門與操作理由後使用相同按鈕重試。"); }
     finally { setBusy(false); }
   }
 
@@ -267,7 +401,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
     if (!selectedId || (!unbindAuth && !newAuthUserId.trim()) || !reason.trim()) { setMessageKind("error"); setMessage("請選擇帳號、填寫新的 Auth user UUID 與理由。"); return; }
     setBusy(true); setMessage("");
     try { await runOperation({ operation: "rebind", account_id: selectedId, new_auth_user_id: unbindAuth ? null : newAuthUserId.trim(), reason: reason.trim(), recovery_ticket: recoveryTicket.trim() || null }, "rebind"); setNewAuthUserId(""); setRecoveryTicket(""); setUnbindAuth(false); }
-    catch (error) { setMessageKind("error"); setMessage(error instanceof Error ? error.message : "Auth 綁定重設失敗。"); }
+    catch { setMessageKind("error"); setMessage("Auth 綁定重設失敗；請確認 UUID、復原票據與操作理由後使用相同按鈕重試。"); }
     finally { setBusy(false); }
   }
 
@@ -275,7 +409,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
     if (!selectedId || !editLoginName.trim() || !editDisplayName.trim() || !reason.trim()) { setMessageKind("error"); setMessage("請填寫登入帳號、顯示名稱與操作理由。"); return; }
     setBusy(true); setMessage("");
     try { await runOperation({ operation: "update_profile", account_id: selectedId, login_name: editLoginName.trim(), display_name: editDisplayName.trim(), email: editEmail.trim() || null, reason: reason.trim() }, "profile"); }
-    catch (error) { setMessageKind("error"); setMessage(error instanceof Error ? error.message : "帳號資料修改失敗。"); }
+    catch { setMessageKind("error"); setMessage("帳號資料修改失敗；請確認登入帳號、顯示名稱與操作理由後使用相同按鈕重試。"); }
     finally { setBusy(false); }
   }
 
@@ -283,7 +417,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
     if (!selectedId || resetPassword.length < 6 || !reason.trim()) { setMessageKind("error"); setMessage("請輸入至少 6 個字元的新密碼與操作理由。"); return; }
     setBusy(true); setMessage("");
     try { await runOperation({ operation: "set_password", account_id: selectedId, password: resetPassword, reason: reason.trim() }, "password"); setResetPassword(""); }
-    catch (error) { setMessageKind("error"); setMessage(error instanceof Error ? error.message : "密碼修改失敗。"); }
+    catch { setMessageKind("error"); setMessage("密碼修改失敗；請確認密碼格式與操作理由後使用相同按鈕重試。"); }
     finally { setBusy(false); }
   }
 
@@ -294,7 +428,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
       await runOperation({ operation: "delete", account_id: selectedId, reason: reason.trim() }, "delete");
       setDeleteConfirming(false);
     }
-    catch (error) { setMessageKind("error"); setMessage(error instanceof Error ? error.message : "帳號刪除失敗。"); }
+    catch { setMessageKind("error"); setMessage("帳號刪除失敗；請確認帳號狀態、業務歷史與操作理由後使用相同按鈕重試。"); }
     finally { setBusy(false); }
   }
 
@@ -318,26 +452,30 @@ export default function AccountAdminPanel({ headingId }: Props) {
         </div>
         <div className="module-workbench-actions">
           <button className="primary-button" type="button" onClick={() => setActiveTab("create")}>＋ 新增帳號</button>
-          <button className="secondary-button" type="button" onClick={() => void refreshAccounts()} disabled={busy}>{busy ? "讀取中…" : "重新整理"}</button>
+          <button className="secondary-button" type="button" onClick={() => void refreshAccounts()} disabled={busy}>{directoryLoading ? "讀取中…" : "重新整理"}</button>
         </div>
       </div>
       <ModuleWorkbenchNavigation
         idPrefix="account-admin"
         ariaLabel="帳號管理功能"
         activeTabId={activeTab}
-        onTabChange={(tabId) => setActiveTab(tabId as AccountAdminTab)}
+        onTabChange={handleTabChange}
         tabs={[
-          { id: "directory", label: "帳號清單", badge: String(accounts.length) },
+          { id: "directory", label: "帳號清單", badge: String(visibleAccounts.length) },
           { id: "create", label: "新增帳號" },
           { id: "manage", label: "帳號設定", badge: selected ? selected.login_name ?? selected.display_name : undefined },
         ]}
       />
     </section>
-    {message ? <p className={messageKind === "success" ? "success-note account-admin-feedback" : "error-box account-admin-feedback"} role="status" aria-live="polite">{message}</p> : null}
-    <section className="panel import-panel account-admin-content" aria-label="帳號角色與需求窗口管理">
-    <div id="account-admin-panel-directory" className="increase-list account-directory" role="tabpanel" aria-labelledby="account-admin-tab-directory" hidden={activeTab !== "directory"}>
-      <div className="subheading"><h3>現有業務帳號</h3><span>已載入 {accounts.length} 筆</span></div>
-      <p className="muted">這裡列出已建立 `app_accounts` 並受角色／RLS 管理的正式帳號；只存在 Supabase Authentication、尚未建立業務帳號的登入身份不會出現在此清單。</p>
+    {displayMessage ? <p className={messageKind === "success" && !identityError ? "success-note account-admin-feedback" : "error-box account-admin-feedback"} role="status" aria-live="polite">{displayMessage}</p> : null}
+    <RetainedPanelSet
+      idPrefix="account-admin"
+      activePanelId={activeTab}
+      panelClassName="panel import-panel account-admin-content"
+      panels={[
+        { id: "directory", content: <div className="increase-list account-directory">
+      <div className="subheading"><h3>現有業務帳號</h3><span>已載入 {visibleAccounts.length} 筆</span></div>
+      <p className="muted">這裡列出已建立正式帳號並完成角色設定的使用者；只存在登入服務、尚未建立業務帳號的身份不會出現在此清單。</p>
       <div className="account-directory-filters">
         <label className="field"><span>搜尋帳號／角色</span><input value={accountQuery} onChange={(event) => { setAccountQuery(event.target.value); setAccountPage(1); }} placeholder="登入帳號、名稱、Email 或角色…" /></label>
         <label className="field"><span>帳號狀態</span><select value={accountStatus} onChange={(event) => { setAccountStatus(event.target.value as AccountDirectoryStatusFilter); setAccountPage(1); }}><option value="ALL">全部狀態</option><option value="ACTIVE">啟用</option><option value="INACTIVE">停用</option></select></label>
@@ -352,6 +490,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
         sortKey={accountSortKey}
         sortDirection={accountSortDirection}
         onSort={toggleAccountSort}
+        loading={directoryLoading}
         defaultPageSize={10}
         pageSizeOptions={[10, 25, 50]}
         emptyState={<p className="empty-state">目前沒有符合條件的業務帳號，或目前登入者沒有 SYSTEM_ADMIN 讀取權限。</p>}
@@ -365,8 +504,8 @@ export default function AccountAdminPanel({ headingId }: Props) {
           { id: "actions", label: "功能", locked: true, render: (account) => <button className="management-row-action" type="button" onClick={() => selectAccountById(account.id)}>{selectedId === account.id ? "編輯中" : "管理"}</button> },
         ]}
       />
-    </div>
-    <div id="account-admin-panel-create" role="tabpanel" aria-labelledby="account-admin-tab-create" hidden={activeTab !== "create"}>
+    </div> },
+        { id: "create", content: <div>
     <div className="subheading account-create-heading"><h3>新增帳號</h3><span>帳號、密碼、角色與理由完成後送出</span></div>
     <div className="form-grid">
       <label className="field"><span>登入帳號（2–50 個小寫英數字）</span><input autoComplete="username" value={loginName} onChange={(event) => { resetOperation("create"); setLoginName(event.target.value); }} disabled={busy} placeholder="例如 hr01" /></label>
@@ -376,14 +515,14 @@ export default function AccountAdminPanel({ headingId }: Props) {
       <label className="field"><span>建立理由（必填）</span><input value={reason} onChange={(event) => { resetOperation("create"); setReason(event.target.value); }} disabled={busy} /></label>
     </div>
     <fieldset className="role-fieldset">
-      <legend>角色權限（至少選擇一項）</legend>
+      <legend>角色權限（至少選擇一項；SYSTEM_ADMIN 勾選後自動涵蓋其他角色）</legend>
       <div className="role-check-grid">
-        {roles.map((roleCode) => <label className="role-check" key={`create-${roleCode}`}><input type="checkbox" checked={createRoleCodes.includes(roleCode)} onChange={(event) => toggleRole(roleCode, event.target.checked, "create")} disabled={busy} /><span>{roleCode}</span></label>)}
+        {roles.map((roleCode) => <label className="role-check" key={`create-${roleCode}`}><input type="checkbox" checked={accountHasEffectiveRole(createRoleCodes, roleCode)} onChange={(event) => toggleRole(roleCode, event.target.checked, "create")} disabled={busy || (createRoleCodes.includes("SYSTEM_ADMIN") && roleCode !== "SYSTEM_ADMIN")} /><span>{roleCode}</span></label>)}
       </div>
     </fieldset>
     <div className="button-row"><button className="primary-button" type="button" onClick={() => void createAccount()} disabled={busy}>{busy ? "處理中…" : "建立帳號、登入身份與權限"}</button></div>
-    </div>
-    <div id="account-admin-panel-manage" role="tabpanel" aria-labelledby="account-admin-tab-manage" hidden={activeTab !== "manage"}>
+    </div> },
+        { id: "manage", content: <>
     {!selected ? <p className="empty-state">請先從「帳號清單」選擇要管理的帳號。</p> : null}
     {selected ? <>
       <div className="increase-list">
@@ -403,11 +542,11 @@ export default function AccountAdminPanel({ headingId }: Props) {
         <div className="button-row"><button className="secondary-button" type="button" onClick={() => void updatePassword()} disabled={busy || resetPassword.length < 6 || !selected.auth_user_id || !reason.trim()}>修改登入密碼</button></div>
       </div>
       <div className="increase-list">
-        <div className="subheading"><h3>角色權限</h3><span>可同時勾選多個角色並一次儲存</span></div>
+        <div className="subheading"><h3>角色權限</h3><span>SYSTEM_ADMIN 自動具備全部角色權限；其他帳號可同時勾選多個角色</span></div>
         <fieldset className="role-fieldset">
-          <legend>目前要授予的角色（至少一項）</legend>
+          <legend>目前要授予的角色（至少一項；SYSTEM_ADMIN 勾選後自動涵蓋其他角色）</legend>
           <div className="role-check-grid">
-            {roles.map((roleCode) => <label className="role-check" key={`edit-${roleCode}`}><input type="checkbox" checked={editRoleCodes.includes(roleCode)} onChange={(event) => toggleRole(roleCode, event.target.checked, "edit")} disabled={busy} /><span>{roleCode}</span></label>)}
+            {roles.map((roleCode) => <label className="role-check" key={`edit-${roleCode}`}><input type="checkbox" checked={accountHasEffectiveRole(editRoleCodes, roleCode)} onChange={(event) => toggleRole(roleCode, event.target.checked, "edit")} disabled={busy || (editRoleCodes.includes("SYSTEM_ADMIN") && roleCode !== "SYSTEM_ADMIN")} /><span>{roleCode}</span></label>)}
           </div>
         </fieldset>
         <div className="button-row"><button className="secondary-button" type="button" onClick={() => void setRoleValues()} disabled={busy || editRoleCodes.length === 0 || !reason.trim()}>儲存角色權限</button></div>
@@ -421,9 +560,46 @@ export default function AccountAdminPanel({ headingId }: Props) {
       <p className="muted">目前角色：{selectedRoles.length > 0 ? selectedRoles.join("、") : "尚未指派"}／目前需求窗口範圍：{selectedScopes.length} 筆</p>
       <div className="button-row"><button className="secondary-button" type="button" onClick={() => void setStatus()} disabled={busy || !reason.trim()}>{selected.is_active ? "停用登入與帳號" : "重新啟用帳號"}</button><button className="secondary-button" type="button" onClick={() => void rebindAuth()} disabled={busy || !reason.trim() || (!unbindAuth && !newAuthUserId.trim())}>{unbindAuth ? "解除 Auth 綁定" : "重設 Auth 綁定"}</button><button className="secondary-button" type="button" onClick={() => setDeleteConfirming(true)} disabled={busy || !reason.trim()}>刪除登入身份</button></div>
       {deleteConfirming ? <div className="product-deactivate-warning account-delete-confirmation"><strong>確認刪除「{selected.display_name}」的登入身份？</strong><span>業務歷史會保留，但帳號將停用且 Auth 登入身份會被刪除。此操作必須有上方填寫的理由。</span><div className="button-row"><button className="danger-button" type="button" onClick={() => void deleteAccount()} disabled={busy}>{busy ? "刪除中…" : "確認刪除登入身份"}</button><button className="secondary-button" type="button" onClick={() => setDeleteConfirming(false)} disabled={busy}>取消</button></div></div> : null}
-      <div className="increase-list"><div className="subheading"><h3>需求窗口範圍</h3><span>只有 DEMAND_COORDINATOR 可設定範圍</span></div><div className="form-grid"><label className="field"><span>機構</span><select value={institutionId} onChange={(event) => { resetOperation("scope"); setInstitutionId(event.target.value); setDepartmentId(""); }} disabled={busy}><option value="">選擇機構</option>{institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.code}｜{institution.name}</option>)}</select></label><label className="field"><span>部門</span><select value={departmentId} onChange={(event) => { resetOperation("scope"); setDepartmentId(event.target.value); }} disabled={busy || !institutionId}><option value="">選擇部門</option>{filteredDepartments.map((department) => <option key={department.id} value={department.id}>{department.code}｜{department.name}</option>)}</select></label><label className="field"><span>範圍狀態</span><select value={scopeEnabled ? "ON" : "OFF"} onChange={(event) => { resetOperation("scope"); setScopeEnabled(event.target.value === "ON"); }} disabled={busy}><option value="ON">授權</option><option value="OFF">撤銷</option></select></label></div><div className="button-row"><button className="secondary-button" type="button" onClick={() => void setScope()} disabled={busy || !institutionId || !departmentId}>{scopeEnabled ? "授權窗口範圍" : "撤銷窗口範圍"}</button></div></div>
+       <div className="increase-list">
+         <div className="subheading"><h3>需求窗口範圍</h3><span>只有 DEMAND_COORDINATOR 可設定範圍</span></div>
+         {scopeDataLoading || organizationOptionsLoading ? (
+           <p className="muted" role="status" aria-live="polite">
+             {scopeDataLoading ? <span>正在更新目前帳號的窗口範圍。 </span> : null}
+             {organizationOptionsLoading ? <span>正在更新機構／部門選項；{manageOptionsReady ? "目前載入的選項仍可使用。" : "載入完成後即可操作。"}</span> : null}
+           </p>
+         ) : null}
+         <div className="form-grid">
+           <label className="field">
+             <span>機構</span>
+             <select value={institutionId} onChange={(event) => { resetOperation("scope"); setInstitutionId(event.target.value); setDepartmentId(""); }} disabled={busy || !manageOptionsReady}>
+               <option value="">{organizationOptionsLoading && !manageOptionsReady ? "載入機構中…" : "選擇機構"}</option>
+               {institutions.map((institution) => <option key={institution.id} value={institution.id}>{institution.code}｜{institution.name}</option>)}
+             </select>
+           </label>
+           <label className="field">
+             <span>部門</span>
+             <select value={departmentId} onChange={(event) => { resetOperation("scope"); setDepartmentId(event.target.value); }} disabled={busy || !manageOptionsReady || !institutionId}>
+               <option value="">{organizationOptionsLoading && !manageOptionsReady ? "載入部門中…" : "選擇部門"}</option>
+               {filteredDepartments.map((department) => <option key={department.id} value={department.id}>{department.code}｜{department.name}</option>)}
+             </select>
+           </label>
+           <label className="field">
+             <span>範圍狀態</span>
+             <select value={scopeEnabled ? "ON" : "OFF"} onChange={(event) => { resetOperation("scope"); setScopeEnabled(event.target.value === "ON"); }} disabled={busy || !manageOptionsReady}>
+               <option value="ON">授權</option>
+               <option value="OFF">撤銷</option>
+             </select>
+           </label>
+         </div>
+         <div className="button-row">
+           <button className="secondary-button" type="button" onClick={() => void setScope()} disabled={busy || scopeDataLoading || !manageOptionsReady || !institutionId || !departmentId}>
+             {scopeActionLabel}
+           </button>
+         </div>
+       </div>
     </> : null}
-    </div>
-  </section>
+    </> },
+      ]}
+    />
   </div>;
 }

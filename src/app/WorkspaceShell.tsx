@@ -1,25 +1,53 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import AuthPanel from "./AuthPanel";
+import AuthLanding from "./AuthLanding";
 import AuthSessionBoundary from "./AuthSessionBoundary";
 import RetainedPanelSet from "./RetainedPanelSet";
 import WorkspaceTopbar from "./WorkspaceTopbar";
+import WorkspacePanelLoading from "./WorkspacePanelLoading";
 import SystemGuidePageClient from "./system-guide/SystemGuidePageClient";
 import { useAuthSession } from "./use-auth-session";
 import { useSystemGuideAccess } from "./use-system-guide-access";
-import AccountWorkspace from "./workspaces/AccountWorkspace";
-import HrWorkspace from "./workspaces/HrWorkspace";
-import OverviewWorkspace from "./workspaces/OverviewWorkspace";
-import ProcurementWorkspace from "./workspaces/ProcurementWorkspace";
-import ReportsWorkspace from "./workspaces/ReportsWorkspace";
-import SeasonalWorkspace from "./workspaces/SeasonalWorkspace";
-import WarehouseWorkspace from "./workspaces/WarehouseWorkspace";
-import { isWorkspaceId, type WorkspaceId, workspaceDefinitions } from "./workspaces/workspace-config";
+import { useWorkspaceIdentity, WorkspaceSessionProvider } from "./workspace-session";
+import { isWorkspaceId, resolveWorkspaceSelectorTarget, type WorkspaceId, workspaceDefinitions } from "./workspaces/workspace-config";
 import { type AppearanceTheme, useAppearanceTheme } from "./use-appearance-theme";
 import { useWorkspaceMotion } from "./use-workspace-motion";
 import { accountLabelFromUser } from "@/src/lib/account-login";
+import { resolvePostLogoutEntry } from "@/src/domain/auth-navigation";
+import { createWorkspacePrefetchIntent } from "@/src/domain/workspace-prefetch";
+
+const workspaceLoaders = {
+  overview: () => import("./workspaces/OverviewWorkspace"),
+  accounts: () => import("./workspaces/AccountWorkspace"),
+  hr: () => import("./workspaces/HrWorkspace"),
+  warehouse: () => import("./workspaces/WarehouseWorkspace"),
+  procurement: () => import("./workspaces/ProcurementWorkspace"),
+  seasonal: () => import("./workspaces/SeasonalWorkspace"),
+  reports: () => import("./workspaces/ReportsWorkspace"),
+} as const;
+
+const OverviewWorkspace = dynamic(workspaceLoaders.overview, { loading: () => <WorkspacePanelLoading label="正在載入總覽" /> });
+const AccountWorkspace = dynamic(workspaceLoaders.accounts, { loading: () => <WorkspacePanelLoading label="正在載入帳號管理" /> });
+const HrWorkspace = dynamic(workspaceLoaders.hr, { loading: () => <WorkspacePanelLoading label="正在載入人資需求" /> });
+const WarehouseWorkspace = dynamic(workspaceLoaders.warehouse, { loading: () => <WorkspacePanelLoading label="正在載入倉庫作業" /> });
+const ProcurementWorkspace = dynamic(workspaceLoaders.procurement, { loading: () => <WorkspacePanelLoading label="正在載入採購與入庫" /> });
+const SeasonalWorkspace = dynamic(workspaceLoaders.seasonal, { loading: () => <WorkspacePanelLoading label="正在載入換季活動" /> });
+const ReportsWorkspace = dynamic(workspaceLoaders.reports, { loading: () => <WorkspacePanelLoading label="正在載入報表" /> });
+
+const prefetchedWorkspaceIds = new Set<keyof typeof workspaceLoaders>();
+
+function prefetchWorkspace(id: keyof typeof workspaceLoaders): void {
+  if (prefetchedWorkspaceIds.has(id)) return;
+  prefetchedWorkspaceIds.add(id);
+  void workspaceLoaders[id]().catch(() => {
+    // Allow a later click/focus to retry after a transient chunk failure.
+    prefetchedWorkspaceIds.delete(id);
+  });
+}
 
 function WorkspaceIcon({ name }: { name: (typeof workspaceDefinitions)[number]["icon"] }) {
   const common = { width: 17, height: 17, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -62,47 +90,73 @@ function workspaceFromUrl(): WorkspaceId {
   return isWorkspaceId(value) ? value : "overview";
 }
 
-function AuthLanding({ children }: { children: ReactNode }) {
-  return (
-    <main className="auth-landing">
-      <div className="auth-landing-pattern" aria-hidden="true" />
-      <div className="auth-landing-content">
-        <div className="auth-landing-brand">
-          <span className="app-brand-mark" aria-hidden="true">U</span>
-          <div>
-            <p className="eyebrow">UNIFORM CO.</p>
-            <h1>制服資產作業台</h1>
-            <p>正式資料工作區</p>
-          </div>
-        </div>
-        {children}
-        <p className="auth-landing-footnote">Supabase Auth ／ PostgreSQL RLS ／ 正式資料工作區</p>
-      </div>
-    </main>
-  );
-}
-
 function WorkspaceStage({ children, appearanceTheme }: { children: ReactNode; appearanceTheme: AppearanceTheme }) {
   const motionScope = useWorkspaceMotion(appearanceTheme);
   return <div ref={motionScope} className="app-shell">{children}</div>;
 }
 
-export default function WorkspaceShell({ initialSystemGuide = false }: { initialSystemGuide?: boolean }) {
+type WorkspaceContentProps = {
+  workspaceId: WorkspaceId;
+  activeModule: string;
+  onNavigate: (workspaceId: WorkspaceId, anchor: string) => void;
+};
+
+function WorkspaceContent({ workspaceId, activeModule, onNavigate }: WorkspaceContentProps) {
+  switch (workspaceId) {
+    case "overview":
+      return <OverviewWorkspace activeModule={activeModule} onNavigate={onNavigate} />;
+    case "accounts":
+      return <AccountWorkspace activeModule={activeModule} />;
+    case "hr":
+      return <HrWorkspace activeModule={activeModule} />;
+    case "warehouse":
+      return <WarehouseWorkspace activeModule={activeModule} onNavigate={onNavigate} />;
+    case "procurement":
+      return <ProcurementWorkspace activeModule={activeModule} />;
+    case "seasonal":
+      return <SeasonalWorkspace activeModule={activeModule} />;
+    case "reports":
+      return <ReportsWorkspace activeModule={activeModule} />;
+  }
+}
+
+const MemoizedWorkspaceContent = memo(WorkspaceContent);
+
+export default function WorkspaceShell({ initialSystemGuide = false, initialSsoBindingPending = false }: { initialSystemGuide?: boolean; initialSsoBindingPending?: boolean }) {
   const router = useRouter();
-  const { client, user, loading } = useAuthSession();
-  const systemGuide = useSystemGuideAccess(client, user);
+  const { client, session, user, loading } = useAuthSession();
+  const identity = useWorkspaceIdentity(client, user);
+  const systemGuide = useSystemGuideAccess(client, user, session, identity);
   const { theme: appearanceTheme, setTheme: setAppearanceTheme } = useAppearanceTheme();
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("overview");
+  const activeWorkspaceRef = useRef(activeWorkspace);
   const [activeModuleByWorkspace, setActiveModuleByWorkspace] = useState<Partial<Record<WorkspaceId, string>>>({});
-  const [signingOut, setSigningOut] = useState(false);
+  const workspacePrefetchIntent = useMemo(() => createWorkspacePrefetchIntent(prefetchWorkspace), []);
   const activeDefinition = workspaceDefinitions.find((workspace) => workspace.id === activeWorkspace) ?? workspaceDefinitions[0];
   const activeHeaderDefinition = initialSystemGuide ? systemGuideDefinition : activeDefinition;
   const activeModule = activeModuleByWorkspace[activeWorkspace] ?? activeDefinition.modules[0].anchor;
   const accountLabel = user ? accountLabelFromUser(user) : "已登入帳號";
   const guideNavigationVisible = systemGuide.allowed || (initialSystemGuide && systemGuide.checking);
+  const [signingOut, setSigningOut] = useState(false);
+
+  const handleSignOut = async () => {
+    if (!client) return;
+    setSigningOut(true);
+    try {
+      const { error } = await client.auth.signOut();
+      if (error) throw error;
+      window.location.replace(resolvePostLogoutEntry());
+    } finally {
+      setSigningOut(false);
+    }
+  };
 
   useEffect(() => {
-    const syncWorkspace = () => setActiveWorkspace(workspaceFromUrl());
+    const syncWorkspace = () => {
+      const nextWorkspace = workspaceFromUrl();
+      activeWorkspaceRef.current = nextWorkspace;
+      setActiveWorkspace(nextWorkspace);
+    };
     syncWorkspace();
     window.addEventListener("hashchange", syncWorkspace);
     window.addEventListener("popstate", syncWorkspace);
@@ -112,45 +166,71 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
     };
   }, []);
 
-  function selectWorkspace(id: WorkspaceId, anchor?: string) {
+  useEffect(() => {
+    if (!client || !user || !systemGuide.allowed) return;
+    // Only system admins can open this route, so avoid downloading it for
+    // unrelated roles. The API still reauthorizes every document read.
+    router.prefetch("/system-guide");
+  }, [client, router, systemGuide.allowed, user]);
+
+  useEffect(() => () => workspacePrefetchIntent.cancelAll(), [workspacePrefetchIntent]);
+
+  const selectWorkspace = useCallback((id: WorkspaceId, anchor?: string) => {
+    workspacePrefetchIntent.cancel(id);
+    prefetchWorkspace(id);
     const definition = workspaceDefinitions.find((workspace) => workspace.id === id) ?? workspaceDefinitions[0];
     const nextModule = anchor && definition.modules.some((module) => module.anchor === anchor)
       ? anchor
       : definition.modules[0].anchor;
-    const workspaceChanged = activeWorkspace !== id;
     if (initialSystemGuide) {
       router.push(`/#${id}`);
       return;
     }
+    const workspaceChanged = activeWorkspaceRef.current !== id;
+    activeWorkspaceRef.current = id;
     setActiveWorkspace(id);
-    setActiveModuleByWorkspace((current) => ({ ...current, [id]: nextModule }));
+    setActiveModuleByWorkspace((current) => current[id] === nextModule ? current : { ...current, [id]: nextModule });
     if (window.location.hash !== `#${id}`) {
       window.history.pushState({}, "", `#${id}`);
     }
     if (workspaceChanged) window.scrollTo({ top: 0, behavior: "auto" });
-  }
+  }, [initialSystemGuide, router, workspacePrefetchIntent]);
+
+  const workspacePanels = useMemo(() => workspaceDefinitions.map((workspace) => {
+    const workspaceModule = activeModuleByWorkspace[workspace.id] ?? workspace.modules[0].anchor;
+    return {
+      id: workspace.id,
+      panelId: `workspace-${workspace.id}`,
+      tabId: `workspace-tab-${workspace.id}`,
+      content: <MemoizedWorkspaceContent
+        workspaceId={workspace.id}
+        activeModule={workspaceModule}
+        onNavigate={selectWorkspace}
+      />,
+    };
+  }), [activeModuleByWorkspace, selectWorkspace]);
 
   if (!client) {
-    return <AuthLanding><AuthPanel /></AuthLanding>;
+    return <AuthLanding bindingPending={initialSsoBindingPending}><AuthPanel /></AuthLanding>;
   }
 
   if (loading) {
     return (
-      <AuthLanding>
+      <AuthLanding bindingPending={initialSsoBindingPending}>
         <section className="auth-panel panel auth-loading" aria-live="polite" aria-label="確認登入狀態">
           <div>
             <p className="eyebrow">ACCOUNT / VERIFYING SESSION</p>
             <h2>正在確認登入狀態</h2>
             <p className="auth-message">工作區資料會在登入驗證完成後載入。</p>
           </div>
-          <span className="status-pill">SESSION CHECK</span>
+          <span className="status-pill">登入檢查中</span>
         </section>
       </AuthLanding>
     );
   }
 
   if (!user) {
-    return <AuthLanding><AuthPanel /></AuthLanding>;
+    return <AuthLanding bindingPending={initialSsoBindingPending}><AuthPanel /></AuthLanding>;
   }
 
   return (
@@ -175,6 +255,10 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
               role="tab"
               aria-selected={activeWorkspace === workspace.id}
               aria-controls={`workspace-${workspace.id}`}
+              onPointerEnter={() => workspacePrefetchIntent.schedule(workspace.id)}
+              onPointerLeave={() => workspacePrefetchIntent.cancel(workspace.id)}
+              onFocus={() => workspacePrefetchIntent.schedule(workspace.id)}
+              onBlur={() => workspacePrefetchIntent.cancel(workspace.id)}
               onClick={() => selectWorkspace(workspace.id)}
             >
               <span className="app-nav-icon"><WorkspaceIcon name={workspace.icon} /></span>
@@ -189,21 +273,13 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
             <span className="app-avatar" aria-hidden="true">{(accountLabel[0] ?? "U").toUpperCase()}</span>
             <div>
               <strong>{accountLabel}</strong>
-              <span>角色與資料範圍由 RLS 判定</span>
+              <span>角色與資料範圍由系統權限判定</span>
             </div>
           </div>
           <button
             className="secondary-button sidebar-signout"
             type="button"
-            onClick={async () => {
-              setSigningOut(true);
-              try {
-                const { error } = await client.auth.signOut();
-                if (error) throw error;
-              } finally {
-                setSigningOut(false);
-              }
-            }}
+            onClick={() => void handleSignOut()}
             disabled={signingOut}
           >
             {signingOut ? "登出中…" : "登出"}
@@ -219,6 +295,7 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
           onAppearanceChange={(theme: AppearanceTheme) => setAppearanceTheme(theme)}
           onNavigate={selectWorkspace}
           onOpenSystemGuide={systemGuide.allowed && !initialSystemGuide ? () => router.push("/system-guide") : undefined}
+          onSignOut={handleSignOut}
         />
 
         <div className="workspace-mobile-switcher">
@@ -227,9 +304,9 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
             id="workspace-mobile-select"
             value={initialSystemGuide ? "system-guide" : activeWorkspace}
             onChange={(event) => {
-              if (isWorkspaceId(event.target.value)) {
-                selectWorkspace(event.target.value);
-              }
+              const target = resolveWorkspaceSelectorTarget(event.target.value, guideNavigationVisible);
+              if (target?.kind === "system-guide") router.push("/system-guide");
+              else if (target?.kind === "workspace") selectWorkspace(target.workspaceId);
             }}
           >
             {workspaceDefinitions.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.label}</option>)}
@@ -260,37 +337,23 @@ export default function WorkspaceShell({ initialSystemGuide = false }: { initial
           </div>
         </nav> : null}
 
-        <AuthSessionBoundary>
-          {initialSystemGuide ? (
-            <SystemGuidePageClient
-              documents={systemGuide.documents}
-              loading={systemGuide.checking || systemGuide.documentsLoading}
-              message={systemGuide.message}
-              forbidden={!systemGuide.checking && !systemGuide.allowed}
-            />
-          ) : <RetainedPanelSet
-            idPrefix="workspace"
-            activePanelId={activeWorkspace}
-            panelClassName="workspace-page"
-            activePanelClassName="is-active"
-            panels={workspaceDefinitions.map((workspace) => {
-              const workspaceModule = activeModuleByWorkspace[workspace.id] ?? workspace.modules[0].anchor;
-              return {
-                id: workspace.id,
-                panelId: `workspace-${workspace.id}`,
-                tabId: `workspace-tab-${workspace.id}`,
-                content: <>
-                  {workspace.id === "overview" ? <OverviewWorkspace activeModule={workspaceModule} onNavigate={selectWorkspace} /> : null}
-                  {workspace.id === "accounts" ? <AccountWorkspace activeModule={workspaceModule} /> : null}
-                  {workspace.id === "hr" ? <HrWorkspace activeModule={workspaceModule} /> : null}
-                  {workspace.id === "warehouse" ? <WarehouseWorkspace activeModule={workspaceModule} onNavigate={selectWorkspace} /> : null}
-                  {workspace.id === "procurement" ? <ProcurementWorkspace activeModule={workspaceModule} /> : null}
-                  {workspace.id === "seasonal" ? <SeasonalWorkspace activeModule={workspaceModule} /> : null}
-                  {workspace.id === "reports" ? <ReportsWorkspace activeModule={workspaceModule} /> : null}
-                </>,
-              };
-            })}
-          />}
+        <AuthSessionBoundary sessionKey={user?.id ?? "anonymous"}>
+          <WorkspaceSessionProvider client={client} session={session} user={user} identity={identity}>
+            {initialSystemGuide ? (
+              <SystemGuidePageClient
+                documents={systemGuide.documents}
+                loading={systemGuide.checking || systemGuide.documentsLoading}
+                message={systemGuide.message}
+                forbidden={!systemGuide.checking && !systemGuide.allowed}
+              />
+            ) : <RetainedPanelSet
+              idPrefix="workspace"
+              activePanelId={activeWorkspace}
+              panelClassName="workspace-page"
+              activePanelClassName="is-active"
+              panels={workspacePanels}
+            />}
+          </WorkspaceSessionProvider>
         </AuthSessionBoundary>
       </div>
     </WorkspaceStage>

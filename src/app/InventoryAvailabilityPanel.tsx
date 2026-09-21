@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { getSupabaseBrowserClient } from "@/src/lib/supabase-browser";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
+import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import {
   filterInventoryAvailability,
+  inventoryAvailabilityLoadErrorMessage,
   inventoryAvailabilityCategories,
   inventoryAvailabilityStatus,
   inventoryAvailabilityStatusLabel,
@@ -16,6 +18,13 @@ import {
   type InventoryAvailabilityStatusFilter,
 } from "@/src/domain/inventory-availability";
 import ManagementCatalogTable from "./ManagementCatalogTable";
+import { usePanelActivity } from "./RetainedPanelSet";
+import { useWorkspaceSession } from "./workspace-session";
+import { retrySupabaseQueriesAfterSessionRefresh } from "@/src/lib/supabase-session";
+import type { AccountScopedReadOutcome } from "@/src/domain/account-scoped-read";
+import { useAccountScopedReadSnapshot } from "./use-account-scoped-read-snapshot";
+
+const EMPTY_INVENTORY_ROWS: InventoryAvailabilityRow[] = [];
 
 function statusTone(status: InventoryAvailabilityStatus): string {
   if (status === "AVAILABLE") return "success";
@@ -24,56 +33,78 @@ function statusTone(status: InventoryAvailabilityStatus): string {
 }
 
 export default function InventoryAvailabilityPanel() {
-  const client = getSupabaseBrowserClient();
-  const [rows, setRows] = useState<InventoryAvailabilityRow[]>([]);
+  const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
+  const panelActive = usePanelActivity();
+  const identityReady = Boolean(client && panelActive && isAuthenticated && accountId && !identityLoading && !identityError);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState<InventoryAvailabilityStatusFilter>("ALL");
   const [sortKey, setSortKey] = useState<InventoryAvailabilitySortKey>("item_code");
   const [sortDirection, setSortDirection] = useState<InventoryAvailabilitySortDirection>("asc");
   const [page, setPage] = useState(1);
-  const [message, setMessage] = useState(() => client ? "正在讀取兩倉庫存…" : "預覽模式：設定 Supabase env 並登入後，才能讀取受 RLS 保護的兩倉庫存");
-  const [busy, setBusy] = useState(false);
-  const [reloadToken, setReloadToken] = useState(0);
+  const readInventory = useCallback(async (): Promise<AccountScopedReadOutcome<InventoryAvailabilityRow[]>> => {
+    if (!client) {
+      return { status: "failure", errors: [], message: "庫存清單尚未連線。請登入後重試。" };
+    }
+    const readAvailability = () => client
+      .from("v_item_availability")
+      .select("item_id,item_code,item_name,unit,size,category,season,is_active,hr_on_hand_quantity,general_on_hand_quantity,combined_on_hand_quantity,active_reserved_quantity,available_to_request_quantity")
+      .order("item_code")
+      .limit(500);
+    const [result] = await retrySupabaseQueriesAfterSessionRefresh(client, async () => [await readAvailability()] as const);
+    if (result.error) {
+      return {
+        status: "failure",
+        errors: [result.error],
+        message: inventoryAvailabilityLoadErrorMessage(result.error),
+      };
+    }
+    const data = (result.data ?? []) as unknown as Array<Record<string, unknown>>;
+    return {
+      status: "success",
+      data: data.map(normalizeInventoryAvailabilityRow),
+      message: `已載入 ${data.length} 個品號；數量由 v_item_availability 即時計算`,
+    };
+  }, [client]);
+  const {
+    data: visibleRows,
+    loading: dataLoading,
+    message,
+    reload,
+  } = useAccountScopedReadSnapshot({
+    accountId: accountId ?? null,
+    enabled: identityReady,
+    refreshKey: 0,
+    emptyData: EMPTY_INVENTORY_ROWS,
+    resourceLabel: "庫存清單",
+    initialMessage: client ? "正在確認登入與角色…" : "預覽模式：設定 Supabase env 並登入後，才能讀取受權限保護的兩倉庫存",
+    read: readInventory,
+  });
 
   useEffect(() => {
-    if (!client) return;
-    const supabase = client;
-    let active = true;
-    async function load() {
-      setBusy(true);
-      const result = await supabase
-        .from("v_item_availability")
-        .select("item_id,item_code,item_name,unit,size,category,season,is_active,hr_on_hand_quantity,general_on_hand_quantity,combined_on_hand_quantity,active_reserved_quantity,available_to_request_quantity")
-        .order("item_code")
-        .limit(500);
-      if (!active) return;
-      if (result.error) {
-        setRows([]);
-        setMessage(`庫存清單載入失敗：${result.error.message}`);
-      } else {
-        setRows(((result.data ?? []) as Array<Record<string, unknown>>).map(normalizeInventoryAvailabilityRow));
-        setMessage(`已載入 ${(result.data ?? []).length} 個品號；數量由 v_item_availability 即時計算`);
-      }
-      setBusy(false);
-    }
-    void load();
+    if (!client || !panelActive) return;
+    const refreshInventory = () => reload();
+    window.addEventListener(hrRequestWorkflowChangedEvent, refreshInventory);
+    window.addEventListener(inventoryDataChangedEvent, refreshInventory);
     return () => {
-      active = false;
+      window.removeEventListener(hrRequestWorkflowChangedEvent, refreshInventory);
+      window.removeEventListener(inventoryDataChangedEvent, refreshInventory);
     };
-  }, [client, reloadToken]);
+  }, [client, panelActive, reload]);
 
-  const categories = useMemo(() => inventoryAvailabilityCategories(rows), [rows]);
+  const displayMessage = identityError ?? message;
+
+  const categories = useMemo(() => inventoryAvailabilityCategories(visibleRows), [visibleRows]);
   const filteredRows = useMemo(
     () => sortInventoryAvailability(
-      filterInventoryAvailability(rows, { query, category, status: statusFilter }),
+      filterInventoryAvailability(visibleRows, { query, category, status: statusFilter }),
       sortKey,
       sortDirection,
     ),
-    [category, query, rows, sortDirection, sortKey, statusFilter],
+    [category, query, sortDirection, sortKey, statusFilter, visibleRows],
   );
-  const availableCount = rows.filter((row) => inventoryAvailabilityStatus(row) === "AVAILABLE").length;
-  const attentionCount = rows.filter((row) => ["OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row))).length;
+  const availableCount = visibleRows.filter((row) => inventoryAvailabilityStatus(row) === "AVAILABLE").length;
+  const attentionCount = visibleRows.filter((row) => ["OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row))).length;
 
   function toggleSort(nextKey: InventoryAvailabilitySortKey) {
     if (sortKey === nextKey) setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
@@ -85,23 +116,24 @@ export default function InventoryAvailabilityPanel() {
   }
 
   return (
-    <section className="panel" aria-label="兩倉庫存可用量">
+    <section className="panel" aria-label="兩倉庫存可用量" aria-busy={dataLoading}>
       <div className="panel-heading">
         <div>
           <p className="eyebrow">INVENTORY MANAGEMENT</p>
           <h2>兩倉庫存與可申請量</h2>
         </div>
-        <span className="status-pill">RLS / READ ONLY</span>
+        <span className="status-pill">依權限唯讀</span>
       </div>
       <p className="auth-message">分別顯示人資倉、總倉帳面量與品號層級預留。可申請量只在兩倉合計層計算，不推算不存在的逐倉預留。</p>
 
       <div className="management-catalog-metrics inventory-availability-metrics" aria-label="庫存摘要">
-        <div className="metric"><span>可讀取品號</span><strong>{rows.length}</strong><small>目前帳號 RLS 範圍</small></div>
+        <div className="metric"><span>可讀取品號</span><strong>{visibleRows.length}</strong><small>目前帳號可見範圍</small></div>
         <div className="metric"><span>可申請品號</span><strong>{availableCount}</strong><small>可申請量大於零</small></div>
         <div className="metric"><span>需注意品號</span><strong>{attentionCount}</strong><small>缺貨或資料異常</small></div>
         <div className="metric"><span>商品分類</span><strong>{categories.length}</strong><small>依目前可讀取主檔統計</small></div>
       </div>
 
+      {dataLoading ? <p className="sr-only" role="status" aria-live="polite">正在載入兩倉庫存可用量…</p> : null}
       <div className="inventory-toolbar">
         <label className="field">
           搜尋品號／品名
@@ -124,12 +156,12 @@ export default function InventoryAvailabilityPanel() {
             <option value="DATA_ERROR">資料異常</option>
           </select>
         </label>
-        <div className="inventory-toolbar-action"><button className="secondary-button" type="button" onClick={() => setReloadToken((value) => value + 1)} disabled={busy}>
-            {busy ? "讀取中…" : "重新整理"}
+        <div className="inventory-toolbar-action"><button className="secondary-button" type="button" onClick={reload}>
+            {dataLoading ? "讀取中…" : "重新整理"}
           </button></div>
       </div>
       <div className="management-catalog-result">
-        <p className="muted" role="status">{message}；符合條件 {filteredRows.length} 個品號</p>
+        <p className="muted" role="status">{displayMessage}；符合條件 {filteredRows.length} 個品號</p>
         {(query || category !== "ALL" || statusFilter !== "ALL") ? <button className="text-button product-filter-reset" type="button" onClick={() => { setQuery(""); setCategory("ALL"); setStatusFilter("ALL"); setPage(1); }}>清除篩選</button> : null}
       </div>
       <ManagementCatalogTable<InventoryAvailabilityRow, InventoryAvailabilitySortKey>
@@ -141,6 +173,7 @@ export default function InventoryAvailabilityPanel() {
         sortKey={sortKey}
         sortDirection={sortDirection}
         onSort={toggleSort}
+        loading={dataLoading && visibleRows.length === 0}
         defaultPageSize={25}
         pageSizeOptions={[10, 25, 50, 100]}
         tableClassName="inventory-availability-table"

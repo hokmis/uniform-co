@@ -48,10 +48,20 @@ describe("System Guide access contract", () => {
 
   it("uses the self-readable role table and cached prefetch instead of a delayed HEAD probe", () => {
     const accessHook = source("../app/use-system-guide-access.ts");
+    const shell = source("../app/WorkspaceShell.tsx");
     expect(accessHook).toContain('.from("user_roles")');
     expect(accessHook).toContain("sessionStorage");
     expect(accessHook).toContain('fetch("/api/system-guide"');
     expect(accessHook).not.toContain('method: "HEAD"');
+    expect(accessHook).toContain("alongside the self-readable role check");
+    const routePrefetch = shell.slice(shell.indexOf('router.prefetch("/system-guide")') - 200, shell.indexOf('router.prefetch("/system-guide")'));
+    expect(routePrefetch).toContain("!systemGuide.allowed");
+  });
+
+  it("uses the protected API when the self-readable role query is empty", () => {
+    const accessHook = source("../app/use-system-guide-access.ts");
+    const roleBranch = accessHook.slice(accessHook.indexOf("if (roleError || !role) {"));
+    expect(roleBranch).toContain("const fallbackDocuments = await (prefetchedDocuments ?? requestDocuments(activeClient, activeUserId, session));");
   });
 
   it("includes the Markdown files in the standalone route bundle", () => {

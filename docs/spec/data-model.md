@@ -85,7 +85,7 @@ operation_commands 是命令執行協定，不取代每個來源單／posting／
 | coordinator_scopes | PK (account_id, institution_id, department_id) | account_id FK app_accounts.id；只供 DEMAND_COORDINATOR；一位窗口可跨機構與部門。department_id 必須屬於同一 institution_id。 |
 | account_auth_binding_events | id PK | account_id、old_auth_user_id、new_auth_user_id、reason、rebound_at、rebound_by_account_id nullable、db_role_snapshot、recovery_ticket、execution_channel。append-only 保存首次綁定、解除與災難復原後重新綁定。 |
 
-private.current_account_id() 先以有效 JWT 的 auth.uid() 查找唯一、啟用且 auth_user_id 相符的 app_accounts.id；找不到或找到多筆即拒絕。private.has_role(role_code) 與 private.can_manage_employee(employee_id) 只以 current_account_id() 查 user_roles／coordinator_scopes，供 RLS 與 RPC 共用。權限判斷不可只放在前端。
+private.current_account_id() 先以有效 JWT 的 auth.uid() 查找唯一、啟用且 auth_user_id 相符的 app_accounts.id；找不到或找到多筆即拒絕。`0088_system_admin_all_roles.sql` 套用後，private.has_role(role_code) 對啟用中的 SYSTEM_ADMIN 回傳所有業務角色的有效權限；其他帳號仍只依自身 user_roles／coordinator_scopes 判斷。private.has_role(role_code) 與 private.can_manage_employee(employee_id) 供 RLS 與 RPC 共用，權限判斷不可只放在前端。
 
 app_accounts.auth_user_id 刻意不作業務主鍵，也不以不可還原的硬 FK 讓一般資料 dump 依賴 auth.users；綁定 RPC 必須在寫入時查驗該 UUID 確實存在於 auth.users。一般資料庫 dump 即使不能原樣還原 auth.users，app_accounts.id、所有 actor FK 與歷史稽核仍保持有效。重新邀請後只能由具 SYSTEM_ADMIN 角色的另一個已驗證帳號呼叫受控 rebind RPC，把新的 auth.uid() 綁回原 app_accounts.id；RPC 必須確認新 auth_user_id 尚未綁定、保存 old/new UUID、原因與操作者。
 
@@ -271,7 +271,7 @@ warehouse_shipments 一旦 POSTED：
 | stocktakes | id PK；stocktake_no UNIQUE | warehouse_id、status、counted_on、note、created_by、posted_at/by。 |
 | stocktake_lines | id PK；UNIQUE (stocktake_id, item_id) | item_id、book_quantity_snapshot、balance_version_snapshot、book_captured_at、counted_quantity、counted_at、difference_quantity、reason。 |
 
-difference_quantity 固定為 counted_quantity - book_quantity_snapshot；差異非 0 時 reason 必填。POST 時才依差額寫庫存流水，不能直接覆寫 inventory_balances。若 POST 當下 inventory_balances.version 不等於 balance_version_snapshot，盤點必須以 `STALE_COUNT` 失敗；使用者須重新取得帳面版本並重新實盤，同時更新 book、count 及其時間，禁止只換 book snapshot 卻沿用舊 counted_quantity。人資只能過帳人資倉盤點，倉庫角色只能過帳總倉盤點；SYSTEM_ADMIN 只有在同一 app_account 另具對應 HR／WAREHOUSE 角色時才能執行，並留下實際操作者。
+difference_quantity 固定為 counted_quantity - book_quantity_snapshot；差異非 0 時 reason 必填。POST 時才依差額寫庫存流水，不能直接覆寫 inventory_balances。若 POST 當下 inventory_balances.version 不等於 balance_version_snapshot，盤點必須以 `STALE_COUNT` 失敗；使用者須重新取得帳面版本並重新實盤，同時更新 book、count 及其時間，禁止只換 book snapshot 卻沿用舊 counted_quantity。人資只能過帳人資倉盤點，倉庫角色只能過帳總倉盤點；套用 `0088_system_admin_all_roles.sql` 後，SYSTEM_ADMIN 可通過對應角色檢查，但仍需留下實際操作者並遵守同一套盤點與庫存完整性規則。
 
 ## 6. 庫存帳、餘額與預留
 
@@ -655,7 +655,7 @@ operation command、item-level mutex 與後續列鎖必須保持上述順序；i
 - stocktake POST 必須比較 balance_version_snapshot；版本不同直接以 STALE_COUNT 失敗並要求重新實盤，不能自動更新 book snapshot 後沿用舊 counted_quantity。
 - 任何修復帳實的負向過帳若使 combined_on_hand 小於 ACTIVE reserved，必須在同交易依 item_id、request id 排序鎖定並轉換受影響需求及其全部 reservations 為 INVENTORY_REVIEW_REQUIRED／CONFLICTED，再完成真實庫存過帳。
 
-SYSTEM_ADMIN 角色本身不能代替人資或倉庫過帳；同一 app_account 必須另外具有對應的 HR 或 WAREHOUSE 角色。
+套用 `0088_system_admin_all_roles.sql` 後，SYSTEM_ADMIN 可通過 HR、WAREHOUSE、PROCUREMENT、CEO 與 DEMAND_COORDINATOR 的角色檢查；仍須遵守各流程的狀態、資料範圍與稽核規則，且不得直接改寫庫存餘額或 append-only 庫存流水。
 
 ### 12.4 ERP 批次產生
 
@@ -686,7 +686,7 @@ SYSTEM_ADMIN 角色本身不能代替人資或倉庫過帳；同一 app_account 
 
 | 角色 | 建議可見／可寫範圍 |
 |---|---|
-| SYSTEM_ADMIN | 維護帳號、角色、窗口範圍與各類主檔；可查全域稽核，但不得直接改餘額，也不能只靠管理員角色執行人資、倉庫、採購或執行長的業務動作。 |
+| SYSTEM_ADMIN | 維護帳號、角色、窗口範圍與各類主檔；可依所有業務角色的有效權限執行受控流程與查閱全域稽核 | 仍不得直接改餘額；所有流程的狀態、scope、冪等與稽核防線照常生效 |
 | HR | 維護員工、建立與修改發貨前人資需求、補庫、更正、退回、人資倉盤點；可查看履行作業所需的兩倉可申請量。 |
 | WAREHOUSE | 讀取待處理需求及必要發放資訊，填實際調庫量、發貨、總倉盤點、採購入庫；不得改發放量或增庫量。 |
 | PROCUREMENT | 讀取換季核准彙總、維護供應商、採購決定、採購單與進度；原則上使用彙總 view，不需讀取全體員工個別需求。 |

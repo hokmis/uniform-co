@@ -48,7 +48,7 @@ function unsafeSingleLine(value: string): boolean {
 }
 
 export function validateEmployeeEditor(form: EmployeeEditorForm): string | null {
-  if (![form.employeeNo, form.name, form.institutionCode, form.departmentCode].every((value) => clean(value))) return "工號、姓名、課室部門與單位為必填。";
+  if (![form.employeeNo, form.name, form.institutionCode, form.departmentCode].every((value) => clean(value))) return "工號、姓名、機構與部門為必填。";
   if ([form.employeeNo, form.name, form.institutionCode, form.departmentCode, form.jobTitle].some(unsafeSingleLine) || /^[=+@-]/.test(clean(form.note))) return "文字不可使用公式前綴，單行欄位不可含 Tab 或換行。";
   if (clean(form.employeeNo).length > 100 || clean(form.name).length > 255 || clean(form.jobTitle).length > 255 || clean(form.note).length > 4000) return "員工主檔文字超過允許長度。";
   if (form.hireDate && !validIsoDate(form.hireDate)) return "到職日必須是有效日期。";

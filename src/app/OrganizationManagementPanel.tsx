@@ -74,7 +74,7 @@ export default function OrganizationManagementPanel() {
       idPrefix="organization-management"
       eyebrow="ORGANIZATION MANAGEMENT"
       title={screen === "EDITOR" ? editRequest ? "編輯組織主檔" : "新增組織主檔" : "組織主檔管理"}
-      description="比照 SPSV29 的管理操作，將清單與新增／修改表單分離；資料保存仍沿用本系統受保護的主檔 RPC、RLS、冪等與稽核契約。"
+      description="比照 SPSV29 的管理操作，將清單與新增／修改表單分離；資料保存仍沿用本系統受保護的主檔操作、權限、冪等與稽核契約。"
       activeTabId={activeTab}
       onTabChange={(tabId) => selectTab(tabId as OrganizationTab)}
       actions={screen === "EDITOR"

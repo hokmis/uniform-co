@@ -22,6 +22,7 @@
 | `SUPABASE_DB_PASSWORD` | Secret | Supabase migration workflow | migration DB password | No | GitHub Environment `supabase-staging-migrations` / `supabase-production-migrations` | `<assign owner>` / rotate on exposure or policy |
 | `STAGING_DATABASE_URL` | Secret | read-only / active staging smoke | staging owner 或 maintenance connection；只在 disposable staging smoke 使用寫入能力 | No | protected staging secret manager/runtime | `<assign owner>` / rotate on exposure or policy |
 | `IMPORT_WORKER_DATABASE_URL` | Secret | durable import worker | 必須直接登入同名 `job_import_worker` | No | protected worker runtime | `<assign owner>` / worker credential rotation |
+| `IMPORT_EDGE_DATABASE_URL` | Secret | Supabase Edge durable import adapter | 必須直接登入同名 `job_import_worker`；Supavisor transaction mode；prepared statements disabled | No | Supabase Edge Function secrets；各環境分離 | `<assign owner>` / worker credential rotation |
 | `DATABASE_URL` | Secret | renderer worker；import worker fallback | 必須對應該 worker 的最小權限同名 DB role | No | protected worker runtime | `<assign owner>` / worker credential rotation |
 | `DOCUMENT_RENDERER_DATABASE_URL` | Secret | renderer active smoke | 必須直接登入 `job_document_renderer` | No | protected disposable-staging smoke runtime | `<assign owner>` / worker credential rotation |
 | `ERP_RENDERER_DATABASE_URL` | Secret | renderer active smoke | 必須直接登入 `job_erp_renderer` | No | protected disposable-staging smoke runtime | `<assign owner>` / worker credential rotation |
@@ -47,6 +48,7 @@
 下列值是安全 gate、路徑、固定 allowlist 或調校值，不應放進 secret inventory 當作憑證，也不能因為它們不是 secret 就省略權限 gate：
 
 - `UNIFORM_DEPLOYMENT_ENV`, `UNIFORM_STAGING_SMOKE_CONFIRM`, `UNIFORM_STAGING_ACTIVE_SMOKE_CONFIRM`, `UNIFORM_STAGING_RENDERER_SMOKE_CONFIRM`, `UNIFORM_STAGING_CUTOVER_SMOKE_CONFIRM`
+- `IMPORT_EDGE_ALLOWED_ORIGIN`
 - `CLEANUP_EXECUTE_CONFIRM`, `IMPORT_RETENTION_EXECUTE_CONFIRM`, `CONFIRM_RESTORE`
 - `BACKUP_ROOT`, `BACKUP_RUN_ID`, `BACKUP_RUN_DIR`, `BACKUP_STORAGE_BUCKETS`
 - `RENDER_COMMAND`, `RENDER_COMMAND_ARGS`, `RENDER_KIND`, `RENDER_OUTPUT_PATH`, `RENDER_LEASE_SECONDS`, `RENDER_STORAGE_PROXY_PORT`

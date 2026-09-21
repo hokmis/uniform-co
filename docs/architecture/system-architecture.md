@@ -129,7 +129,7 @@ command claim 可先提交，以便其他請求看到 `IN_PROGRESS`；但純資�
 - 倉庫可處理總倉及發貨，但不能改發放量與增庫量。
 - 採購可管理 MOQ、採購與價格，不可核准換季需求。
 - 執行長只處理核准及查閱必要彙總。
-- 系統管理員不因技術角色自動取得業務發貨或核准權。
+- 套用 `0088_system_admin_all_roles.sql` 後，系統管理員透過共用 `private.has_role` helper 取得各業務角色的有效權限；仍受單據狀態、資料範圍、稽核與庫存不可直接改寫規則限制。
 - 高風險寫入除 RLS 外，仍由受控資料庫函式驗證角色與狀態。
 - 撤銷一般登入角色對流水、餘額、預留、稽核、正式快照、已套用匯入與 ERP 批次的直接寫入權限；只能透過受控命令介面操作。
 - RLS helper 與具權限的實作函式放在不對 PostgREST 暴露的 `private` schema；對外只暴露少量薄 RPC。view 使用 `security_invoker = true`，否則放在 private schema 後由受控函式讀取。

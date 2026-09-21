@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import pg from "pg";
-import { parseBoundedImportFile, ImportParserError, type ParsedImportFile } from "../../src/domain/import-worker-parser.ts";
+import { parseBoundedImportFile, ImportParserError } from "../../src/domain/import-worker-parser.ts";
 import { buildImportPreviewRows, type ImportPreviewRow, type ImportReferenceRow } from "../../src/domain/import-worker.ts";
+import { flattenImportSheets, pgJsonbText } from "../../src/domain/import-worker-core.ts";
 
 const { Client } = pg;
 const databaseUrl = process.env.IMPORT_WORKER_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -45,28 +46,6 @@ type ImportChunk = {
   cursor_version: string | number;
 };
 
-const encoder = new TextEncoder();
-function comparePgJsonbKeys(left: string, right: string): number {
-  const leftBytes = encoder.encode(left);
-  const rightBytes = encoder.encode(right);
-  if (leftBytes.length !== rightBytes.length) return leftBytes.length - rightBytes.length;
-  for (let index = 0; index < Math.min(leftBytes.length, rightBytes.length); index += 1) {
-    if (leftBytes[index] !== rightBytes[index]) return leftBytes[index] - rightBytes[index];
-  }
-  return 0;
-}
-function pgJsonbText(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return `[${value.map(pgJsonbText).join(", ")}]`;
-  if (typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>).sort(([left], [right]) => comparePgJsonbKeys(left, right));
-    return `{${entries.map(([key, child]) => `${JSON.stringify(key)}: ${pgJsonbText(child)}`).join(", ")}}`;
-  }
-  if (typeof value === "string") return JSON.stringify(value);
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number" && Number.isFinite(value)) return JSON.stringify(value);
-  throw new TypeError("Unsupported fingerprint value");
-}
 function fingerprint(payload: unknown): string {
   return createHash("sha256").update(pgJsonbText(payload), "utf8").digest("hex");
 }
@@ -109,33 +88,19 @@ async function downloadBatch(batch: ImportBatch): Promise<Uint8Array> {
   return bytes;
 }
 
-function flattenSheets(parsed: ParsedImportFile): string[][] {
-  const populated = parsed.sheets.filter((sheet) => sheet.rows.length > 0);
-  if (populated.length === 0) throw new ImportParserError("EMPTY_IMPORT", "Import workbook has no header/data rows");
-  const header = populated[0].rows[0];
-  const rows = [header, ...populated[0].rows.slice(1)];
-  for (const sheet of populated.slice(1)) {
-    if (JSON.stringify(sheet.rows[0]) !== JSON.stringify(header)) throw new ImportParserError("COLUMN_DRIFT", "Every XLSX sheet must use the same import header");
-    rows.push(...sheet.rows.slice(1));
-    if (rows.length > 10_001) throw new ImportParserError("ROW_LIMIT", "XLSX 總資料列數超過上限");
-  }
-  if (rows.length > 10_001) throw new ImportParserError("ROW_LIMIT", "XLSX 總資料列數超過上限");
-  return rows;
-}
-
 async function previewRows(batch: ImportBatch): Promise<ImportPreviewRow[]> {
   const [bytes, reference] = await Promise.all([
     downloadBatch(batch),
     scalar<{ rows: ImportReferenceRow[] }>("get_import_reference_snapshot", [batch.id], "payload"),
   ]);
   const parsed = parseBoundedImportFile(bytes, batch.original_filename, batch.expected_mime_type);
-  return buildImportPreviewRows(batch.import_type, flattenSheets(parsed), reference?.rows ?? []);
+  return buildImportPreviewRows(batch.import_type, flattenImportSheets(parsed), reference?.rows ?? []);
 }
 
 async function parsedRows(batch: ImportBatch): Promise<{ bytes: Uint8Array; rows: string[][] }> {
   const bytes = await downloadBatch(batch);
   const parsed = parseBoundedImportFile(bytes, batch.original_filename, batch.expected_mime_type);
-  const rows = flattenSheets(parsed);
+  const rows = flattenImportSheets(parsed);
   if (rows.length < 2) throw new ImportParserError("EMPTY_IMPORT", "Import workbook has no data rows");
   return { bytes, rows };
 }

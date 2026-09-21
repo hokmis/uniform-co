@@ -4,6 +4,8 @@
 
 `EmployeeManagementPanel` 是人資工作區內的員工主檔入口，只組裝「員工清單／單筆表單」與「批次匯入」兩個使用者任務。清單查詢沿用 `employees`、`institutions`、`departments` 的 RLS；新增、修改與停用集中在 `save_employee_master`，CSV 批次沿用 `apply_employee_import_checked`，匯出前由 `record_employee_master_export` 留下 metadata 稽核。前端不持有 service-role，也不直接對 `employees` 做 DML。
 
+員工清單與批次匯入共用 `src/lib/employee-directory-read.ts` read adapter：同一個 Supabase client 的並行請求只發出一次，成功快照最多保留 30 秒；員工、機構／部門保存或匯入成功後由 mutation seam 主動失效快取。`0120_employee_directory_view.sql` 套用後兩個任務共用單次 security-invoker view，尚未套用時仍可安全 fallback 到既有主檔快取讀取。
+
 ## 穩定識別與生命週期
 
 - 員工 UUID 是修改命令的資料庫 identity，員工工號是建立後不可變的業務識別。

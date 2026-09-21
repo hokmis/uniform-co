@@ -10,6 +10,7 @@ describe("CI workflow safety", () => {
     const commands = [
       "npm ci",
       "npm test",
+      "node --test scripts/database/generate-production-read-model-sql.test.mjs",
       "npm run lint",
       "npm run typecheck",
       "npm run build",

@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   emptyProductEditorForm,
   productEditorImportRow,
   productEditorKey,
   validateProductEditor,
-  PRODUCT_CATEGORY_PRESETS,
-  PRODUCT_SEASON_PRESETS,
-  PRODUCT_GENDER_PRESETS,
-  PRODUCT_STYLE_PRESETS,
   type ProductEditorForm,
   type ProductEntityType,
 } from "@/src/domain/product-management";
-import { getSupabaseBrowserClient } from "@/src/lib/supabase-browser";
+import { invalidateMasterDataCache, loadProductMasterData } from "@/src/lib/master-data-cache";
+import { createReadRequestController, shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
+import { safeSupabaseMutationErrorMessage } from "@/src/lib/supabase-session";
 import type { ProductItemEditRequest } from "./ProductCatalogPanel";
+import { usePanelActivity } from "./RetainedPanelSet";
+import { useWorkspaceSession } from "./workspace-session";
 
 type ItemSource = {
   id: string;
@@ -24,8 +24,6 @@ type ItemSource = {
   size: string | null;
   category: string | null;
   season: string | null;
-  gender: string | null;
-  style: string | null;
   is_active: boolean;
 };
 
@@ -63,7 +61,7 @@ function textValue(value: unknown): string {
   return value === null || value === undefined ? "" : String(value);
 }
 
-function formForItem(item: ItemSource | ProductItemEditRequest): ProductEditorForm {
+function formForItem(item: ItemSource): ProductEditorForm {
   return {
     ...emptyProductEditorForm,
     itemCode: item.item_code,
@@ -72,8 +70,6 @@ function formForItem(item: ItemSource | ProductItemEditRequest): ProductEditorFo
     size: textValue(item.size),
     category: textValue(item.category),
     season: textValue(item.season),
-    gender: textValue(item.gender),
-    style: textValue(item.style),
     isActive: item.is_active,
   };
 }
@@ -102,9 +98,10 @@ function formForSupplierItem(relation: SupplierItemSource): ProductEditorForm {
 type Props = {
   allowedEntityTypes?: readonly ProductEntityType[];
   itemEditRequest?: ProductItemEditRequest | null;
-  intent?: "EDIT" | "DEACTIVATE";
+  intent?: "EDIT" | "DEACTIVATE" | "DELETE";
   onCancel?: () => void;
   onSaved?: (stableKey: string, isActive: boolean) => void;
+  onDeleted?: (stableKey: string) => void;
 };
 
 export default function ProductMasterEditorPanel({
@@ -113,8 +110,11 @@ export default function ProductMasterEditorPanel({
   intent = "EDIT",
   onCancel,
   onSaved,
+  onDeleted,
 }: Props) {
-  const client = getSupabaseBrowserClient();
+  const { client, accountId, identityError, identityLoading, isAuthenticated } = useWorkspaceSession();
+  const panelActive = usePanelActivity();
+  const identityReady = Boolean(client && panelActive && isAuthenticated && accountId && !identityLoading && !identityError);
   const visibleEntityOptions = entityOptions.filter(([value]) => !allowedEntityTypes || allowedEntityTypes.includes(value));
   const defaultEntityType = itemEditRequest ? "UNIFORM_ITEMS" : visibleEntityOptions[0]?.[0] ?? "UNIFORM_ITEMS";
   const catalogItemEditor = visibleEntityOptions.length === 1 && defaultEntityType === "UNIFORM_ITEMS";
@@ -122,67 +122,72 @@ export default function ProductMasterEditorPanel({
   const [form, setForm] = useState<ProductEditorForm>(() => itemEditRequest ? formForItem(itemEditRequest) : emptyProductEditorForm);
   const [editingKey, setEditingKey] = useState(() => itemEditRequest?.item_code ?? "");
   const [sources, setSources] = useState<Sources>(emptySources);
-  const [message, setMessage] = useState(() => intent === "DEACTIVATE" && itemEditRequest
-    ? `即將停用 ${itemEditRequest.item_code}；請確認商品資料後按「確認停用」`
+  const [sourceSnapshotReady, setSourceSnapshotReady] = useState(false);
+  const sourcesRef = useRef<Sources>(emptySources);
+  const [message, setMessage] = useState(() => intent === "DELETE" && itemEditRequest
+    ? `即將刪除 ${itemEditRequest.item_code}；請確認沒有庫存紀錄後按「確認刪除」`
+    : intent === "DEACTIVATE" && itemEditRequest
+      ? `即將停用 ${itemEditRequest.item_code}；請確認商品資料後按「確認停用」`
     : itemEditRequest
       ? `已載入 ${itemEditRequest.item_code}；現在可以修改品名、單位、規格或啟用狀態`
     : client ? "正在讀取可編輯主檔…" : "預覽模式：設定 Supabase env 並登入後，才能保存商品主檔");
   const [busy, setBusy] = useState(false);
+  const [dataLoading, setDataLoading] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const sourceReadControllerRef = useRef(createReadRequestController());
 
   useEffect(() => {
-    if (!client) return;
+    if (!identityReady || !client) return;
     const supabase = client;
+    const readController = sourceReadControllerRef.current;
+    const readSequence = readController.begin();
     let active = true;
     async function loadSources() {
-      let itemResult = await supabase.from("uniform_items").select("id,item_code,item_name,unit,size,category,season,gender,style,is_active").order("item_code").limit(1000);
-      if (itemResult.error && (itemResult.error.message.includes("gender") || itemResult.error.message.includes("style") || itemResult.error.code === "42703")) {
-        itemResult = await supabase.from("uniform_items").select("id,item_code,item_name,unit,size,category,season,is_active").order("item_code").limit(1000);
+      setDataLoading(true);
+      try {
+        const sourceResult = await loadProductMasterData(supabase);
+        if (!active || !readController.isCurrent(readSequence)) return;
+        if (sourceResult.errors.length > 0) {
+          const snapshot = sourcesRef.current;
+          const snapshotRows = [...snapshot.items, ...snapshot.suppliers, ...snapshot.supplierItems];
+          const preserveSnapshot = shouldPreserveReadSnapshot(snapshotRows, sourceResult.errors);
+          if (!preserveSnapshot) {
+            setSourceSnapshotReady(false);
+            sourcesRef.current = emptySources;
+            setSources(emptySources);
+          }
+          setMessage(preserveSnapshot
+            ? staleReadSnapshotMessage("商品主檔選項")
+            : "商品主檔選項載入失敗；請重新整理後再試。務必先取得完整供應商／品號選項才能維護供應關係。");
+          return;
+        }
+        const items = sourceResult.items as ItemSource[];
+        const suppliers = sourceResult.suppliers as SupplierSource[];
+        const supplierById = new Map(suppliers.map((supplier) => [supplier.id, supplier.supplier_code]));
+        const itemById = new Map(items.map((item) => [item.id, item.item_code]));
+        const supplierItems = sourceResult.supplierItems.flatMap((relation) => {
+          const supplierCode = textValue(supplierById.get(textValue(relation.supplier_id)));
+          const itemCode = textValue(itemById.get(textValue(relation.item_id)));
+          return supplierCode && itemCode ? [{
+            supplier_code: supplierCode,
+            item_code: itemCode,
+            minimum_order_quantity: relation.minimum_order_quantity,
+            supplier_item_code: relation.supplier_item_code,
+            is_active: relation.is_active,
+          }] : [];
+        });
+        const nextSources = { items, suppliers, supplierItems };
+        sourcesRef.current = nextSources;
+        setSources(nextSources);
+        setSourceSnapshotReady(true);
+        setMessage(`已載入 ${items.length} 個品號、${suppliers.length} 個供應商與 ${supplierItems.length} 筆供應關係`);
+      } finally {
+        if (active && readController.isCurrent(readSequence)) setDataLoading(false);
       }
-      const [supplierResult, relationResult] = await Promise.all([
-        supabase.from("suppliers").select("id,supplier_code,name,default_currency,is_active").order("supplier_code").limit(1000),
-        supabase.from("supplier_uniform_items").select("supplier_id,item_id,minimum_order_quantity,supplier_item_code,is_active").eq("is_active", true).limit(5000),
-      ]);
-      if (!active) return;
-      const items = itemResult.error ? [] : (itemResult.data ?? []).map((row) => {
-        const item = row as Record<string, unknown>;
-        return {
-          id: String(item.id ?? ""),
-          item_code: String(item.item_code ?? ""),
-          item_name: String(item.item_name ?? ""),
-          unit: String(item.unit ?? ""),
-          size: item.size == null ? null : String(item.size),
-          category: item.category == null ? null : String(item.category),
-          season: item.season == null ? null : String(item.season),
-          gender: item.gender == null ? null : String(item.gender),
-          style: item.style == null ? null : String(item.style),
-          is_active: Boolean(item.is_active),
-        };
-      }) as ItemSource[];
-      const suppliers = supplierResult.error ? [] : (supplierResult.data ?? []) as SupplierSource[];
-      const supplierById = new Map(suppliers.map((supplier) => [supplier.id, supplier.supplier_code]));
-      const itemById = new Map(items.map((item) => [item.id, item.item_code]));
-      const supplierItems = relationResult.error ? [] : (relationResult.data ?? []).flatMap((row) => {
-        const relation = row as { supplier_id?: unknown; item_id?: unknown; minimum_order_quantity?: unknown; supplier_item_code?: unknown; is_active?: unknown };
-        const supplierCode = textValue(supplierById.get(textValue(relation.supplier_id)));
-        const itemCode = textValue(itemById.get(textValue(relation.item_id)));
-        return supplierCode && itemCode ? [{
-          supplier_code: supplierCode,
-          item_code: itemCode,
-          minimum_order_quantity: relation.minimum_order_quantity == null ? null : Number(relation.minimum_order_quantity),
-          supplier_item_code: relation.supplier_item_code == null ? null : String(relation.supplier_item_code),
-          is_active: relation.is_active !== false,
-        }] : [];
-      });
-      setSources({ items, suppliers, supplierItems });
-      const errors = [itemResult.error, supplierResult.error, relationResult.error].filter(Boolean);
-      setMessage(errors.length > 0
-        ? `部分主檔無法載入；仍可依權限嘗試保存。${errors[0]?.message ?? ""}`
-        : `已載入 ${items.length} 個品號、${suppliers.length} 個供應商與 ${supplierItems.length} 筆供應關係`);
     }
     void loadSources();
-    return () => { active = false; };
-  }, [client, reloadToken]);
+    return () => { active = false; readController.invalidate(); };
+  }, [client, identityReady, panelActive, reloadToken]);
 
   const existingOptions = useMemo(() => {
     if (entityType === "UNIFORM_ITEMS") return sources.items.map((item) => ({ value: item.item_code, label: `${item.item_code}｜${item.item_name}` }));
@@ -226,12 +231,16 @@ export default function ProductMasterEditorPanel({
   }
 
   async function saveForm(formToSave = form) {
+    if (entityType === "SUPPLIER_ITEMS" && !sourceSnapshotReady) {
+      setMessage("供應商與制服品號選項尚未成功載入；完成讀取後即可保存。其他欄位不需等待，可先行填寫。");
+      return false;
+    }
     const validationError = validateProductEditor(entityType, formToSave);
     if (validationError) {
       setMessage(validationError);
       return false;
     }
-    if (!client) {
+    if (!identityReady || !client) {
       setMessage("預覽模式：設定 Supabase env 並登入後，才會由 apply_master_import 保存主檔");
       return false;
     }
@@ -247,17 +256,40 @@ export default function ProductMasterEditorPanel({
     });
     setBusy(false);
     if (error) {
-      setMessage(`保存失敗或結果未知：${error.message}；請使用相同資料重試，不要重複建立另一筆`);
+      if (error.message.includes("Role cannot manage this master data")) {
+        setMessage(
+          "保存失敗：目前帳號沒有主檔維護權限。若你是 SYSTEM_ADMIN，請先在 Supabase 執行 0080_master_data_system_admin_access.sql；若你是 HR，請確認帳號仍具有效 HR 角色。",
+        );
+        return false;
+      }
+      if (
+        error.message.includes('column reference "item_code" is ambiguous') ||
+        error.message.includes('column reference "supplier_code" is ambiguous')
+      ) {
+        setMessage(
+          "保存失敗：主檔資料庫函式仍使用舊的欄位解析規則，請先在 Supabase 執行 0082_master_data_item_code_qualification.sql，再用相同資料重試。",
+        );
+        return false;
+      }
+      if (error.message.includes("there is no unique or exclusion constraint matching the ON CONFLICT specification")) {
+        const errorContext = error.code ? `錯誤碼 ${error.code}` : "42P10";
+        setMessage(
+          `保存失敗：資料庫唯一鍵設定尚未與 RPC 對齊（${errorContext}）。若 verify-master-data-conflict-targets.sql 已確認索引存在，請在相同 Supabase project 執行 supabase/manual/0084_master_data_constraint_targets.sql，完成後重新登入再試。`,
+        );
+        return false;
+      }
+      setMessage(safeSupabaseMutationErrorMessage(error, "保存失敗或結果未知；請使用相同資料重試，不要重複建立另一筆。"));
       return false;
     }
     const result = data as { status?: string; error_message?: string | null } | null;
     if (result?.status === "FAILED") {
-      setMessage(`保存被伺服器拒絕：${result.error_message ?? "請查看批次錯誤"}`);
+      setMessage("保存被伺服器拒絕；請檢查資料格式或批次結果後，再使用相同資料重試。");
       return false;
     }
     setReloadToken((value) => value + 1);
+    invalidateMasterDataCache(client, "product");
     if (!formToSave.isActive) {
-      setMessage(`停用 ${stableKey} 完成；已留下主檔異動紀錄，既有交易仍可追溯`);
+      setMessage(`刪除（停用）${stableKey} 完成；已留下主檔異動紀錄，既有交易仍可追溯`);
       if (onSaved) onSaved(stableKey, false);
       else resetEditor();
     } else {
@@ -270,67 +302,83 @@ export default function ProductMasterEditorPanel({
 
   async function deactivate() {
     if (!editingKey) {
-      setMessage("請先從現有資料載入要刪除的主檔；正式刪除會以停用保存交易歷史");
+      setMessage("請先從現有資料載入要停用的商品");
       return;
     }
     await saveForm({ ...form, isActive: false });
   }
 
+  async function deleteItem() {
+    if (!itemEditRequest?.id || !editingKey) {
+      setMessage("請先從商品清單載入要刪除的商品");
+      return;
+    }
+    if (!identityReady || !client) {
+      setMessage("預覽模式：設定 Supabase env 並登入後，才能刪除商品主檔");
+      return;
+    }
+    setBusy(true);
+    const { error } = await client.rpc("delete_uniform_item", {
+      p_item_id: itemEditRequest.id,
+      p_idempotency_key: `DELETE-UNIFORM-ITEM-${crypto.randomUUID()}`,
+      p_request_fingerprint: JSON.stringify({ entityType: "UNIFORM_ITEMS", itemId: itemEditRequest.id, itemCode: itemEditRequest.item_code }),
+    });
+    setBusy(false);
+    if (error) {
+      const message = error.message.toLowerCase();
+      if (message.includes("inventory records exist")) {
+        setMessage("刪除失敗：此商品已有庫存餘額或庫存流水紀錄，不可刪除；請改用「停用」。");
+        return;
+      }
+      if (message.includes("business history") || error.code === "23514") {
+        setMessage("刪除失敗：此商品已有業務或供應商關聯，無法硬刪除；請改用「停用」。");
+        return;
+      }
+      if (message.includes("role cannot delete uniform items")) {
+        setMessage("刪除失敗：目前帳號沒有商品刪除權限，請使用具 HR 或 SYSTEM_ADMIN 角色的帳號。");
+        return;
+      }
+      setMessage(safeSupabaseMutationErrorMessage(error, "刪除失敗或結果未知；請先重新整理商品清單再確認結果。"));
+      return;
+    }
+    setMessage(`刪除 ${itemEditRequest.item_code} 完成`);
+    invalidateMasterDataCache(client, "product");
+    onDeleted?.(itemEditRequest.item_code);
+  }
+
   const keyLocked = Boolean(editingKey);
-  const confirmationOnly = intent === "DEACTIVATE";
+  const confirmationOnly = intent !== "EDIT";
+  const deleting = intent === "DELETE";
   const entityLabel = entityOptions.find(([value]) => value === entityType)?.[1] ?? "商品主檔";
   const editorTitle = catalogItemEditor
-    ? editingKey ? `編輯商品｜${editingKey}` : "新增商品"
+    ? deleting ? `刪除商品｜${editingKey}` : intent === "DEACTIVATE" ? `停用商品｜${editingKey}` : editingKey ? `編輯商品｜${editingKey}` : "新增商品"
     : "供應商與 MOQ 維護";
 
   return (
-    <section className="panel" id="product-master-editor" aria-label="商品主檔新增修改停用">
+    <section className="panel" id="product-master-editor" aria-label="商品主檔新增修改停用刪除" aria-busy={dataLoading}>
       <div className="panel-heading">
         <div>
-          <p className="eyebrow">{catalogItemEditor ? "商品表單" : "供應商名錄"}</p>
+          <p className="eyebrow">{catalogItemEditor ? "PRODUCT FORM" : "SUPPLIER DIRECTORY"}</p>
           <h2>{editorTitle}</h2>
           <p className="auth-message">{catalogItemEditor
-            ? "商品編號建立後不可修改；其餘欄位可直接更新。"
+            ? deleting ? "刪除會移除商品主檔；有庫存餘額或庫存流水時資料庫會拒絕刪除。" : "商品編號建立後不可修改；其餘欄位可直接更新。"
             : "先選擇供應商或供應商品號關係，再載入既有資料修改；也可直接新增一筆。"}</p>
         </div>
-        <span className={`status-pill ${intent === "DEACTIVATE" ? "danger" : editingKey ? "success" : ""}`}>{intent === "DEACTIVATE" ? "停用確認" : editingKey ? "修改模式" : "新增模式"}</span>
+        <span className={`status-pill ${intent !== "EDIT" ? "danger" : editingKey ? "success" : ""}`}>{deleting ? "刪除確認" : intent === "DEACTIVATE" ? "停用確認" : editingKey ? "修改模式" : "新增模式"}</span>
       </div>
-      {intent === "DEACTIVATE" ? <div className="product-deactivate-warning"><strong>停用後不會刪除歷史資料</strong><span>此商品將不再提供新需求或新交易選用；既有庫存、採購與發放紀錄仍可追溯。</span></div> : null}
+      {intent === "DEACTIVATE" ? <div className="product-deactivate-warning"><strong>停用不會刪除歷史資料</strong><span>此商品將不再提供新需求或新交易選用；既有庫存、採購與發放紀錄仍可追溯，之後可重新啟用。</span></div> : null}
+      {deleting ? <div className="product-deactivate-warning"><strong>刪除後無法復原</strong><span>只有沒有庫存餘額與庫存流水的商品才可刪除；若仍有供應商、需求、採購或其他業務關聯，資料庫也會拒絕刪除。若只是暫時不用，請返回選擇「停用」。</span></div> : null}
       {!catalogItemEditor ? <div className="form-grid product-editor-toolbar">
-        <label className="field"><span>資料類型</span><select value={entityType} onChange={(event) => selectEntity(event.target.value as ProductEntityType)} disabled={busy}>{visibleEntityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label className="field"><span>載入既有資料（修改／停用）</span><select value={editingKey} onChange={(event) => selectExisting(event.target.value)} disabled={busy}><option value="">新增一筆 {entityLabel}</option>{existingOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        <label className="field"><span>資料類型</span><select value={entityType} onChange={(event) => selectEntity(event.target.value as ProductEntityType)} disabled={busy || (dataLoading && !sourceSnapshotReady)}>{visibleEntityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="field"><span>載入既有資料（修改／停用）</span><select value={editingKey} onChange={(event) => selectExisting(event.target.value)} disabled={busy || (dataLoading && !sourceSnapshotReady)}><option value="">新增一筆 {entityLabel}</option>{existingOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
       </div> : null}
       {entityType === "UNIFORM_ITEMS" ? <div className="form-grid">
         <label className="field"><span>品號</span><input value={form.itemCode} onChange={(event) => updateField("itemCode", event.target.value)} disabled={busy || keyLocked || confirmationOnly} maxLength={100} /></label>
         <label className="field"><span>品名</span><input value={form.itemName} onChange={(event) => updateField("itemName", event.target.value)} disabled={busy || confirmationOnly} maxLength={255} /></label>
         <label className="field"><span>單位</span><input value={form.unit} onChange={(event) => updateField("unit", event.target.value)} disabled={busy || confirmationOnly} maxLength={40} /></label>
         <label className="field"><span>尺寸（選填）</span><input value={form.size} onChange={(event) => updateField("size", event.target.value)} disabled={busy || confirmationOnly} maxLength={80} /></label>
-        <label className="field">
-          <span>分類（選填）</span>
-          <input list="product-category-list" value={form.category} onChange={(event) => updateField("category", event.target.value)} disabled={busy || confirmationOnly} placeholder="例：上衣、下身" maxLength={80} />
-          <datalist id="product-category-list">{PRODUCT_CATEGORY_PRESETS.map((c) => <option key={c} value={c} />)}</datalist>
-        </label>
-        <label className="field">
-          <span>季節（選填）</span>
-          <select value={form.season} onChange={(event) => updateField("season", event.target.value)} disabled={busy || confirmationOnly}>
-            <option value="">未指定／全年</option>
-            {PRODUCT_SEASON_PRESETS.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>性別（選填）</span>
-          <select value={form.gender} onChange={(event) => updateField("gender", event.target.value)} disabled={busy || confirmationOnly}>
-            <option value="">未指定／通用</option>
-            {PRODUCT_GENDER_PRESETS.map((g) => <option key={g} value={g}>{g}</option>)}
-          </select>
-        </label>
-        <label className="field">
-          <span>款式（選填）</span>
-          <select value={form.style} onChange={(event) => updateField("style", event.target.value)} disabled={busy || confirmationOnly}>
-            <option value="">未指定</option>
-            {PRODUCT_STYLE_PRESETS.map((st) => <option key={st} value={st}>{st}</option>)}
-          </select>
-        </label>
+        <label className="field"><span>分類（選填）</span><input value={form.category} onChange={(event) => updateField("category", event.target.value)} disabled={busy || confirmationOnly} maxLength={80} /></label>
+        <label className="field"><span>季別（選填）</span><input value={form.season} onChange={(event) => updateField("season", event.target.value)} disabled={busy || confirmationOnly} maxLength={80} /></label>
       </div> : null}
       {entityType === "SUPPLIERS" ? <div className="form-grid">
         <label className="field"><span>供應商代碼</span><input value={form.supplierCode} onChange={(event) => updateField("supplierCode", event.target.value)} disabled={busy || keyLocked} maxLength={100} /></label>
@@ -338,22 +386,24 @@ export default function ProductMasterEditorPanel({
         <label className="field"><span>預設幣別（選填）</span><input value={form.defaultCurrency} onChange={(event) => updateField("defaultCurrency", event.target.value)} disabled={busy} maxLength={3} /></label>
       </div> : null}
       {entityType === "SUPPLIER_ITEMS" ? <div className="form-grid">
-        <label className="field"><span>供應商</span><select value={form.supplierCode} onChange={(event) => updateField("supplierCode", event.target.value)} disabled={busy || keyLocked}><option value="">請選擇</option>{sources.suppliers.filter((supplier) => supplier.is_active).map((supplier) => <option key={supplier.id} value={supplier.supplier_code}>{supplier.supplier_code}｜{supplier.name}</option>)}</select></label>
-        <label className="field"><span>制服品號</span><select value={form.itemCode} onChange={(event) => updateField("itemCode", event.target.value)} disabled={busy || keyLocked}><option value="">請選擇</option>{sources.items.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.item_code}>{item.item_code}｜{item.item_name}</option>)}</select></label>
+        <label className="field"><span>供應商</span><select value={form.supplierCode} onChange={(event) => updateField("supplierCode", event.target.value)} disabled={busy || (!sourceSnapshotReady && dataLoading) || keyLocked}><option value="">請選擇</option>{sources.suppliers.filter((supplier) => supplier.is_active).map((supplier) => <option key={supplier.id} value={supplier.supplier_code}>{supplier.supplier_code}｜{supplier.name}</option>)}</select></label>
+        <label className="field"><span>制服品號</span><select value={form.itemCode} onChange={(event) => updateField("itemCode", event.target.value)} disabled={busy || (!sourceSnapshotReady && dataLoading) || keyLocked}><option value="">請選擇</option>{sources.items.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.item_code}>{item.item_code}｜{item.item_name}</option>)}</select></label>
         <label className="field"><span>MOQ</span><input type="number" min={0} step={1} value={form.minimumOrderQuantity} onChange={(event) => updateField("minimumOrderQuantity", event.target.value)} disabled={busy} /></label>
         <label className="field"><span>供應商品號（選填）</span><input value={form.supplierItemCode} onChange={(event) => updateField("supplierItemCode", event.target.value)} disabled={busy} maxLength={100} /></label>
       </div> : null}
       {!confirmationOnly ? <label className="checkbox-field"><input type="checkbox" checked={form.isActive} onChange={(event) => updateField("isActive", event.target.checked)} disabled={busy} />啟用此主檔</label> : null}
       <div className="button-row">
-        {intent === "DEACTIVATE"
-          ? <button className="danger-button" type="button" onClick={() => void deactivate()} disabled={busy || !editingKey}>{busy ? "停用中…" : "確認停用"}</button>
-          : <button className="primary-button" type="button" onClick={() => void saveForm()} disabled={busy}>{busy ? "保存中…" : editingKey ? "儲存修改" : "新增主檔"}</button>}
-        {intent !== "DEACTIVATE" && !catalogItemEditor ? <button className="secondary-button" type="button" onClick={() => void deactivate()} disabled={busy || !editingKey}>停用／刪除</button> : null}
-        {intent !== "DEACTIVATE" && !catalogItemEditor ? <button className="secondary-button" type="button" onClick={() => resetEditor()} disabled={busy}>清除並新增</button> : null}
-        {!catalogItemEditor ? <button className="secondary-button" type="button" onClick={() => setReloadToken((value) => value + 1)} disabled={busy}>重新整理既有資料</button> : null}
+        {deleting
+          ? <button className="danger-button" type="button" onClick={() => void deleteItem()} disabled={busy || !editingKey}>{busy ? "刪除中…" : "確認刪除"}</button>
+          : intent === "DEACTIVATE"
+            ? <button className="danger-button" type="button" onClick={() => void deactivate()} disabled={busy || !editingKey}>{busy ? "停用中…" : "確認停用"}</button>
+          : <button className="primary-button" type="button" onClick={() => void saveForm()} disabled={busy || (entityType === "SUPPLIER_ITEMS" && !sourceSnapshotReady)}>{busy ? "保存中…" : entityType === "SUPPLIER_ITEMS" && !sourceSnapshotReady ? "載入選項中…" : editingKey ? "儲存修改" : "新增主檔"}</button>}
+        {intent === "EDIT" && !catalogItemEditor ? <button className="secondary-button" type="button" onClick={() => void deactivate()} disabled={busy || !editingKey}>停用</button> : null}
+        {intent === "EDIT" && !catalogItemEditor ? <button className="secondary-button" type="button" onClick={() => resetEditor()} disabled={busy}>清除並新增</button> : null}
+        {!catalogItemEditor ? <button className="secondary-button" type="button" onClick={() => { if (client) invalidateMasterDataCache(client, "product"); setReloadToken((value) => value + 1); }} disabled={busy}>{dataLoading ? "重新整理中…" : "重新整理既有資料"}</button> : null}
         {onCancel ? <button className="secondary-button" type="button" onClick={onCancel} disabled={busy}>取消並返回列表</button> : null}
       </div>
-      <p className={message.includes("失敗") || message.includes("拒絕") ? "auth-message" : "success-note"} role="status">{message}</p>
+      <p className={message.includes("失敗") || message.includes("拒絕") || identityError ? "auth-message" : "success-note"} role="status" aria-live="polite">{identityError ?? message}</p>
     </section>
   );
 }

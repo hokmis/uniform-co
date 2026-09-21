@@ -10,7 +10,7 @@
 4. 依需求讀 `docs/spec/`、`docs/architecture/`、`docs/implementation/roadmap.md` 與 `docs/deployment/`。
 5. 先找 workspace、panel、domain function、server API、RPC／RLS seam，再做最小 patch。
 
-分析基準為 2026-08-31 的 `main`。最近功能包含共用管理清單、員工主檔、營運報表中文化、組織主檔、visited mount、工作區模組化、商品管理重構、庫存模組與待發貨理貨工作區。正式狀態仍是 `NOT_READY`，不可由本機測試或 UI smoke 自動改成 READY。
+分析基準為 2026-09-12 的 `main`。最近功能包含共用管理清單、員工主檔、營運報表中文化、組織主檔、visited mount、工作區模組化、商品管理重構、庫存模組、待發貨理貨工作區與 System Guide 冷啟動預取。正式狀態仍是 `NOT_READY`，不可由本機測試或 UI smoke 自動改成 READY。
 
 ## 2. 技術架構
 
@@ -59,7 +59,7 @@ Durable import / PDF / ERP / Storage cleanup / retention
 - 組織：`OrganizationManagementPanel`／catalog／editor／`organization-management.ts`。
 - 員工：`EmployeeManagementPanel`／catalog／editor／`employee-management.ts`，單筆保存由 migration `0079` 的 HR-only RPC 處理。
 - 庫存：`InventoryManagementPanel` 組合 availability、opening import、operation hub、history export 與 calculator；`inventory-availability.ts` 集中篩選／排序語意，清單使用 `ManagementCatalogTable`，不得直接 DML balance。
-- 發貨：`WarehouseShipmentPanel` 以 `warehouse-shipment.ts` 將已送出需求與既有 DRAFT 組合成左側待發貨清單，右側建立／恢復理貨草稿並顯示品號快照與調庫上限；建立者可依 RLS 修改草稿明細，非建立者唯讀，正式 POST 仍只走 `post_warehouse_shipment`，沒有取消／刪除語意。
+- 發貨：`WarehouseShipmentPanel` 以 `warehouse-shipment.ts` 將已送出人資需求、既有 DRAFT 發貨草稿與 `SUBMITTED` 補庫單組合成左側待處理清單。人資需求仍建立／恢復 `warehouse_shipments` 草稿並走 `post_warehouse_shipment`；補庫單則載入補庫明細與總倉即時上限，直接走 migration `0096_replenishment_post_ui.sql` 的 `post_replenishment_request_with_lines`，`0097_replenishment_post_lock_order.sql` 先鎖品號互斥列再進入來源單／餘額鎖定，由資料庫交易寫入調庫流水並鎖單，不可由瀏覽器直接修改已送出補庫明細。盤點及盤點更正的選項會依目前有效角色過濾 HR／GENERAL 倉庫，但資料庫 RPC 仍是最後授權邊界。
 - 帳號：`AccountAdminPanel` 的目錄使用 `account-directory.ts` 篩選／排序與 `ManagementCatalogTable`；「管理」只選取資料，所有真正異動仍走 `/api/admin/accounts` 的 server-side authorization、冪等鍵與稽核理由。
 - 採購差異原因碼：`ProcurementReasonCodePanel` 分離清單與新增／修改模式，查詢排序在 `procurement-reason-management.ts`；代碼編輯時鎖定，保存仍只走 `maintain_procurement_difference_reason`。
 - 報表：`ReportingPanel` 只讀 `0063` 起的 security-invoker views，中文欄位 metadata 在 `reporting-catalog.ts`。
@@ -82,7 +82,7 @@ Durable import / PDF / ERP / Storage cleanup / retention
 ### 主檔與歷史
 
 - 穩定代碼／工號建立後不可被改造成另一業務實體。
-- 已引用主檔使用停用，不 hard delete；員工刪除語意是 `INACTIVE`。
+- 主檔預設使用停用保留歷史；商品另有受保護的 hard delete seam，但 `delete_uniform_item` 只允許沒有 `inventory_balances`／`inventory_ledger_entries` 且沒有其他業務外鍵關聯的商品，刪除前必須寫入 immutable audit snapshot。員工刪除語意仍是 `INACTIVE`。
 - 已 POST 原單不可修改；更正以關聯來源的新 append-only 單據處理。
 - 員工調動只更新目前歸屬，歷史單據保存 snapshot。
 
@@ -96,7 +96,7 @@ Durable import / PDF / ERP / Storage cleanup / retention
 
 ## 5. Supabase 結構
 
-Migration 從 `0001` 到 `0079` 依序累積；不要編輯已套用 migration，修正使用新的 forward migration。重要範圍：
+Migration 從 `0001` 到 `0085` 依序累積；不要編輯已套用 migration，修正使用新的 forward migration。重要範圍：
 
 - `0001–0014`：核心主檔、兩倉、需求、發貨、補庫、盤點、退回、換季、採購、ERP/PDF baseline、opening、主檔匯入。
 - `0015–0030`：受保護草稿 RPC、匯入 guard、scope、並行與來源版本、correction／provenance forward fixes。
@@ -105,7 +105,7 @@ Migration 從 `0001` 到 `0079` 依序累積；不要編輯已套用 migration�
 - `0063–0066`：九張 reporting views 與來源 ACL。
 - `0067–0070`：帳號 profile、Auth audit、login name 與 bulk roles。
 - `0071–0075`：Storage cleanup、terminal retention、staging payload scrub、pgcrypto bridge。
-- `0076–0079`：庫存匯出稽核、停用商品／組織可讀、員工主檔管理。
+- `0076–0085`：庫存匯出稽核、停用商品／組織可讀、員工主檔管理、SYSTEM_ADMIN 主檔維護授權、PostgreSQL JSONB 物件長度 compatibility bridge、主檔 RPC 的 PL/pgSQL 欄位歧義修正、`ON CONFLICT` 目標所需的完整唯一索引，以及商品停用／硬刪除分流與庫存紀錄防線。
 
 RLS 與 RPC 必須一起檢查。新增可見欄位時同步檢查 schema、表單、清單、詳情、篩選、RPC、RLS、匯入／匯出與測試。
 
@@ -113,7 +113,7 @@ RLS 與 RPC 必須一起檢查。新增可見欄位時同步檢查 schema、表�
 
 ### Durable import
 
-`DurableImportPanel` 只負責建批次、取得固定 private key、直傳檔案、查詢狀態、確認或取消。真正解析與 APPLY 在 `scripts/import/import-worker.ts`，透過 `src/domain/import-worker.ts` 與 worker RPC。瀏覽器不可持有 worker／service-role。
+`DurableImportPanel` 只負責建批次、取得固定 private key、直傳檔案、查詢狀態、確認或取消，並按需呼叫 `supabase/functions/import-worker`。真正解析與 APPLY 仍透過 `src/domain/import-worker.ts`、`src/domain/import-worker-parser.ts` 與既有 worker RPC；Edge Function 是 `scripts/import/import-worker.ts` 的 serverless adapter，兩者共用 `job_import_worker` actor 與 lease／idempotency 邊界。瀏覽器不可持有 worker／service-role；若未配置 Edge secret，UI 必須保留等待／重試，不得假稱完成。
 
 Storage cleanup eligibility 只能由 `0071`／`0072` RPC 決定；DB staging payload retention 只走 `0074` 的 `job_import_retention` RPC。兩個 job role 不得合併或互相擴權。
 
@@ -127,7 +127,7 @@ Renderer runner 位於 `scripts/renderer/renderer-worker.mjs`，Storage proxy �
 - 文件定義與 parser：`src/domain/system-guide.ts` 集中三個固定檔名、標題、讀者與有限 block types；`src/server/system-guide.ts` 只讀這份 allowlist。
 - Protected API：`HEAD/GET /api/system-guide`，先用 caller bearer token 執行 `authorizeSystemAdmin()`。
 - Frontend：`/system-guide` 仍掛載 `WorkspaceShell initialSystemGuide`，保留原作業台左側導航，右側才呈現 `SystemGuidePageClient`；React 以文字節點渲染，不用 `dangerouslySetInnerHTML`。
-- 即時導覽：文件按鈕直接使用共用 allowlist metadata，不等待文件 GET 才建立；`useSystemGuideAccess` 以 RLS self-read `user_roles` 決定入口、sessionStorage 只快取目前分頁的正向可見狀態，並在背景預取文件。
+- 即時導覽：文件按鈕直接使用共用 allowlist metadata，不等待文件 GET 才建立；`WorkspaceShell` 在 authenticated shell ready 後呼叫 `router.prefetch("/system-guide")`，`useSystemGuideAccess` 將受保護文件 GET 與 RLS self-read `user_roles` 並行，sessionStorage 只快取目前分頁的正向可見狀態。
 - 安全邊界：入口快取不是授權；GET API 每次仍重新驗證 Auth、有效 `app_accounts` 與 `SYSTEM_ADMIN`，角色被移除或 session 失效時會拒絕內容並清除前台快取。
 - CSS：所有新增規則以 `.system-guide-*` scope 限定。
 
@@ -169,11 +169,18 @@ node -e "const fs=require('fs'),vm=require('vm'); const h=fs.readFileSync('proto
 最近已完成：
 
 - 員工主檔獨立模組、完整單筆表單、停用、匯入與稽核匯出。
+- `0080_master_data_system_admin_access.sql` 修正 `apply_master_import` 與版本化主檔匯出的 SYSTEM_ADMIN 授權，並同步商品／供應商讀取 policy；它是必須由管理者在 Supabase 套用的 forward migration，不修改既有 `0014`。
+- `0081_jsonb_object_length_compatibility.sql` 提供 `private.jsonb_object_length(jsonb)`，以 `jsonb_object_keys` 計數支援既有主檔 RPC 的欄位上限檢查；它是修正 0080 執行時 `function jsonb_object_length(jsonb) does not exist` 的 forward migration，不修改已套用的 0014／0080。
+- `0082_master_data_item_code_qualification.sql` 讀取現有 SYSTEM_ADMIN-aware `apply_master_import` 定義，加入 `#variable_conflict use_variable` 後重新建立同一函式，修正 `item_code`／`supplier_code` 與資料表欄位同名造成的 ambiguous；它必須在 0080、0081 後套用，不直接修改已提交 migration 檔。
+- `0083_master_data_conflict_targets.sql` 先檢查 `operation_commands`、機構、部門、商品、供應商與供應商品號／MOQ 的 `ON CONFLICT` 業務鍵是否有重複資料，通過後建立完整唯一索引；它修正 `there is no unique or exclusion constraint matching the ON CONFLICT specification`，可安全重跑，但若發現重複資料會在建立索引前 fail-closed，必須先人工整理資料。
+- `supabase/manual/verify-master-data-conflict-targets.sql` 是上述錯誤的唯讀診斷工具，會列出 0083 建立的索引、目前所有 `apply_master_import` overload 與手動執行不一定會更新的 `schema_migrations` ledger；它不會修改資料庫。
+- `0085_uniform_item_delete.sql` 與 `supabase/manual/0085_uniform_item_delete.sql` 建立 `delete_uniform_item(uuid,text,text)`；前台「停用」仍走 `apply_master_import`，前台「刪除」只走此 RPC。RPC 先檢查庫存餘額／流水，並以資料庫外鍵阻擋仍有業務引用的商品；硬刪除前以 `private.append_audit_event` 保存商品快照。
 - 營運報表中文欄位、搜尋、排序、分頁與即時刷新。
-- 組織主檔與商品管理的清單／表單／匯入匯出深模組。
-- 帳號、商品、組織、員工、兩倉庫存、營運報表、採購差異原因碼、五種更正歷史、CEO 待核版本、換季採購決策品項、換季需求登記與待發貨需求共用管理清單的欄位顯示、密度、每頁筆數與完整分頁；更正歷史另提供單號／原因搜尋與狀態篩選，CEO 清單提供活動／revision／snapshot hash 搜尋與送核時間排序，採購清單提供品號／品名／數量／決策狀態搜尋與排序，需求清單提供員工／品號／數量／HR 修改狀態搜尋與排序，待發貨清單提供需求單／日期／草稿狀態搜尋與排序，選取後回填右側表單或理貨工作區。
+- 組織主檔與商品管理的清單／表單／匯入匯出深模組；商品清單另有分開的停用與硬刪除操作，不能把停用文案重新寫成刪除。
+- 帳號、商品、組織、員工、兩倉庫存、營運報表、採購差異原因碼、五種更正歷史、CEO 待核版本、換季採購決策品項、換季需求登記與待發貨需求共用管理清單的欄位顯示、密度、每頁筆數與完整分頁；更正歷史另提供單號／原因搜尋與狀態篩選，CEO 清單提供活動／revision／snapshot hash 搜尋與送核時間排序，採購清單提供品號／品名／數量／決策狀態搜尋與排序，需求清單提供員工／品號／數量／HR 修改狀態搜尋與排序，待發貨清單提供需求單／日期／草稿狀態搜尋與排序，選取後回填右側表單或理貨工作區。主檔角色與保存修正由 `0080_master_data_system_admin_access.sql`、`0081_jsonb_object_length_compatibility.sql`、`0082_master_data_item_code_qualification.sql` 與 `0083_master_data_conflict_targets.sql` 提供；商品硬刪除再由 `0085_uniform_item_delete.sql` 提供，這些檔案需在 Supabase 套用後才是正式資料庫行為。
 - Workspace／ModuleWorkbench visited mount，避免登入後 eager 查詢。
 - 庫存管理整合兩倉可用量、期初、操作入口與歷史匯出。
+- System Guide 的 route／文件冷啟動預取：不改 server-side 授權，縮短已登入 SYSTEM_ADMIN 第一次開啟 `/system-guide` 的等待；非管理員的背景文件請求由 API 以 401/403 結束，不會取得文件內容。
 
 下一步不得自行製造 production PASS。合理的 repository 工作是新的明確功能、測試或文件需求；production gate 需要使用者提供 staging／production credentials、正式樣本、核准與 evidence。
 

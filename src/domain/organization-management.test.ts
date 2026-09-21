@@ -6,6 +6,7 @@ import {
   organizationEditorKey,
   sortOrganizationCatalog,
   type OrganizationCatalogEntry,
+  type OrganizationInstitutionOption,
   validateOrganizationEditor,
 } from "./organization-management";
 
@@ -16,6 +17,8 @@ const rows: OrganizationCatalogEntry[] = [
 ];
 
 describe("organization management interface", () => {
+  const institutionA2: OrganizationInstitutionOption = { id: "institution-a2", code: " A2 ", isActive: true };
+
   it("builds stable institution and department keys", () => {
     expect(organizationEditorKey("INSTITUTIONS", { ...emptyOrganizationEditorForm, code: " A2 " })).toBe("A2");
     expect(organizationEditorKey("DEPARTMENTS", { ...emptyOrganizationEditorForm, institutionCode: " A2 ", code: " D1 " })).toBe("A2:D1");
@@ -24,7 +27,13 @@ describe("organization management interface", () => {
   it("maps one editor form to the existing master import contract", () => {
     expect(organizationEditorImportRow("DEPARTMENTS", {
       institutionCode: " A2 ", code: " D1 ", name: " 行政部 ", isActive: false,
-    })).toEqual({ institutionCode: "A2", code: "D1", name: "行政部", isActive: false });
+    }, institutionA2)).toEqual({
+      institutionId: "institution-a2",
+      institutionCode: "A2",
+      code: "D1",
+      name: "行政部",
+      isActive: false,
+    });
   });
 
   it("validates required and unsafe fields before calling the server", () => {

@@ -1,9 +1,5 @@
-import WorkspaceShell from "./WorkspaceShell";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <main className="shell">
-      <WorkspaceShell />
-    </main>
-  );
+  redirect("/app");
 }

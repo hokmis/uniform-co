@@ -29,6 +29,7 @@ type Props<Row, SortKey extends string> = {
   sortDirection: "asc" | "desc";
   onSort: (key: SortKey) => void;
   emptyState: ReactNode;
+  loading?: boolean;
   defaultPageSize?: number;
   pageSizeOptions?: readonly number[];
   tableClassName?: string;
@@ -45,6 +46,7 @@ export default function ManagementCatalogTable<Row, SortKey extends string>({
   sortDirection,
   onSort,
   emptyState,
+  loading = false,
   defaultPageSize = 25,
   pageSizeOptions = [10, 25, 50, 100],
   tableClassName = "",
@@ -80,40 +82,59 @@ export default function ManagementCatalogTable<Row, SortKey extends string>({
     return sortDirection === "asc" ? "↑" : "↓";
   }
 
+  if (loading && rows.length === 0) {
+    return (
+      <div className="management-catalog-loading" role="status" aria-live="polite" aria-busy="true" aria-label={`${ariaLabel}載入中`}>
+        <span className="sr-only">{ariaLabel}載入中…</span>
+        {Array.from({ length: 4 }, (_, rowIndex) => (
+          <div className="management-catalog-loading-row" key={rowIndex} aria-hidden="true">
+            <span className="management-catalog-loading-bar management-catalog-loading-bar--wide" />
+            <span className="management-catalog-loading-bar" />
+            <span className="management-catalog-loading-bar" />
+            <span className="management-catalog-loading-bar management-catalog-loading-bar--short" />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (rows.length === 0) return <>{emptyState}</>;
 
   return (
-    <div className={`management-catalog-browser management-catalog-browser--${density}`}>
+    <div className={`management-catalog-browser management-catalog-browser--${density}`} aria-busy={loading || undefined}>
       <div className="management-catalog-viewbar" aria-label={`${ariaLabel}顯示設定`}>
         <p className="muted" aria-live="polite">顯示第 {window.start}–{window.end} 筆，共 {rows.length} 筆</p>
-        <div className="management-catalog-view-actions">
-          <label>
-            <span>每頁</span>
-            <select value={pageSize} onChange={(event) => changePageSize(Number(event.target.value))}>
-              {pageSizeOptions.map((size) => <option key={size} value={size}>{size} 筆</option>)}
-            </select>
-          </label>
-          <button className="secondary-button management-density-button" type="button" onClick={() => setDensity((value) => value === "comfortable" ? "compact" : "comfortable")}>
-            {density === "comfortable" ? "緊湊顯示" : "舒適顯示"}
-          </button>
-          <details className="management-column-settings">
-            <summary className="secondary-button">欄位顯示</summary>
-            <div className="management-column-popover">
-              <div className="management-column-popover-heading"><strong>顯示欄位</strong><button type="button" onClick={setAllColumnsVisible}>全部顯示</button></div>
-              {columns.map((column) => <label key={column.id}>
-                <input
-                  type="checkbox"
-                  checked={visibleIds.has(column.id) || column.locked}
-                  disabled={column.locked}
-                  onChange={() => setVisibleIds((current) => new Set(toggleCatalogColumnId(columnIds, current, column.id, lockedIds)))}
-                />
-                <span>{column.label}</span>
-                {column.locked ? <small>固定</small> : null}
-              </label>)}
-              <button className="text-button management-column-reset" type="button" onClick={resetColumns}>恢復預設欄位</button>
-            </div>
-          </details>
-        </div>
+        <details className="management-view-settings">
+          <summary className="secondary-button">顯示設定</summary>
+          <div className="management-catalog-view-actions">
+            <label>
+              <span>每頁</span>
+              <select value={pageSize} onChange={(event) => changePageSize(Number(event.target.value))}>
+                {pageSizeOptions.map((size) => <option key={size} value={size}>{size} 筆</option>)}
+              </select>
+            </label>
+            <button className="secondary-button management-density-button" type="button" onClick={() => setDensity((value) => value === "comfortable" ? "compact" : "comfortable")}>
+              {density === "comfortable" ? "緊湊顯示" : "舒適顯示"}
+            </button>
+            <details className="management-column-settings">
+              <summary className="secondary-button">欄位顯示</summary>
+              <div className="management-column-popover">
+                <div className="management-column-popover-heading"><strong>顯示欄位</strong><button type="button" onClick={setAllColumnsVisible}>全部顯示</button></div>
+                {columns.map((column) => <label key={column.id}>
+                  <input
+                    type="checkbox"
+                    checked={visibleIds.has(column.id) || column.locked}
+                    disabled={column.locked}
+                    onChange={() => setVisibleIds((current) => new Set(toggleCatalogColumnId(columnIds, current, column.id, lockedIds)))}
+                  />
+                  <span>{column.label}</span>
+                  {column.locked ? <small>固定</small> : null}
+                </label>)}
+                <button className="text-button management-column-reset" type="button" onClick={resetColumns}>恢復預設欄位</button>
+              </div>
+            </details>
+          </div>
+        </details>
       </div>
 
       <div className={`table-scroll management-catalog-table ${tableClassName}`.trim()}>

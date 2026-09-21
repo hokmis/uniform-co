@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getSupabaseBrowserClient } from "@/src/lib/supabase-browser";
+import { isArtifactTerminalStatus, workflowStatusLabel, workflowStatusTone } from "@/src/domain/workflow-status";
+import { workflowRecoveryCandidates } from "@/src/domain/workflow-recovery";
+import { createReadRequestController } from "@/src/domain/read-refresh";
+import { retrySupabaseQueriesAfterSessionRefresh } from "@/src/lib/supabase-session";
+import { usePanelActivity } from "./RetainedPanelSet";
+import { useWorkflowStatusPoll } from "./use-workflow-status-poll";
+import WorkflowActionBar from "./WorkflowActionBar";
+import { useWorkspaceSession } from "./workspace-session";
 
 type DocumentType = "HR_REQUEST" | "WAREHOUSE_SHIPMENT" | "REPLENISHMENT" | "STOCKTAKE" | "RETURN_NOTE" | "SEASONAL_APPROVAL" | "PURCHASE_ORDER" | "PURCHASE_RECEIPT";
 type DocumentRow = { id: string; label: string; version: number; hash: string };
@@ -31,67 +38,103 @@ const sourceConfig: Record<DocumentType, { table: string; select: string; number
 };
 
 export default function PdfArtifactPanel() {
-  const client = getSupabaseBrowserClient();
+  const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
+  const panelActive = usePanelActivity();
+  const hasSession = isAuthenticated;
+  const identityReady = Boolean(client && panelActive && hasSession && accountId && !identityLoading && !identityError);
   const [documentType, setDocumentType] = useState<DocumentType>("HR_REQUEST");
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [documentId, setDocumentId] = useState("");
   const [artifact, setArtifact] = useState<Artifact | null>(null);
+  const currentArtifactIdRef = useRef<string | null>(null);
   const [artifactKind, setArtifactKind] = useState<ArtifactKind>("FORMAL");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const keyRef = useRef<string | null>(null);
+  const [documentLoading, setDocumentLoading] = useState(false);
+  const [artifactLoading, setArtifactLoading] = useState(false);
+  const artifactStatusReadControllerRef = useRef(createReadRequestController());
   const [recoveryArtifactId, setRecoveryArtifactId] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("uniform:pdf-artifact-id"));
   const [recoveryRequestKey, setRecoveryRequestKey] = useState<string | null>(() => typeof window === "undefined" ? null : window.localStorage.getItem("uniform:pdf-request-key"));
+  const keyRef = useRef<string | null>(recoveryRequestKey);
+  const displayMessage = identityError ?? message;
 
   useEffect(() => {
-    if (!client || !recoveryArtifactId || artifact) return;
-    void client.rpc("get_document_status", { p_artifact_id: recoveryArtifactId, p_idempotency_key: null }).then((result) => {
-      if (!result.error && result.data) setArtifact(result.data as Artifact);
-    });
-  }, [client, recoveryArtifactId, artifact]);
-
-  useEffect(() => {
-    if (!client || artifact || !recoveryRequestKey) return;
-    void client.rpc("get_document_status", { p_artifact_id: null, p_idempotency_key: `REQUEST-PDF-${recoveryRequestKey}` }).then((result) => {
-      if (!result.error && result.data) {
-        setArtifact(result.data as Artifact);
+    if (!identityReady || !client || artifact) return;
+    const supabase = client;
+    let active = true;
+    async function recover() {
+      for (const candidate of workflowRecoveryCandidates(recoveryArtifactId, recoveryRequestKey)) {
+        const [result] = await retrySupabaseQueriesAfterSessionRefresh(
+          supabase,
+          async () => [await supabase.rpc("get_document_status", candidate.kind === "id"
+            ? { p_artifact_id: candidate.value, p_idempotency_key: null }
+            : { p_artifact_id: null, p_idempotency_key: `REQUEST-PDF-${candidate.value}` })] as const,
+        );
+        if (!active || result.error || !result.data) continue;
         const recovered = result.data as Artifact;
+        currentArtifactIdRef.current = recovered.id;
+        setArtifact(recovered);
         setRecoveryArtifactId(recovered.id);
         window.localStorage.setItem("uniform:pdf-artifact-id", recovered.id);
+        return;
       }
-    });
-  }, [client, recoveryRequestKey, artifact]);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") keyRef.current = window.localStorage.getItem("uniform:pdf-request-key");
-  }, []);
+    }
+    void recover();
+    return () => { active = false; };
+  }, [artifact, client, identityReady, panelActive, recoveryArtifactId, recoveryRequestKey]);
 
   const selected = useMemo(() => documents.find((row) => row.id === documentId), [documents, documentId]);
 
+  const { refresh: refreshArtifactStatus } = useWorkflowStatusPoll<Artifact>({
+    active: identityReady,
+    token: artifact?.id ?? null,
+    poll: async () => {
+      if (!identityReady || !client || !artifact) return null;
+      const [result] = await retrySupabaseQueriesAfterSessionRefresh(
+        client,
+        async () => [await client.rpc("get_document_status", { p_artifact_id: artifact.id, p_idempotency_key: null })] as const,
+      );
+      return result.error || !result.data ? null : result.data as Artifact;
+    },
+    isTerminal: (value) => isArtifactTerminalStatus(value.status),
+    onValue: (value) => {
+      if (currentArtifactIdRef.current === value.id) setArtifact(value);
+    },
+  });
+
   useEffect(() => {
-    if (!client) return;
+    if (!identityReady || !client) return;
     const supabase = client;
     let active = true;
     async function load() {
       const config = sourceConfig[documentType];
-      const result = await supabase.from(config.table).select(config.select).order("id", { ascending: false }).limit(100);
-      if (!active) return;
-      if (result.error) { setMessage("單據載入失敗，請確認角色與 RLS 權限。"); return; }
-      const rows = (result.data ?? []).map((row) => {
-        const record = row as unknown as Record<string, unknown>;
-        const id = String(record.id);
-        const label = String(record[config.numberField] ?? id);
-        const version = Number(record.row_version ?? 1) || 1;
-        return { id, label: `${label}｜${String(record.status ?? "")}`, version, hash: JSON.stringify(record) };
-      });
-      setDocuments(rows); setDocumentId((current) => current || rows[0]?.id || "");
+      setDocumentLoading(true);
+      try {
+        const [result] = await retrySupabaseQueriesAfterSessionRefresh(
+          supabase,
+          async () => [await supabase.from(config.table).select(config.select).order("id", { ascending: false }).limit(100)] as const,
+        );
+        if (!active) return;
+        if (result.error) { setMessage("單據載入失敗，請確認角色與資料權限。"); return; }
+        const rows = (result.data ?? []).map((row) => {
+          const record = row as unknown as Record<string, unknown>;
+          const id = String(record.id);
+          const label = String(record[config.numberField] ?? id);
+          const version = Number(record.row_version ?? 1) || 1;
+          return { id, label: `${label}｜${workflowStatusLabel(String(record.status ?? ""))}`, version, hash: JSON.stringify(record) };
+        });
+        setDocuments(rows);
+        setDocumentId((current) => rows.some((row) => row.id === current) ? current : "");
+      } finally {
+        if (active) setDocumentLoading(false);
+      }
     }
     void load();
     return () => { active = false; };
-  }, [client, documentType]);
+  }, [client, documentType, identityReady, panelActive]);
 
   async function requestPdf() {
-    if (!client || !selected) { setMessage("請先選擇要產生的單據。"); return; }
+    if (!identityReady || !client || !selected || documentLoading) { setMessage(identityError ?? "請先選擇要產生的單據。"); return; }
     setBusy(true); setMessage("");
     const key = keyRef.current ?? crypto.randomUUID();
     keyRef.current = key;
@@ -103,28 +146,36 @@ export default function PdfArtifactPanel() {
       p_request_fingerprint: JSON.stringify({ documentType, documentId: selected.id, artifactKind, version: selected.version, hash: selected.hash }),
       p_artifact_kind: artifactKind,
     });
-    if (error || !data?.id) setMessage(`PDF 請求結果尚未確認：${error?.message ?? "請使用相同操作重試"}`);
-    else { setArtifact(data as Artifact); window.localStorage.setItem("uniform:pdf-artifact-id", String((data as Artifact).id)); keyRef.current = null; setRecoveryRequestKey(null); window.localStorage.removeItem("uniform:pdf-request-key"); setMessage("已建立不可變 PDF revision；背景 renderer 完成前狀態會維持 PREPARING，可關閉頁面後恢復查詢。"); }
+    if (error || !data?.id) setMessage("PDF 請求結果尚未確認，請使用相同操作重試。相同操作不會重複建立檔案。");
+    else { const created = data as Artifact; currentArtifactIdRef.current = created.id; setArtifact(created); window.localStorage.setItem("uniform:pdf-artifact-id", created.id); keyRef.current = null; setRecoveryRequestKey(null); window.localStorage.removeItem("uniform:pdf-request-key"); setMessage("已建立不可變 PDF 版本；檔案準備完成前可關閉頁面，之後再回來查詢。"); }
     setBusy(false);
   }
 
   async function refreshArtifact() {
-    if (!client || !artifact) return;
-    const result = await client.rpc("get_document_status", { p_artifact_id: artifact.id, p_idempotency_key: null });
-    if (result.error) setMessage(`PDF 狀態查詢失敗：${result.error.message}`); else if (result.data) setArtifact(result.data as Artifact);
+    if (!identityReady || !client || !artifact) return;
+    const sequence = artifactStatusReadControllerRef.current.begin();
+    setArtifactLoading(true);
+    try {
+      const result = await refreshArtifactStatus();
+      if (!artifactStatusReadControllerRef.current.isCurrent(sequence) || currentArtifactIdRef.current !== artifact.id) return;
+      if (result) setArtifact((current) => current?.id === artifact.id ? result : current);
+      else setMessage("PDF 狀態查詢失敗，請稍後再試。相同操作不會重複建立檔案。");
+    } finally {
+      if (artifactStatusReadControllerRef.current.isCurrent(sequence)) setArtifactLoading(false);
+    }
   }
 
   async function downloadArtifact() {
-    if (!client || !artifact || artifact.status !== "READY") return;
+    if (!identityReady || !client || !artifact || artifact.status !== "READY") return;
     setBusy(true);
     const result = await client.rpc("download_document", { p_artifact_id: artifact.id });
-    if (result.error) setMessage(`PDF 下載結果尚未確認：${result.error.message}`);
+    if (result.error) setMessage("PDF 下載結果尚未確認，請稍後再試。");
     else {
       const payload = result.data as { bucket?: string; object_key?: string };
       if (!payload.bucket || !payload.object_key) setMessage("PDF 已就緒，但下載位置尚未回傳。");
       else {
         const signed = await client.storage.from(payload.bucket).createSignedUrl(payload.object_key, 120);
-        if (signed.error || !signed.data?.signedUrl) setMessage(`PDF 簽名下載連結建立失敗：${signed.error?.message ?? "未知錯誤"}`);
+        if (signed.error || !signed.data?.signedUrl) setMessage("PDF 下載連結建立失敗，請稍後再試。");
         else window.open(signed.data.signedUrl, "_blank", "noopener,noreferrer");
       }
     }
@@ -132,16 +183,29 @@ export default function PdfArtifactPanel() {
   }
 
   function startAnother() {
+    artifactStatusReadControllerRef.current.invalidate();
+    setArtifactLoading(false);
+    currentArtifactIdRef.current = null;
     setArtifact(null); setRecoveryArtifactId(null); setRecoveryRequestKey(null); keyRef.current = null; window.localStorage.removeItem("uniform:pdf-artifact-id"); window.localStorage.removeItem("uniform:pdf-request-key"); setMessage("");
   }
 
-  if (!client) return <section className="panel import-panel" aria-label="正式單據 PDF"><div className="panel-heading"><div><p className="eyebrow">10 / PDF</p><h2>正式單據 PDF</h2></div><span className="status-pill">預覽模式</span></div><p className="auth-message">設定 Supabase 並登入授權角色後，可從已建立單據請求 A4 PDF artifact；瀏覽器列印預覽仍可立即使用。</p></section>;
-  return <section className="panel import-panel" aria-label="正式單據 PDF">
-    <div className="panel-heading"><div><p className="eyebrow">10 / PDF</p><h2>正式單據 PDF</h2></div><span className={`status-pill ${artifact?.status === "READY" ? "success" : ""}`}>{artifact?.status ?? "待請求"}</span></div>
-    <p className="auth-message">每次請求都固定來源 snapshot、template version 與 revision；READY 成品不可覆寫。若尚未部署背景 renderer，請保留 PREPARING 並稍後重新整理狀態。</p>
-    <div className="form-grid"><label className="field"><span>單據類型</span><select value={documentType} onChange={(event) => setDocumentType(event.target.value as DocumentType)} disabled={busy || Boolean(artifact)}>{(Object.keys(labels) as DocumentType[]).map((type) => <option key={type} value={type}>{labels[type]}</option>)}</select></label><label className="field"><span>單據</span><select value={documentId} onChange={(event) => { keyRef.current = null; setDocumentId(event.target.value); }} disabled={busy || Boolean(artifact)}><option value="">請選擇</option>{documents.map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label><label className="field"><span>成品類型</span><select value={artifactKind} onChange={(event) => { keyRef.current = null; setArtifactKind(event.target.value as ArtifactKind); }} disabled={busy || Boolean(artifact)}><option value="FORMAL">正式 PDF</option><option value="DRAFT_WATERMARK">草稿（浮水印）</option></select></label></div>
-    <div className="button-row"><button className="primary-button" type="button" onClick={() => void requestPdf()} disabled={busy || Boolean(artifact) || !selected}>{busy ? "請求中…" : "請求 A4 PDF"}</button>{artifact ? <button className="secondary-button" type="button" onClick={() => void refreshArtifact()} disabled={busy}>{busy ? "查詢中…" : "重新查詢狀態"}</button> : null}{artifact?.status === "READY" ? <button className="secondary-button" type="button" onClick={() => void downloadArtifact()} disabled={busy}>{busy ? "處理中…" : "下載 PDF"}</button> : null}{artifact ? <button className="secondary-button" type="button" onClick={startAnother} disabled={busy}>建立另一份</button> : null}</div>
-    {artifact ? <p className={artifact.status === "READY" ? "success-note" : "auth-message"}>revision {artifact.revision}／{artifactKind}／{artifact.status}。{artifact.status === "READY" && artifact.storage_object_key ? `成品位置：${artifact.storage_object_key}` : artifact.status === "FAILED" ? artifact.error_message ?? "renderer 失敗" : "背景 renderer 尚未完成；不會在前端偽造正式成品。"}</p> : null}
-    {message ? <p className={message.includes("已") ? "success-note" : "auth-message"} role="status">{message}</p> : null}
+  if (!client) return <section className="panel import-panel" aria-label="正式單據 PDF"><div className="panel-heading"><div><p className="eyebrow">10 / PDF</p><h2>正式單據 PDF</h2></div><span className="status-pill">預覽模式</span></div><p className="auth-message">設定 Supabase 並登入授權角色後，可從已建立單據請求 A4 PDF；瀏覽器列印預覽仍可立即使用。</p></section>;
+  const primaryAction = !artifact
+    ? { onClick: () => void requestPdf(), busy, disabled: busy || documentLoading || !identityReady || !selected, label: "請求 A4 PDF" }
+    : artifact.status === "READY"
+      ? { onClick: () => void downloadArtifact(), busy, busyLabel: "下載中…", disabled: busy || !identityReady, label: "下載 PDF" }
+      : { onClick: () => undefined, busy: false, disabled: true, label: artifact.status === "FAILED" ? "檔案需要重試" : "檔案準備中…" };
+  const secondaryActions = artifact ? <>
+    <button className="secondary-button" type="button" onClick={() => void refreshArtifact()} disabled={busy || !identityReady}>{artifactLoading ? "查詢中…" : "重新查詢狀態"}</button>
+    <button className="secondary-button" type="button" onClick={startAnother} disabled={busy || !identityReady || !isArtifactTerminalStatus(artifact.status)}>建立另一份</button>
+  </> : null;
+  return <section className="panel import-panel" aria-label="正式單據 PDF" aria-busy={busy || documentLoading || artifactLoading}>
+    <div className="panel-heading"><div><p className="eyebrow">10 / PDF</p><h2>正式單據 PDF</h2></div><span className={`status-pill ${workflowStatusTone(artifact?.status)}`}>{workflowStatusLabel(artifact?.status, "待請求")}</span></div>
+    <p className="auth-message">每次請求都固定單據版本；已完成的 PDF 不會被覆寫。檔案準備中時系統會自動更新，也可以手動重新查詢，不需要重新建立單據。</p>
+    <div className="form-grid"><label className="field"><span>單據類型</span><select value={documentType} onChange={(event) => setDocumentType(event.target.value as DocumentType)} disabled={busy || documentLoading || Boolean(artifact)}>{(Object.keys(labels) as DocumentType[]).map((type) => <option key={type} value={type}>{labels[type]}</option>)}</select></label><label className="field"><span>單據</span><select value={documentId} onChange={(event) => { keyRef.current = null; setDocumentId(event.target.value); }} disabled={busy || documentLoading || Boolean(artifact)}><option value="">{documentLoading ? "載入單據中…" : "請選擇"}</option>{documents.map((row) => <option key={row.id} value={row.id}>{row.label}</option>)}</select></label><label className="field"><span>成品類型</span><select value={artifactKind} onChange={(event) => { keyRef.current = null; setArtifactKind(event.target.value as ArtifactKind); }} disabled={busy || Boolean(artifact)}><option value="FORMAL">正式 PDF</option><option value="DRAFT_WATERMARK">草稿（浮水印）</option></select></label></div>
+    {documentLoading || artifactLoading ? <p className="sr-only" role="status" aria-live="polite">{documentLoading ? "正在讀取 PDF 單據…" : "正在讀取 PDF 狀態…"}</p> : null}
+    <WorkflowActionBar primary={primaryAction} secondary={secondaryActions} />
+    {artifact ? <p className={artifact.status === "READY" ? "success-note" : artifact.status === "FAILED" ? "auth-message" : "auth-message"}>第 {artifact.revision} 版／{artifactKind === "FORMAL" ? "正式 PDF" : "草稿 PDF"}／{workflowStatusLabel(artifact.status)}。{artifact.status === "READY" ? "可以下載。" : artifact.status === "FAILED" ? "請重新查詢；若仍失敗，使用相同單據重新請求。" : "檔案仍在準備中，系統會自動更新。"}</p> : null}
+    {displayMessage ? <p className={displayMessage.includes("已") ? "success-note" : "auth-message"} role="status">{displayMessage}</p> : null}
   </section>;
 }

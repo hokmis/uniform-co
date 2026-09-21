@@ -1,4 +1,4 @@
-import type { DurableImportType } from "./durable-import";
+import type { DurableImportType } from "./durable-import.ts";
 
 export type ImportReferenceRow = Record<string, string | boolean | number | null | undefined>;
 
@@ -27,6 +27,37 @@ export type ImportPreviewChunk = {
   end_row_number: number;
   rows: ImportPreviewRow[];
 };
+
+export type ImportWorkerContinuationProgress = {
+  phase: "PARSE" | "VALIDATE";
+  nextStatus: string | null;
+  completedChunks: number;
+  chunkLimit: number;
+  lastChunkCompleted: boolean;
+};
+
+/**
+ * Only request another immediate serverless invocation when this invocation
+ * has made forward progress and the database confirms that the same phase (or
+ * its next phase) still has work. A missing claim can mean another worker owns
+ * the lease, so it must yield to the normal status poll instead of spinning.
+ */
+export function shouldImmediatelyContinueImportBatch(progress: ImportWorkerContinuationProgress): boolean {
+  const status = progress.nextStatus?.trim().toUpperCase();
+  if (
+    !progress.lastChunkCompleted ||
+    !Number.isInteger(progress.completedChunks) ||
+    progress.completedChunks < 1 ||
+    !Number.isInteger(progress.chunkLimit) ||
+    progress.chunkLimit < 1 ||
+    !status
+  ) return false;
+
+  if (progress.phase === "PARSE" && status === "VALIDATING") return true;
+
+  const activeStatus = progress.phase === "PARSE" ? "PARSING" : "VALIDATING";
+  return status === activeStatus && progress.completedChunks >= progress.chunkLimit;
+}
 
 type ImportField = {
   name: string;

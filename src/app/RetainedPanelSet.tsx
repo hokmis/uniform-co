@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
-import { normalizeWorkbenchId, shouldMountRetainedPanel, type PanelMountPolicy } from "@/src/domain/module-workbench";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { normalizeWorkbenchId, rememberVisitedPanel, shouldMountRetainedPanel, type PanelMountPolicy } from "@/src/domain/module-workbench";
 
 export type RetainedPanel = {
   id: string;
@@ -10,6 +10,12 @@ export type RetainedPanel = {
   panelId?: string;
   tabId?: string;
 };
+
+const PanelActivityContext = createContext(true);
+
+export function usePanelActivity(): boolean {
+  return useContext(PanelActivityContext);
+}
 
 type Props = {
   idPrefix: string;
@@ -34,20 +40,27 @@ export default function RetainedPanelSet({
   activePanelClassName,
 }: Props) {
   const normalizedPrefix = normalizeWorkbenchId(idPrefix) || "module";
-  const [retention, setRetention] = useState(() => ({
-    activePanelId,
-    visitedPanelIds: new Set(activePanelId ? [activePanelId] : []),
-  }));
-  let visitedPanelIds: ReadonlySet<string> = retention.visitedPanelIds;
-  if (retention.activePanelId !== activePanelId) {
-    visitedPanelIds = activePanelId
-      ? new Set([...retention.visitedPanelIds, activePanelId])
-      : retention.visitedPanelIds;
-    setRetention({ activePanelId, visitedPanelIds: new Set(visitedPanelIds) });
-  }
+  const parentActive = usePanelActivity();
+  const [visitedPanelIds, setVisitedPanelIds] = useState<ReadonlySet<string>>(
+    () => new Set(activePanelId ? [activePanelId] : []),
+  );
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setVisitedPanelIds((current) => rememberVisitedPanel(current, activePanelId));
+    });
+    return () => { active = false; };
+  }, [activePanelId]);
+
+  // Include the active panel immediately on the first render after a switch;
+  // the microtask above persists it for later switches without updating state
+  // during render or delaying the first visible panel.
+  const renderedVisitedPanelIds = rememberVisitedPanel(visitedPanelIds, activePanelId);
 
   return panels.map((panel) => {
-    if (!shouldMountRetainedPanel(panel.id, activePanelId, visitedPanelIds, mountPolicy)) return null;
+    if (!shouldMountRetainedPanel(panel.id, activePanelId, renderedVisitedPanelIds, mountPolicy)) return null;
     const isActive = panel.id === activePanelId;
     const normalizedPanelId = normalizeWorkbenchId(panel.id);
     return (
@@ -59,7 +72,9 @@ export default function RetainedPanelSet({
         aria-labelledby={panel.tabId ?? `${normalizedPrefix}-tab-${normalizedPanelId}`}
         hidden={!isActive}
       >
-        {panel.content}
+        <PanelActivityContext.Provider value={parentActive && isActive}>
+          {panel.content}
+        </PanelActivityContext.Provider>
       </div>
     );
   });

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildImportPreviewRows, chunkImportRows, type ImportReferenceRow } from "./import-worker";
+import {
+  buildImportPreviewRows,
+  chunkImportRows,
+  shouldImmediatelyContinueImportBatch,
+  type ImportReferenceRow,
+} from "./import-worker";
 
 describe("durable import worker preview seam", () => {
   it("classifies employee rows as INSERT, UPDATE, and SKIP against the reference snapshot", () => {
@@ -44,5 +49,58 @@ describe("durable import worker preview seam", () => {
     expect(rows[0].normalized_values).toBeNull();
     const booleanRows = buildImportPreviewRows("INSTITUTIONS", [["code", "name", "is_active"], ["A", "甲", ""]], []);
     expect(booleanRows[0].normalized_values?.isActive).toBeUndefined();
+  });
+});
+
+describe("durable import continuation decision", () => {
+  it("continues immediately when the last parse chunk opens the validation phase", () => {
+    expect(shouldImmediatelyContinueImportBatch({
+      phase: "PARSE",
+      nextStatus: "VALIDATING",
+      completedChunks: 1,
+      chunkLimit: 4,
+      lastChunkCompleted: true,
+    })).toBe(true);
+  });
+
+  it("continues only after the current invocation exhausts its chunk budget", () => {
+    expect(shouldImmediatelyContinueImportBatch({
+      phase: "PARSE",
+      nextStatus: "PARSING",
+      completedChunks: 4,
+      chunkLimit: 4,
+      lastChunkCompleted: true,
+    })).toBe(true);
+    expect(shouldImmediatelyContinueImportBatch({
+      phase: "PARSE",
+      nextStatus: "PARSING",
+      completedChunks: 3,
+      chunkLimit: 4,
+      lastChunkCompleted: true,
+    })).toBe(false);
+  });
+
+  it("yields when no chunk completed or the batch reached a review or terminal state", () => {
+    expect(shouldImmediatelyContinueImportBatch({
+      phase: "VALIDATE",
+      nextStatus: "VALIDATING",
+      completedChunks: 0,
+      chunkLimit: 4,
+      lastChunkCompleted: false,
+    })).toBe(false);
+    expect(shouldImmediatelyContinueImportBatch({
+      phase: "VALIDATE",
+      nextStatus: "VALIDATED",
+      completedChunks: 4,
+      chunkLimit: 4,
+      lastChunkCompleted: true,
+    })).toBe(false);
+    expect(shouldImmediatelyContinueImportBatch({
+      phase: "VALIDATE",
+      nextStatus: null,
+      completedChunks: 1,
+      chunkLimit: 4,
+      lastChunkCompleted: false,
+    })).toBe(false);
   });
 });

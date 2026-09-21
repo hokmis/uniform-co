@@ -1,17 +1,11 @@
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
-import { canonicalFingerprint } from "@/src/lib/fingerprint";
-import { authEmailForAccountLogin, normalizeAccountLogin } from "@/src/lib/account-login";
+import { canonicalFingerprint } from "../lib/fingerprint";
+import { authEmailForAccountLogin, normalizeAccountLogin } from "../lib/account-login";
+import { ACCOUNT_ROLE_CODES, type AccountRoleCode } from "../domain/account-roles";
 
-export const ACCOUNT_ROLES = [
-  "SYSTEM_ADMIN",
-  "HR",
-  "WAREHOUSE",
-  "PROCUREMENT",
-  "CEO",
-  "DEMAND_COORDINATOR",
-] as const;
+export const ACCOUNT_ROLES = ACCOUNT_ROLE_CODES;
 
-export type AccountRole = (typeof ACCOUNT_ROLES)[number];
+export type AccountRole = AccountRoleCode;
 
 export type AccountAdminOperation =
   | { operation: "create"; login_name: string; email: string | null; display_name: string; password: string; role_codes: AccountRole[]; reason: string; idempotency_key: string }
@@ -38,13 +32,21 @@ export type AccountAdminResult = {
   warning?: string;
 };
 
+export type AccountAdminDiagnosticStage =
+  | "supabase_runtime_config_missing"
+  | "supabase_target_url_invalid"
+  | "supabase_admin_key_invalid"
+  | "supabase_admin_project_mismatch";
+
 export class AccountAdminError extends Error {
   readonly status: number;
+  readonly diagnosticStage: AccountAdminDiagnosticStage | undefined;
 
-  constructor(message: string, status = 400) {
+  constructor(message: string, status = 400, diagnosticStage?: AccountAdminDiagnosticStage) {
     super(message);
     this.name = "AccountAdminError";
     this.status = status;
+    this.diagnosticStage = diagnosticStage;
   }
 }
 
@@ -255,13 +257,80 @@ export function createCallerClient(authHeader: string | null): AccountAdminClien
 
 export function createAuthAdminClient(): AccountAdminClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.SUPABASE_SECRET_KEY;
   if (!url || !serviceRoleKey) {
-    throw new AccountAdminError("尚未設定 Vercel 的 SUPABASE_SERVICE_ROLE_KEY；帳號建立與密碼管理暫不可用。", 503);
+    throw new AccountAdminError(
+      "尚未設定 Supabase server runtime。",
+      503,
+      "supabase_runtime_config_missing",
+    );
   }
+
+  const targetUrl = parseSupabaseUrl(url);
+  if (!targetUrl) {
+    throw new AccountAdminError("Supabase target URL 設定不正確。", 503, "supabase_target_url_invalid");
+  }
+  if (anonKey && serviceRoleKey === anonKey) {
+    throw new AccountAdminError("Supabase server key 不可使用 anon key。", 503, "supabase_admin_key_invalid");
+  }
+  validateSupabaseAdminKey(targetUrl, serviceRoleKey);
+
   return createClient(url, serviceRoleKey, {
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
+}
+
+export async function assertAuthAdminClientMatchesTarget(client: AccountAdminClient): Promise<void> {
+  const { error } = await client.auth.admin.listUsers({ page: 1, perPage: 1 });
+  if (error) {
+    throw new AccountAdminError(
+      "Supabase server key 無法存取目標專案。",
+      503,
+      "supabase_admin_project_mismatch",
+    );
+  }
+}
+
+function parseSupabaseUrl(value: string): URL | null {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" || parsed.hostname === "localhost" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function validateSupabaseAdminKey(targetUrl: URL, key: string): void {
+  const claims = decodeJwtPayload(key);
+  if (!claims) return;
+
+  if (typeof claims.role === "string" && claims.role !== "service_role") {
+    throw new AccountAdminError("Supabase server key 不是 service role。", 503, "supabase_admin_key_invalid");
+  }
+
+  const targetProjectRef = targetUrl.hostname.endsWith(".supabase.co")
+    ? targetUrl.hostname.slice(0, -".supabase.co".length)
+    : null;
+  if (targetProjectRef && typeof claims.ref === "string" && claims.ref !== targetProjectRef) {
+    throw new AccountAdminError(
+      "Supabase server key 與 target project 不一致。",
+      503,
+      "supabase_admin_project_mismatch",
+    );
+  }
+}
+
+function decodeJwtPayload(value: string): Record<string, unknown> | null {
+  const parts = value.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const normalized = parts[1].replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(parts[1].length / 4) * 4, "=");
+    const parsed: unknown = JSON.parse(Buffer.from(normalized, "base64url").toString("utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function authorizeSystemAdmin(client: AccountAdminClient): Promise<AccountAdminActor> {
@@ -308,6 +377,29 @@ async function getAccount(client: AccountAdminClient, accountId: string): Promis
     throw new AccountAdminError("找不到指定的業務帳號。", 404);
   }
   return data as AccountRecord;
+}
+
+async function getPersistedRoleCodes(client: AccountAdminClient, accountId: string): Promise<AccountRole[]> {
+  const { data, error } = await client
+    .from("user_roles")
+    .select("role_code")
+    .eq("account_id", accountId);
+  if (error) {
+    throw new AccountAdminError("角色保存結果無法確認，請重新整理後再試。", 503);
+  }
+  return [...new Set((data ?? []).map((row) => row.role_code as AccountRole))].sort();
+}
+
+export function sameAccountProfile(account: AccountRecord, operation: Extract<AccountAdminOperation, { operation: "update_profile" }>): boolean {
+  return account.login_name === operation.login_name
+    && account.display_name === operation.display_name
+    && account.email_snapshot === operation.email;
+}
+
+export function sameRoleSet(actual: readonly AccountRole[], expected: readonly AccountRole[]): boolean {
+  const actualSet = [...new Set(actual)].sort();
+  const expectedSet = [...new Set(expected)].sort();
+  return actualSet.length === expectedSet.length && actualSet.every((role, index) => role === expectedSet[index]);
 }
 
 async function recordSecurityEvent(
@@ -436,7 +528,7 @@ async function updateProfile(
     reason: operation.reason,
   };
   try {
-    const account = await rpc<AccountRecord>(client, "update_account_profile_v2", {
+    await rpc<AccountRecord>(client, "update_account_profile_v2", {
       p_account_id: operation.account_id,
       p_login_name: operation.login_name,
       p_display_name: operation.display_name,
@@ -445,7 +537,11 @@ async function updateProfile(
       p_idempotency_key: operation.idempotency_key,
       p_request_fingerprint: await canonicalFingerprint(payload),
     });
-    return { account };
+    const persisted = await getAccount(client, operation.account_id);
+    if (!sameAccountProfile(persisted, operation)) {
+      throw new AccountAdminError("帳號資料未成功套用，請重新整理後再試。", 409);
+    }
+    return { account: persisted };
   } catch (error) {
     if (current.auth_user_id) {
       await adminClient.auth.admin.updateUserById(current.auth_user_id, {
@@ -481,13 +577,17 @@ async function setStatus(
   operation: Extract<AccountAdminOperation, { operation: "set_status" }>,
 ): Promise<AccountAdminResult> {
   const current = await getAccount(client, operation.account_id);
-  const account = await rpc<AccountRecord>(client, "set_account_status", {
+  await rpc<AccountRecord>(client, "set_account_status", {
     p_account_id: operation.account_id,
     p_is_active: operation.is_active,
     p_reason: operation.reason,
     p_idempotency_key: operation.idempotency_key,
     p_request_fingerprint: await canonicalFingerprint({ account_id: operation.account_id, is_active: operation.is_active, reason: operation.reason }),
   });
+  const account = await getAccount(client, operation.account_id);
+  if (account.is_active !== operation.is_active) {
+    throw new AccountAdminError("帳號狀態未成功套用，請重新整理後再試。", 409);
+  }
   if (!current.auth_user_id) return { account };
   const authUpdate = await adminClient.auth.admin.updateUserById(current.auth_user_id, { ban_duration: operation.is_active ? "none" : "876000h" });
   if (authUpdate.error) {
@@ -542,7 +642,7 @@ async function deleteAccount(
 }
 
 async function setRole(client: AccountAdminClient, operation: Extract<AccountAdminOperation, { operation: "set_role" }>): Promise<AccountAdminResult> {
-  const account = await rpc<AccountRecord>(client, "set_account_role", {
+  await rpc<AccountRecord>(client, "set_account_role", {
     p_account_id: operation.account_id,
     p_role_code: operation.role_code,
     p_is_enabled: operation.is_enabled,
@@ -550,11 +650,15 @@ async function setRole(client: AccountAdminClient, operation: Extract<AccountAdm
     p_idempotency_key: operation.idempotency_key,
     p_request_fingerprint: await canonicalFingerprint({ account_id: operation.account_id, role_code: operation.role_code, is_enabled: operation.is_enabled, reason: operation.reason }),
   });
-  return { account };
+  const persistedRoleCodes = await getPersistedRoleCodes(client, operation.account_id);
+  if (persistedRoleCodes.includes(operation.role_code) !== operation.is_enabled) {
+    throw new AccountAdminError("角色權限未成功套用，請重新整理後再試。", 409);
+  }
+  return { account: await getAccount(client, operation.account_id) };
 }
 
 async function setRoles(client: AccountAdminClient, operation: Extract<AccountAdminOperation, { operation: "set_roles" }>): Promise<AccountAdminResult> {
-  const account = await rpc<AccountRecord>(client, "replace_account_roles", {
+  await rpc<AccountRecord>(client, "replace_account_roles", {
     p_account_id: operation.account_id,
     p_role_codes: operation.role_codes,
     p_reason: operation.reason,
@@ -565,7 +669,11 @@ async function setRoles(client: AccountAdminClient, operation: Extract<AccountAd
       reason: operation.reason,
     }),
   });
-  return { account };
+  const persistedRoleCodes = await getPersistedRoleCodes(client, operation.account_id);
+  if (!sameRoleSet(persistedRoleCodes, operation.role_codes)) {
+    throw new AccountAdminError("角色權限未成功套用，請重新整理後再試。", 409);
+  }
+  return { account: await getAccount(client, operation.account_id) };
 }
 
 async function setScope(client: AccountAdminClient, operation: Extract<AccountAdminOperation, { operation: "set_scope" }>): Promise<AccountAdminResult> {

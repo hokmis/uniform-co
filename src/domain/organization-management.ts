@@ -26,6 +26,12 @@ export type OrganizationEditorForm = {
   isActive: boolean;
 };
 
+export type OrganizationInstitutionOption = {
+  id: string;
+  code: string;
+  isActive: boolean;
+};
+
 export const emptyOrganizationEditorForm: OrganizationEditorForm = {
   institutionCode: "",
   code: "",
@@ -53,12 +59,14 @@ export function organizationEditorKey(entityType: OrganizationEntityType, form: 
 export function organizationEditorImportRow(
   entityType: OrganizationEntityType,
   form: OrganizationEditorForm,
+  institution?: OrganizationInstitutionOption | null,
 ): Record<string, string | boolean> {
   if (entityType === "INSTITUTIONS") {
     return { code: clean(form.code), name: clean(form.name), isActive: form.isActive };
   }
   return {
-    institutionCode: clean(form.institutionCode),
+    institutionId: clean(institution?.id ?? ""),
+    institutionCode: clean(institution?.code ?? form.institutionCode),
     code: clean(form.code),
     name: clean(form.name),
     isActive: form.isActive,
@@ -70,7 +78,7 @@ export function validateOrganizationEditor(
   form: OrganizationEditorForm,
 ): string | null {
   if (!clean(form.code) || !clean(form.name)) return "代碼與名稱為必填。";
-  if (entityType === "DEPARTMENTS" && !clean(form.institutionCode)) return "單位必須選擇所屬課室部門。";
+  if (entityType === "DEPARTMENTS" && !clean(form.institutionCode)) return "部門必須選擇所屬機構。";
   if ([form.institutionCode, form.code, form.name].some(unsafeText)) return "文字不可使用公式前綴、Tab 或換行。";
   return null;
 }

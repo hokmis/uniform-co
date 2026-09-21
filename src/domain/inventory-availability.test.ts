@@ -1,14 +1,29 @@
 import { describe, expect, it } from "vitest";
 import {
   filterInventoryAvailability,
+  inventoryAvailabilityLoadErrorMessage,
   inventoryAvailabilityStatus,
   inventoryAvailabilityCategories,
   inventoryAvailabilityStatusLabel,
+  isInventoryAvailabilitySessionSyncError,
   normalizeInventoryAvailabilityRow,
   sortInventoryAvailability,
 } from "./inventory-availability";
 
 describe("inventory availability", () => {
+  it("recognizes transient JWT/session synchronization errors without treating ordinary errors as retryable", () => {
+    expect(isInventoryAvailabilitySessionSyncError({ message: "JWT issued at future" })).toBe(true);
+    expect(isInventoryAvailabilitySessionSyncError({ code: "PGRST301", message: "JWT expired" })).toBe(true);
+    expect(isInventoryAvailabilitySessionSyncError({ message: "permission denied for view v_item_availability" })).toBe(false);
+  });
+
+  it("returns a safe user-facing load message without exposing the database error", () => {
+    const message = inventoryAvailabilityLoadErrorMessage({ message: "JWT issued at future: secret database detail" });
+    expect(message).toContain("登入狀態尚未同步");
+    expect(message).not.toContain("secret database detail");
+    expect(inventoryAvailabilityLoadErrorMessage({ message: "permission denied" })).toContain("暫時無法載入");
+  });
+
   it("normalizes the read-only availability view without creating a second quantity source", () => {
     const row = normalizeInventoryAvailabilityRow({
       item_id: "item-1",
