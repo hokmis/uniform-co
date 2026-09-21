@@ -53,7 +53,7 @@ function unsafeText(value: string): boolean {
 
 export function organizationEditorKey(entityType: OrganizationEntityType, form: OrganizationEditorForm): string {
   const code = clean(form.code);
-  return entityType === "INSTITUTIONS" ? code : `${clean(form.institutionCode)}:${code}`;
+  return entityType === "INSTITUTIONS" ? code : (clean(form.institutionCode) ? `${clean(form.institutionCode)}:${code}` : code);
 }
 
 export function organizationEditorImportRow(
@@ -74,11 +74,10 @@ export function organizationEditorImportRow(
 }
 
 export function validateOrganizationEditor(
-  entityType: OrganizationEntityType,
+  _entityType: OrganizationEntityType,
   form: OrganizationEditorForm,
 ): string | null {
   if (!clean(form.code) || !clean(form.name)) return "代碼與名稱為必填。";
-  if (entityType === "DEPARTMENTS" && !clean(form.institutionCode)) return "部門必須選擇所屬機構。";
   if ([form.institutionCode, form.code, form.name].some(unsafeText)) return "文字不可使用公式前綴、Tab 或換行。";
   return null;
 }

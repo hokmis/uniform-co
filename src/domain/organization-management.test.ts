@@ -22,6 +22,7 @@ describe("organization management interface", () => {
   it("builds stable institution and department keys", () => {
     expect(organizationEditorKey("INSTITUTIONS", { ...emptyOrganizationEditorForm, code: " A2 " })).toBe("A2");
     expect(organizationEditorKey("DEPARTMENTS", { ...emptyOrganizationEditorForm, institutionCode: " A2 ", code: " D1 " })).toBe("A2:D1");
+    expect(organizationEditorKey("DEPARTMENTS", { ...emptyOrganizationEditorForm, code: " D1 " })).toBe("D1");
   });
 
   it("maps one editor form to the existing master import contract", () => {
@@ -38,7 +39,7 @@ describe("organization management interface", () => {
 
   it("validates required and unsafe fields before calling the server", () => {
     expect(validateOrganizationEditor("INSTITUTIONS", emptyOrganizationEditorForm)).toBe("代碼與名稱為必填。");
-    expect(validateOrganizationEditor("DEPARTMENTS", { ...emptyOrganizationEditorForm, code: "D1", name: "行政" })).toBe("部門必須選擇所屬機構。");
+    expect(validateOrganizationEditor("DEPARTMENTS", { ...emptyOrganizationEditorForm, code: "D1", name: "行政" })).toBeNull();
     expect(validateOrganizationEditor("INSTITUTIONS", { ...emptyOrganizationEditorForm, code: "=A1", name: "測試" })).toContain("公式");
   });
 
