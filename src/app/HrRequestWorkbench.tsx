@@ -26,13 +26,17 @@ import {
 } from "@/src/domain/hr-request-submission";
 import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
-import { invalidateMasterDataCache, loadHrRequestMasterData, safeHrRequestMasterDataErrorMessage } from "@/src/lib/master-data-cache";
+import { invalidateMasterDataCache, loadHrRequestMasterData, loadOrganizationMasterData, safeHrRequestMasterDataErrorMessage } from "@/src/lib/master-data-cache";
 import { isSupabaseSessionSyncError, retrySupabaseQueriesAfterSessionRefresh, safeSupabaseMutationErrorMessage } from "@/src/lib/supabase-session";
 import { useWorkspaceSession } from "./workspace-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import WorkflowActionBar from "./WorkflowActionBar";
 
-type LineState = HrRequestLineSelection;
+type LineState = HrRequestLineSelection & {
+  departmentCode?: string;
+};
+
+type DepartmentOption = { code: string; name: string };
 
 const previewEmployees: EmployeeSnapshot[] = [
   {
@@ -53,6 +57,11 @@ const previewEmployees: EmployeeSnapshot[] = [
     departmentCode: "B",
     departmentName: "B 部門",
   },
+];
+
+const previewDepartments: DepartmentOption[] = [
+  { code: "A", name: "A 部門" },
+  { code: "B", name: "B 部門" },
 ];
 
 const previewItems: UniformItemSnapshot[] = [
@@ -79,7 +88,7 @@ const previewItems: UniformItemSnapshot[] = [
 ];
 
 const previewLines: LineState[] = [
-  { lineId: "line-1", employeeId: "employee-1", itemId: "item-m", quantity: 10 },
+  { lineId: "line-1", employeeId: "employee-1", itemId: "item-m", quantity: 10, departmentCode: "A" },
 ];
 
 function taipeiToday(): string {
@@ -91,6 +100,7 @@ export default function HrRequestWorkbench() {
   const panelActive = usePanelActivity();
   const previewMode = !client;
   const [employeeOptions, setEmployeeOptions] = useState<EmployeeSnapshot[]>(previewMode ? previewEmployees : []);
+  const [departmentOptions, setDepartmentOptions] = useState<DepartmentOption[]>(previewMode ? previewDepartments : []);
   const [itemOptions, setItemOptions] = useState<UniformItemSnapshot[]>(previewMode ? previewItems : []);
   const [lines, setLines] = useState<LineState[]>(previewMode ? previewLines : []);
   const [distributionDate, setDistributionDate] = useState(taipeiToday());
@@ -130,6 +140,7 @@ export default function HrRequestWorkbench() {
   );
   const dataReadBlocked = !hasCurrentDataSnapshot;
   const visibleEmployeeOptions = useMemo(() => hasCurrentDataSnapshot ? employeeOptions : [], [employeeOptions, hasCurrentDataSnapshot]);
+  const visibleDepartmentOptions = useMemo(() => hasCurrentDataSnapshot ? departmentOptions : [], [departmentOptions, hasCurrentDataSnapshot]);
   const visibleItemOptions = useMemo(() => hasCurrentDataSnapshot ? itemOptions : [], [hasCurrentDataSnapshot, itemOptions]);
   const visibleLines = useMemo(() => hasCurrentDataSnapshot ? lines : [], [hasCurrentDataSnapshot, lines]);
 
@@ -190,7 +201,10 @@ export default function HrRequestWorkbench() {
         setLoadingData(false);
         return;
       }
-      const masterData = await loadHrRequestMasterData(supabase);
+      const [masterData, orgData] = await Promise.all([
+        loadHrRequestMasterData(supabase),
+        loadOrganizationMasterData(supabase).catch(() => ({ institutions: [], departments: [], errors: [] })),
+      ]);
       if (!active) return;
       if (masterData.errors.length > 0) {
         const preserveSnapshot = employeeOptionsRef.current.length > 0
@@ -203,6 +217,7 @@ export default function HrRequestWorkbench() {
           employeeOptionsRef.current = [];
           itemOptionsRef.current = [];
           setEmployeeOptions([]);
+          setDepartmentOptions([]);
           setItemOptions([]);
           setLines([]);
           setIncreases({});
@@ -239,6 +254,19 @@ export default function HrRequestWorkbench() {
         employeeOptionsRef.current = employeeRows;
         itemOptionsRef.current = itemRows;
         setEmployeeOptions(employeeRows);
+        const orgDepartments = ((orgData?.departments ?? []) as { code: string; name: string; is_active: boolean }[])
+          .filter((dept) => dept.is_active)
+          .map((dept) => ({ code: dept.code, name: dept.name }));
+        const deptMap = new Map<string, string>();
+        for (const dept of orgDepartments) {
+          deptMap.set(dept.code, dept.name);
+        }
+        for (const emp of employeeRows) {
+          if (emp.departmentCode && !deptMap.has(emp.departmentCode)) {
+            deptMap.set(emp.departmentCode, emp.departmentName || emp.departmentCode);
+          }
+        }
+        setDepartmentOptions(Array.from(deptMap.entries()).map(([code, name]) => ({ code, name })));
         setItemOptions(itemRows);
         dataSnapshotAccountIdRef.current = accountId;
         setDataSnapshotAccountId(accountId);
@@ -260,6 +288,7 @@ export default function HrRequestWorkbench() {
         employeeOptionsRef.current = [];
         itemOptionsRef.current = [];
         setEmployeeOptions([]);
+        setDepartmentOptions([]);
         setItemOptions([]);
         setLines([]);
         setIncreases({});
@@ -304,14 +333,33 @@ export default function HrRequestWorkbench() {
     }
   }, [dataReadBlocked, increases, visibleEmployeeOptions, visibleItemOptions, visibleLines]);
 
-  function updateLine(lineId: string, field: keyof Omit<LineState, "lineId">, value: string) {
+  function updateLine(lineId: string, field: "employeeId" | "itemId" | "quantity" | "departmentCode", value: string) {
     markDraftChanged();
     setLines((current) =>
-      current.map((line) =>
-        line.lineId === lineId
-          ? { ...line, [field]: field === "quantity" ? Number(value) || 0 : value }
-          : line,
-      ),
+      current.map((line) => {
+        if (line.lineId !== lineId) return line;
+        if (field === "quantity") {
+          return { ...line, quantity: Number(value) || 0 };
+        }
+        if (field === "departmentCode") {
+          const selectedEmployee = visibleEmployeeOptions.find((e) => e.employeeId === line.employeeId);
+          const employeeStillValid = selectedEmployee && (!value || selectedEmployee.departmentCode === value);
+          return {
+            ...line,
+            departmentCode: value,
+            employeeId: employeeStillValid ? line.employeeId : "",
+          };
+        }
+        if (field === "employeeId") {
+          const selectedEmployee = visibleEmployeeOptions.find((e) => e.employeeId === value);
+          return {
+            ...line,
+            employeeId: value,
+            departmentCode: selectedEmployee?.departmentCode ?? line.departmentCode ?? "",
+          };
+        }
+        return { ...line, [field]: value };
+      }),
     );
   }
 
@@ -479,59 +527,80 @@ export default function HrRequestWorkbench() {
         <div className="request-table" role="table" aria-label="發放明細">
           <div className="request-table-row request-table-header" role="row">
             <span>員工／機構</span>
+            <span>報局單位</span>
             <span>制服品號</span>
             <span>發放量 F</span>
             <span aria-hidden="true" />
           </div>
-          {lines.map((line) => (
-            <div className="request-table-row" role="row" key={line.lineId}>
-              <label className="field">
-                <span className="sr-only">員工</span>
-                <select
-                  value={line.employeeId}
-                  onChange={(event) => updateLine(line.lineId, "employeeId", event.target.value)}
-                  disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                >
-                  <option value="">請選擇員工</option>
-                  {visibleEmployeeOptions.map((employee) => (
-                    <option key={employee.employeeId} value={employee.employeeId}>
-                      {employee.employeeNo}｜{employee.employeeName}（{employee.institutionCode}/
-                      {employee.departmentCode}）
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span className="sr-only">制服品號</span>
-                <select
-                  value={line.itemId}
-                  onChange={(event) => updateLine(line.lineId, "itemId", event.target.value)}
-                  disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                >
-                  <option value="">請選擇制服品號</option>
-                  {visibleItemOptions.map((item) => (
-                    <option key={item.itemId} value={item.itemId}>
-                      {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span className="sr-only">發放量</span>
-                <input
-                  min={1}
-                  step={1}
-                  type="number"
-                  value={line.quantity}
-                  onChange={(event) => updateLine(line.lineId, "quantity", event.target.value)}
-                  disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                />
-              </label>
-              <button className="text-button" type="button" onClick={() => removeLine(line.lineId)} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}>
-                移除
-              </button>
-            </div>
-          ))}
+          {lines.map((line) => {
+            const lineEmployees = line.departmentCode
+              ? visibleEmployeeOptions.filter((employee) => employee.departmentCode === line.departmentCode)
+              : visibleEmployeeOptions;
+            return (
+              <div className="request-table-row" role="row" key={line.lineId}>
+                <label className="field">
+                  <span className="sr-only">員工</span>
+                  <select
+                    value={line.employeeId}
+                    onChange={(event) => updateLine(line.lineId, "employeeId", event.target.value)}
+                    disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                  >
+                    <option value="">請選擇員工</option>
+                    {lineEmployees.map((employee) => (
+                      <option key={employee.employeeId} value={employee.employeeId}>
+                        {employee.employeeNo}｜{employee.employeeName}（{employee.institutionCode}/
+                        {employee.departmentCode}）
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="sr-only">報局單位</span>
+                  <select
+                    value={line.departmentCode ?? ""}
+                    onChange={(event) => updateLine(line.lineId, "departmentCode", event.target.value)}
+                    disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                  >
+                    <option value="">全部報局單位</option>
+                    {visibleDepartmentOptions.map((dept) => (
+                      <option key={dept.code} value={dept.code}>
+                        {dept.code}｜{dept.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="sr-only">制服品號</span>
+                  <select
+                    value={line.itemId}
+                    onChange={(event) => updateLine(line.lineId, "itemId", event.target.value)}
+                    disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                  >
+                    <option value="">請選擇制服品號</option>
+                    {visibleItemOptions.map((item) => (
+                      <option key={item.itemId} value={item.itemId}>
+                        {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span className="sr-only">發放量</span>
+                  <input
+                    min={1}
+                    step={1}
+                    type="number"
+                    value={line.quantity}
+                    onChange={(event) => updateLine(line.lineId, "quantity", event.target.value)}
+                    disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                  />
+                </label>
+                <button className="text-button" type="button" onClick={() => removeLine(line.lineId)} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}>
+                  移除
+                </button>
+              </div>
+            );
+          })}
         </div>
 
         <button className="secondary-button" type="button" onClick={addLine} disabled={submitting || submissionRecovering || dataReadBlocked || (Boolean(submittedRequestId) && !editingSubmitted)}>
