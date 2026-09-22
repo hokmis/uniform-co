@@ -107,13 +107,7 @@ export default function EmployeeMasterEditorPanel({ editRequest, intent = "EDIT"
 
   function selectDepartment(deptCode: string) {
     operationRef.current = null;
-    const targetDept = departments.find((department) => department.code === deptCode);
-    const matchingInstitution = targetDept ? institutions.find((inst) => inst.id === targetDept.institution_id) : null;
-    setForm((current) => ({
-      ...current,
-      departmentCode: deptCode,
-      ...(matchingInstitution ? { institutionCode: matchingInstitution.code } : {}),
-    }));
+    setForm((current) => ({ ...current, departmentCode: deptCode }));
   }
 
   function selectStatus(status: EmploymentStatus) {
@@ -126,15 +120,7 @@ export default function EmployeeMasterEditorPanel({ editRequest, intent = "EDIT"
   }
 
   async function save() {
-    let formToSave = confirmationOnly ? { ...form, employmentStatus: "INACTIVE" as const } : form;
-    // 方案 A：自動校正課室部門為該報局單位在資料庫的所屬機構，確保完全相符且免更新 Supabase SQL
-    const selectedDept = departments.find((dept) => dept.code === formToSave.departmentCode);
-    if (selectedDept) {
-      const matchingInst = institutions.find((inst) => inst.id === selectedDept.institution_id);
-      if (matchingInst?.code) {
-        formToSave = { ...formToSave, institutionCode: matchingInst.code };
-      }
-    }
+    const formToSave = confirmationOnly ? { ...form, employmentStatus: "INACTIVE" as const } : form;
     const validationError = validateEmployeeEditor(formToSave);
     if (validationError) {
       setMessage(validationError);
