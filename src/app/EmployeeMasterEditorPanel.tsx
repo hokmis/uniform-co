@@ -105,6 +105,17 @@ export default function EmployeeMasterEditorPanel({ editRequest, intent = "EDIT"
     setForm((current) => ({ ...current, institutionCode: code }));
   }
 
+  function selectDepartment(deptCode: string) {
+    operationRef.current = null;
+    const targetDept = departments.find((department) => department.code === deptCode);
+    const matchingInstitution = targetDept ? institutions.find((inst) => inst.id === targetDept.institution_id) : null;
+    setForm((current) => ({
+      ...current,
+      departmentCode: deptCode,
+      ...(matchingInstitution ? { institutionCode: matchingInstitution.code } : {}),
+    }));
+  }
+
   function selectStatus(status: EmploymentStatus) {
     operationRef.current = null;
     setForm((current) => ({
@@ -115,7 +126,15 @@ export default function EmployeeMasterEditorPanel({ editRequest, intent = "EDIT"
   }
 
   async function save() {
-    const formToSave = confirmationOnly ? { ...form, employmentStatus: "INACTIVE" as const } : form;
+    let formToSave = confirmationOnly ? { ...form, employmentStatus: "INACTIVE" as const } : form;
+    // 方案 A：自動校正課室部門為該報局單位在資料庫的所屬機構，確保完全相符且免更新 Supabase SQL
+    const selectedDept = departments.find((dept) => dept.code === formToSave.departmentCode);
+    if (selectedDept) {
+      const matchingInst = institutions.find((inst) => inst.id === selectedDept.institution_id);
+      if (matchingInst?.code) {
+        formToSave = { ...formToSave, institutionCode: matchingInst.code };
+      }
+    }
     const validationError = validateEmployeeEditor(formToSave);
     if (validationError) {
       setMessage(validationError);
@@ -182,7 +201,7 @@ export default function EmployeeMasterEditorPanel({ editRequest, intent = "EDIT"
         <label className="field"><span>員工工號</span><input value={form.employeeNo} onChange={(event) => updateField("employeeNo", event.target.value)} disabled={fieldDisabled || Boolean(editRequest)} maxLength={100} /></label>
         <label className="field"><span>姓名</span><input value={form.name} onChange={(event) => updateField("name", event.target.value)} disabled={fieldDisabled} maxLength={255} /></label>
         <label className="field"><span>課室部門</span><select value={form.institutionCode} onChange={(event) => selectInstitution(event.target.value)} disabled={fieldDisabled || (dataLoading && !form.institutionCode)}><option value="">請選擇課室部門</option>{institutionOptions.map((institution) => <option key={institution.id} value={institution.code}>{institution.code}｜{institution.name}{institution.is_active ? "" : "（停用）"}</option>)}</select></label>
-        <label className="field"><span>報局單位</span><select value={form.departmentCode} onChange={(event) => updateField("departmentCode", event.target.value)} disabled={fieldDisabled || dataLoading}><option value="">請選擇報局單位</option>{departmentOptions.map((department) => <option key={department.id} value={department.code}>{department.code}｜{department.name}{department.is_active ? "" : "（停用）"}</option>)}</select></label>
+        <label className="field"><span>報局單位</span><select value={form.departmentCode} onChange={(event) => selectDepartment(event.target.value)} disabled={fieldDisabled || (dataLoading && !form.institutionCode)}><option value="">請選擇報局單位</option>{departmentOptions.map((department) => <option key={department.id} value={department.code}>{department.code}｜{department.name}{department.is_active ? "" : "（停用）"}</option>)}</select></label>
         <label className="field"><span>在職狀態</span><select value={form.employmentStatus} onChange={(event) => selectStatus(event.target.value as EmploymentStatus)} disabled={fieldDisabled}><option value="ACTIVE">在職</option><option value="INACTIVE">離職／停用</option></select></label>
         <label className="field"><span>職稱（選填）</span><input value={form.jobTitle} onChange={(event) => updateField("jobTitle", event.target.value)} disabled={fieldDisabled} maxLength={255} /></label>
         <label className="field"><span>到職日（選填）</span><input type="date" value={form.hireDate} onChange={(event) => updateField("hireDate", event.target.value)} disabled={fieldDisabled} /></label>
