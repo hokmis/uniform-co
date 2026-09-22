@@ -524,7 +524,7 @@ export default function HrRequestWorkbench() {
             <span>員工／機構</span>
             <span>報局單位</span>
             <span>制服品號</span>
-            <span>發放量 F</span>
+            <span>發放量</span>
             <span aria-hidden="true" />
           </div>
           {lines.map((line) => (
@@ -619,7 +619,7 @@ export default function HrRequestWorkbench() {
 
         <div className="increase-list">
           <div className="subheading">
-            <h3>品號彙總增庫量 I</h3>
+            <h3>品號彙總增庫量</h3>
             <span>尺寸選填；庫存按品號獨立計算</span>
           </div>
             {visibleItemOptions.map((item) => (
@@ -675,10 +675,10 @@ export default function HrRequestWorkbench() {
         ) : (
           <>
             <div className="metric-grid">
-              <Metric label="發放總量 F" value={result.summary?.totalIssueQuantity ?? 0} />
-              <Metric label="增庫總量 I" value={result.summary?.totalIncreaseQuantity ?? 0} />
+              <Metric label="發放總量" value={result.summary?.totalIssueQuantity ?? 0} />
+              <Metric label="增庫總量" value={result.summary?.totalIncreaseQuantity ?? 0} />
               <Metric
-                label="合計調庫需求 R"
+                label="合計調庫需求"
                 value={result.summary?.totalRequestedTransferQuantity ?? 0}
               />
             </div>
@@ -691,9 +691,9 @@ export default function HrRequestWorkbench() {
                       {summary.item.itemName}／{summary.item.size || "不分尺寸"}
                     </small>
                   </span>
-                  <span>F {summary.issueQuantity} ＋ I {summary.increaseQuantity}</span>
+                  <span>發放 {summary.issueQuantity} ＋ 增庫 {summary.increaseQuantity}</span>
                   <strong>
-                    R {summary.requestedTransferQuantity}／可用 {summary.availableToRequest}
+                    需求 {summary.requestedTransferQuantity}／可用 {summary.availableToRequest}
                   </strong>
                 </div>
               ))}
