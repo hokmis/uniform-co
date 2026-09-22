@@ -348,11 +348,9 @@ export default function HrRequestWorkbench() {
           };
         }
         if (field === "employeeId") {
-          const selectedEmployee = visibleEmployeeOptions.find((e) => e.employeeId === value);
           return {
             ...line,
             employeeId: value,
-            departmentCode: line.departmentCode || (selectedEmployee?.departmentCode ?? ""),
           };
         }
         return { ...line, [field]: value };
@@ -592,9 +590,8 @@ export default function HrRequestWorkbench() {
                   移除
                 </button>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
 
         <button className="secondary-button" type="button" onClick={addLine} disabled={submitting || submissionRecovering || dataReadBlocked || (Boolean(submittedRequestId) && !editingSubmitted)}>
           ＋新增員工明細
