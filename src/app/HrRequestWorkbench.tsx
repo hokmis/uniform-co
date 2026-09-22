@@ -342,12 +342,9 @@ export default function HrRequestWorkbench() {
           return { ...line, quantity: Number(value) || 0 };
         }
         if (field === "departmentCode") {
-          const selectedEmployee = visibleEmployeeOptions.find((e) => e.employeeId === line.employeeId);
-          const employeeStillValid = selectedEmployee && (!value || selectedEmployee.departmentCode === value);
           return {
             ...line,
             departmentCode: value,
-            employeeId: employeeStillValid ? line.employeeId : "",
           };
         }
         if (field === "employeeId") {
@@ -355,7 +352,7 @@ export default function HrRequestWorkbench() {
           return {
             ...line,
             employeeId: value,
-            departmentCode: selectedEmployee?.departmentCode ?? line.departmentCode ?? "",
+            departmentCode: line.departmentCode || (selectedEmployee?.departmentCode ?? ""),
           };
         }
         return { ...line, [field]: value };
@@ -532,28 +529,24 @@ export default function HrRequestWorkbench() {
             <span>發放量 F</span>
             <span aria-hidden="true" />
           </div>
-          {lines.map((line) => {
-            const lineEmployees = line.departmentCode
-              ? visibleEmployeeOptions.filter((employee) => employee.departmentCode === line.departmentCode)
-              : visibleEmployeeOptions;
-            return (
-              <div className="request-table-row" role="row" key={line.lineId}>
-                <label className="field">
-                  <span className="sr-only">員工</span>
-                  <select
-                    value={line.employeeId}
-                    onChange={(event) => updateLine(line.lineId, "employeeId", event.target.value)}
-                    disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                  >
-                    <option value="">請選擇員工</option>
-                    {lineEmployees.map((employee) => (
-                      <option key={employee.employeeId} value={employee.employeeId}>
-                        {employee.employeeNo}｜{employee.employeeName}（{employee.institutionCode}/
-                        {employee.departmentCode}）
-                      </option>
-                    ))}
-                  </select>
-                </label>
+          {lines.map((line) => (
+            <div className="request-table-row" role="row" key={line.lineId}>
+              <label className="field">
+                <span className="sr-only">員工</span>
+                <select
+                  value={line.employeeId}
+                  onChange={(event) => updateLine(line.lineId, "employeeId", event.target.value)}
+                  disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                >
+                  <option value="">請選擇員工</option>
+                  {visibleEmployeeOptions.map((employee) => (
+                    <option key={employee.employeeId} value={employee.employeeId}>
+                      {employee.employeeNo}｜{employee.employeeName}（{employee.institutionCode}/
+                      {employee.departmentCode}）
+                    </option>
+                  ))}
+                </select>
+              </label>
                 <label className="field">
                   <span className="sr-only">報局單位</span>
                   <select
