@@ -15,6 +15,7 @@ import {
 import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
 import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
+import { loadHrRequestHistoryFallback, loadHrRequestHistoryDetailFallback } from "@/src/lib/hr-request-history-fallback";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 
@@ -133,8 +134,19 @@ export default function HrRequestHistoryPanel() {
       ]),
     );
     if (readSequence !== historyReadSequenceRef.current) return;
-    if (historyResult.error) {
-      const preserveSnapshot = shouldPreserveReadSnapshot(rowsRef.current, [historyResult.error]);
+    let historyData = historyResult.data;
+    let historyError = historyResult.error;
+
+    if (historyError) {
+      const fallback = await loadHrRequestHistoryFallback(client);
+      if (!fallback.error && fallback.data) {
+        historyData = fallback.data as unknown as typeof historyResult.data;
+        historyError = null;
+      }
+    }
+
+    if (historyError) {
+      const preserveSnapshot = shouldPreserveReadSnapshot(rowsRef.current, [historyError]);
       const sameAccountSnapshot = dataSnapshotAccountIdRef.current === accountId;
       const canPreserveSnapshot = sameAccountSnapshot && preserveSnapshot;
       if (!canPreserveSnapshot) {
@@ -146,11 +158,11 @@ export default function HrRequestHistoryPanel() {
         detailSnapshotRef.current = null;
         setDetailLoadedForRequestId(null);
       }
-      setMessage(canPreserveSnapshot ? staleReadSnapshotMessage("需求單清單") : `需求單查詢失敗：${safeSupabaseReadErrorMessage(historyResult.error)}`);
+      setMessage(canPreserveSnapshot ? staleReadSnapshotMessage("需求單清單") : `需求單查詢失敗：${safeSupabaseReadErrorMessage(historyError)}`);
       setLoading(false);
       return;
     }
-    const loaded = (historyResult.data ?? []).map((row) => {
+    const loaded = (historyData ?? []).map((row) => {
       const historyRow = row as unknown as HistoryRow;
       return {
         id: historyRow.id,
@@ -200,9 +212,20 @@ export default function HrRequestHistoryPanel() {
       async () => [await client.from("v_hr_request_history_detail").select("request_id,detail_kind,detail_id,item_id,item_code_snapshot,item_name_snapshot,unit_snapshot,issue_quantity,increase_quantity,requested_transfer_quantity,line_no,employee_no_snapshot,employee_name_snapshot,institution_code_snapshot,department_code_snapshot,size_snapshot,quantity,reservation_status,closed_at").eq("request_id", requestId).order("detail_kind").order("line_no")] as const,
     );
     if (readSequence !== detailReadSequenceRef.current) return;
-    if (detailResult.error) {
+    let detailData = detailResult.data;
+    let detailError = detailResult.error;
+
+    if (detailError) {
+      const fallback = await loadHrRequestHistoryDetailFallback(client, requestId);
+      if (!fallback.error && fallback.data) {
+        detailData = fallback.data as unknown as typeof detailResult.data;
+        detailError = null;
+      }
+    }
+
+    if (detailError) {
       const snapshotRows = previousSnapshot ? [...previousSnapshot.items, ...previousSnapshot.issueLines, ...previousSnapshot.reservations] : [];
-      const preserveSnapshot = sameRequestSnapshot && shouldPreserveReadSnapshot(snapshotRows, [detailResult.error]);
+      const preserveSnapshot = sameRequestSnapshot && shouldPreserveReadSnapshot(snapshotRows, [detailError]);
       if (!preserveSnapshot) {
         detailSnapshotRef.current = null;
         setDetailLoadedForRequestId(null);
@@ -210,9 +233,9 @@ export default function HrRequestHistoryPanel() {
         setIssueLines([]);
         setReservations([]);
       }
-      setMessage(preserveSnapshot ? staleReadSnapshotMessage("需求單明細") : `需求單明細載入失敗：${safeSupabaseReadErrorMessage(detailResult.error)}`);
+      setMessage(preserveSnapshot ? staleReadSnapshotMessage("需求單明細") : `需求單明細載入失敗：${safeSupabaseReadErrorMessage(detailError)}`);
     } else {
-      const detailRows = (detailResult.data ?? []) as Array<{
+      const detailRows = (detailData ?? []) as Array<{
         request_id: string;
         detail_kind: "ITEM" | "ISSUE" | "RESERVATION";
         detail_id: string;
