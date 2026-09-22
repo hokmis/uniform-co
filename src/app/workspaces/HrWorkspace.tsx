@@ -23,7 +23,7 @@ export default function HrWorkspace({ activeModule }: Props) {
       headingId="hr-request-title"
       description="依任務切換需求單、補庫或員工退回；送出與正式過帳仍由各自受保護 RPC 依兩倉數量與來源單據驗證。"
       tabs={[
-        { id: "request", label: "制服需求", content: <HrRequestWorkbench /> },
+        { id: "request", label: "新增員工制服需求單", content: <HrRequestWorkbench /> },
         { id: "history", label: "需求查詢", content: <HrRequestHistoryPanel /> },
         { id: "replenishment", label: "額外補庫", content: <ReplenishmentPanel /> },
         { id: "return", label: "員工退回", content: <ReturnPanel /> },

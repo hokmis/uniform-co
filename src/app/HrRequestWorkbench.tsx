@@ -348,9 +348,11 @@ export default function HrRequestWorkbench() {
           };
         }
         if (field === "employeeId") {
+          const selectedEmp = visibleEmployeeOptions.find((employee) => employee.employeeId === value);
           return {
             ...line,
             employeeId: value,
+            departmentCode: selectedEmp?.departmentCode || "",
           };
         }
         return { ...line, [field]: value };
@@ -509,7 +511,7 @@ export default function HrRequestWorkbench() {
         <div className="panel-heading">
           <div>
             <p className="eyebrow">03 / HR REQUEST</p>
-            <h2>員工明細與增庫</h2>
+            <h2>新增員工制服需求單</h2>
           </div>
           <div className="heading-actions">
             {!client ? <span className="status-pill">測試資料預覽</span> : null}
