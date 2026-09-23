@@ -60,8 +60,8 @@ const previewEmployees: EmployeeSnapshot[] = [
 ];
 
 const previewDepartments: DepartmentOption[] = [
-  { code: "A", name: "A 部門" },
-  { code: "B", name: "B 部門" },
+  { code: "ABC", name: "ABC 機構" },
+  { code: "ABD", name: "ABD 機構" },
 ];
 
 const previewItems: UniformItemSnapshot[] = [
@@ -88,7 +88,7 @@ const previewItems: UniformItemSnapshot[] = [
 ];
 
 const previewLines: LineState[] = [
-  { lineId: "line-1", employeeId: "employee-1", itemId: "item-m", quantity: 10, departmentCode: "A" },
+  { lineId: "line-1", employeeId: "employee-1", itemId: "item-m", quantity: 10, departmentCode: "ABC" },
 ];
 
 function taipeiToday(): string {
@@ -108,6 +108,7 @@ export default function HrRequestWorkbench() {
   const [increases, setIncreases] = useState<Record<string, number>>(
     previewMode ? { "item-m": 0, "item-l": 0 } : {},
   );
+  const [increasePage, setIncreasePage] = useState(1);
   const [dataMessage, setDataMessage] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
   const [loadingData, setLoadingData] = useState(() => Boolean(client));
@@ -144,6 +145,14 @@ export default function HrRequestWorkbench() {
   const visibleItemOptions = useMemo(() => hasCurrentDataSnapshot ? itemOptions : [], [hasCurrentDataSnapshot, itemOptions]);
   const visibleLines = useMemo(() => hasCurrentDataSnapshot ? lines : [], [hasCurrentDataSnapshot, lines]);
 
+  const increasePageSize = 10;
+  const totalIncreasePages = Math.max(1, Math.ceil(visibleItemOptions.length / increasePageSize));
+  const currentIncreasePage = Math.min(Math.max(1, increasePage), totalIncreasePages);
+  const pagedIncreaseItems = useMemo(
+    () => visibleItemOptions.slice((currentIncreasePage - 1) * increasePageSize, currentIncreasePage * increasePageSize),
+    [currentIncreasePage, visibleItemOptions],
+  );
+
   function markDraftChanged() {
     const operation = operationRef.current;
     if (operation) operationRef.current = rotateHrRequestDraftKeys(operation, () => crypto.randomUUID());
@@ -158,6 +167,7 @@ export default function HrRequestWorkbench() {
     setRequestNote("");
     setLines([]);
     setIncreases(Object.fromEntries(itemOptions.map((item) => [item.itemId, 0])));
+    setIncreasePage(1);
   }
 
   function resetEntryAfterCancel() {
@@ -254,19 +264,19 @@ export default function HrRequestWorkbench() {
         employeeOptionsRef.current = employeeRows;
         itemOptionsRef.current = itemRows;
         setEmployeeOptions(employeeRows);
-        const orgDepartments = ((orgData?.departments ?? []) as { code: string; name: string; is_active: boolean }[])
-          .filter((dept) => dept.is_active)
-          .map((dept) => ({ code: dept.code, name: dept.name }));
-        const deptMap = new Map<string, string>();
-        for (const dept of orgDepartments) {
-          deptMap.set(dept.code, dept.name);
+        const orgInstitutions = ((orgData?.institutions ?? []) as { code: string; name: string; is_active: boolean }[])
+          .filter((inst) => inst.is_active)
+          .map((inst) => ({ code: inst.code, name: inst.name }));
+        const instMap = new Map<string, string>();
+        for (const inst of orgInstitutions) {
+          instMap.set(inst.code, inst.name);
         }
         for (const emp of employeeRows) {
-          if (emp.departmentCode && !deptMap.has(emp.departmentCode)) {
-            deptMap.set(emp.departmentCode, emp.departmentName || emp.departmentCode);
+          if (emp.institutionCode && !instMap.has(emp.institutionCode)) {
+            instMap.set(emp.institutionCode, emp.institutionName || emp.institutionCode);
           }
         }
-        setDepartmentOptions(Array.from(deptMap.entries()).map(([code, name]) => ({ code, name })));
+        setDepartmentOptions(Array.from(instMap.entries()).map(([code, name]) => ({ code, name })));
         setItemOptions(itemRows);
         dataSnapshotAccountIdRef.current = accountId;
         setDataSnapshotAccountId(accountId);
@@ -352,7 +362,7 @@ export default function HrRequestWorkbench() {
           return {
             ...line,
             employeeId: value,
-            departmentCode: selectedEmp?.departmentCode || "",
+            departmentCode: selectedEmp?.institutionCode || "",
           };
         }
         return { ...line, [field]: value };
@@ -620,11 +630,38 @@ export default function HrRequestWorkbench() {
         {submissionRecovering ? <p className="auth-message" role="status">伺服器結果尚未確認；為避免重複建立，欄位暫時鎖定。請按「以相同資料查回／重試送出」。</p> : null}
 
         <div className="increase-list">
-          <div className="subheading">
-            <h3>品號彙總增庫量</h3>
-            <span>尺寸選填；庫存按品號獨立計算</span>
+          <div className="subheading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
+            <div>
+              <h3>品號彙總增庫量</h3>
+              <span>尺寸選填；庫存按品號獨立計算{visibleItemOptions.length > 0 ? `（每頁 10 筆，共 ${visibleItemOptions.length} 個品號）` : ""}</span>
+            </div>
+            {totalIncreasePages > 1 ? (
+              <div className="button-row pagination-controls" style={{ margin: 0, gap: "6px", alignItems: "center" }}>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
+                  onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
+                  style={{ padding: "4px 10px", fontSize: "13px" }}
+                >
+                  上一頁
+                </button>
+                <span style={{ alignSelf: "center", fontSize: "13px", fontWeight: 600 }}>
+                  第 {currentIncreasePage} / {totalIncreasePages} 頁
+                </span>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
+                  onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
+                  style={{ padding: "4px 10px", fontSize: "13px" }}
+                >
+                  下一頁
+                </button>
+              </div>
+            ) : null}
           </div>
-            {visibleItemOptions.map((item) => (
+          {pagedIncreaseItems.map((item) => (
             <label className="increase-row" key={item.itemId}>
               <span>
                 {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
@@ -649,6 +686,36 @@ export default function HrRequestWorkbench() {
               />
             </label>
           ))}
+          {totalIncreasePages > 1 ? (
+            <div className="button-row pagination-controls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+              <span style={{ fontSize: "13px", color: "var(--muted, #666)" }}>
+                顯示第 {(currentIncreasePage - 1) * increasePageSize + 1} 至 {Math.min(currentIncreasePage * increasePageSize, visibleItemOptions.length)} 筆，共 {visibleItemOptions.length} 筆
+              </span>
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
+                  onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
+                  style={{ padding: "4px 10px", fontSize: "13px" }}
+                >
+                  上一頁
+                </button>
+                <span style={{ fontSize: "13px", fontWeight: 600 }}>
+                  第 {currentIncreasePage} / {totalIncreasePages} 頁
+                </span>
+                <button
+                  className="secondary-button"
+                  type="button"
+                  disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
+                  onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
+                  style={{ padding: "4px 10px", fontSize: "13px" }}
+                >
+                  下一頁
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
