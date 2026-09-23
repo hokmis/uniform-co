@@ -177,6 +177,7 @@ export default function EmployeeImportPanel() {
         CSV 先在瀏覽器預覽，再由受保護的 atomic import RPC 驗證整批並套用；缺部門或重複工號不會寫入正式主檔。
       </p>
       <label
+        htmlFor="employee-import-file-picker"
         className="file-picker"
         onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
         onDrop={(e) => {
@@ -187,22 +188,26 @@ export default function EmployeeImportPanel() {
         }}
       >
         <span>選擇 CSV（或拖曳檔案至此）</span>
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          onClick={(event) => { event.currentTarget.value = ""; }}
-          onChange={async (event) => {
-            const input = event.currentTarget;
-            const file = input.files?.[0];
-            try {
-              if (file) await handleFile(file);
-            } finally {
-              input.value = "";
-            }
-          }}
-          disabled={busy}
-        />
       </label>
+      <input
+        id="employee-import-file-picker"
+        type="file"
+        accept=".csv,text/csv"
+        style={{ position: "absolute", width: "1px", height: "1px", padding: 0, margin: "-1px", overflow: "hidden", clip: "rect(0, 0, 0, 0)", border: 0 }}
+        onClick={(event) => {
+          event.stopPropagation();
+          event.currentTarget.value = "";
+        }}
+        onChange={async (event) => {
+          const input = event.currentTarget;
+          const file = input.files?.[0];
+          try {
+            if (file) await handleFile(file);
+          } finally {
+            input.value = "";
+          }
+        }}
+        disabled={busy} />
       <div className="button-row">
         <button className="secondary-button" type="button" disabled={busy} onClick={loadSamplePreview}>載入範例到預覽</button>
         <button className="secondary-button" type="button" disabled={busy} onClick={downloadSample}>下載範例 CSV</button>

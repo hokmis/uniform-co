@@ -249,6 +249,7 @@ export default function MasterDataPanel({ allowedEntityTypes }: Props) {
           </select>
         </label>
         <label
+          htmlFor="master-data-file-picker"
           className="file-picker"
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
           onDrop={(e) => {
@@ -259,22 +260,26 @@ export default function MasterDataPanel({ allowedEntityTypes }: Props) {
           }}
         >
           <span>選擇 CSV／JSON（或拖曳檔案至此）</span>
-          <input
-            type="file"
-            accept=".csv,.json,text/csv,application/json"
-            onClick={(event) => { event.currentTarget.value = ""; }}
-            onChange={async (event) => {
-              const input = event.currentTarget;
-              const file = input.files?.[0];
-              try {
-                if (file) await handleFile(file);
-              } finally {
-                input.value = "";
-              }
-            }}
-            disabled={busy}
-          />
         </label>
+        <input
+          id="master-data-file-picker"
+          type="file"
+          accept=".csv,.json,text/csv,application/json"
+          style={{ position: "absolute", width: "1px", height: "1px", padding: 0, margin: "-1px", overflow: "hidden", clip: "rect(0, 0, 0, 0)", border: 0 }}
+          onClick={(event) => {
+            event.stopPropagation();
+            event.currentTarget.value = "";
+          }}
+          onChange={async (event) => {
+            const input = event.currentTarget;
+            const file = input.files?.[0];
+            try {
+              if (file) await handleFile(file);
+            } finally {
+              input.value = "";
+            }
+          }}
+          disabled={busy} />
       </div>
       {fileName ? <p className="file-name">{fileName}／{rows.length} 列</p> : null}
       <div className="button-row">

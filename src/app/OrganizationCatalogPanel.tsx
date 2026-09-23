@@ -132,7 +132,7 @@ export default function OrganizationCatalogPanel({ refreshToken = 0, onEdit, onD
       <div className="panel-heading">
         <div>
           <p className="eyebrow">ORGANIZATION DIRECTORY</p>
-          <h2>課室部門與報局單位清單</h2>
+          <h2>課室部門與單位清單</h2>
           <p className="auth-message">比照管理清單模式搜尋、排序並進入獨立編輯表單；刪除語意為停用，既有員工、單據與稽核歷史不會被移除。</p>
         </div>
         <button className="secondary-button" type="button" onClick={() => { if (client) invalidateMasterDataCache(client, "organization"); reload(); }}>{dataLoading ? "讀取中…" : "重新整理"}</button>
@@ -142,17 +142,17 @@ export default function OrganizationCatalogPanel({ refreshToken = 0, onEdit, onD
         <div className="metric"><span>全部主檔</span><strong>{visibleRows.length}</strong><small>目前角色可讀取資料</small></div>
         <div className="metric"><span>啟用中</span><strong>{visibleRows.filter((row) => row.isActive).length}</strong><small>可供新作業選擇</small></div>
         <div className="metric"><span>課室部門</span><strong>{institutionCount}</strong><small>組織歸屬第一層</small></div>
-        <div className="metric"><span>報局單位</span><strong>{departmentCount}</strong><small>獨立維護（免綁定）</small></div>
+        <div className="metric"><span>單位</span><strong>{departmentCount}</strong><small>隸屬單一課室部門</small></div>
       </div>
 
       <nav className="management-category-tabs" aria-label="組織主檔類型">
         <button className={entityType === "ALL" ? "active" : ""} type="button" onClick={() => selectEntityType("ALL")}>全部 <span>{visibleRows.length}</span></button>
         <button className={entityType === "INSTITUTIONS" ? "active" : ""} type="button" onClick={() => selectEntityType("INSTITUTIONS")}>課室部門 <span>{institutionCount}</span></button>
-        <button className={entityType === "DEPARTMENTS" ? "active" : ""} type="button" onClick={() => selectEntityType("DEPARTMENTS")}>報局單位 <span>{departmentCount}</span></button>
+        <button className={entityType === "DEPARTMENTS" ? "active" : ""} type="button" onClick={() => selectEntityType("DEPARTMENTS")}>單位 <span>{departmentCount}</span></button>
       </nav>
 
       <div className="management-catalog-filters">
-        <label className="field"><span>搜尋組織</span><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜尋課室部門代碼、課室部門名稱、報局單位代碼或報局單位名稱…" /></label>
+        <label className="field"><span>搜尋組織</span><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="搜尋課室部門代碼、課室部門名稱、單位代碼或單位名稱…" /></label>
         <label className="field"><span>啟用狀態</span><select value={status} onChange={(event) => { setStatus(event.target.value as OrganizationCatalogStatus); setPage(1); }}><option value="ALL">全部狀態</option><option value="ACTIVE">啟用</option><option value="INACTIVE">停用</option></select></label>
       </div>
 
@@ -160,7 +160,7 @@ export default function OrganizationCatalogPanel({ refreshToken = 0, onEdit, onD
         <p className="muted" role="status">{displayMessage}；符合條件 {filteredRows.length} 筆</p>
         {(query || entityType !== "ALL" || status !== "ALL") ? <button className="text-button" type="button" onClick={() => { setQuery(""); setEntityType("ALL"); setStatus("ALL"); setPage(1); }}>清除篩選</button> : null}
       </div>
-      {dataLoading ? <p className="sr-only" role="status" aria-live="polite">正在讀取課室部門與報局單位清單…</p> : null}
+      {dataLoading ? <p className="sr-only" role="status" aria-live="polite">正在讀取課室部門與單位清單…</p> : null}
 
       <ManagementCatalogTable<OrganizationCatalogEntry, OrganizationCatalogSortKey>
         ariaLabel="組織主檔清單"
@@ -174,7 +174,8 @@ export default function OrganizationCatalogPanel({ refreshToken = 0, onEdit, onD
         loading={dataLoading && visibleRows.length === 0}
         emptyState={<p className="empty-state">尚無符合條件的組織主檔。請調整篩選，或使用上方新增按鈕建立第一筆資料。</p>}
         columns={[
-          { id: "type", label: "類型", sortKey: "type", render: (row) => <span className="status-pill">{row.entityType === "INSTITUTIONS" ? "課室部門" : "報局單位"}</span> },
+          { id: "type", label: "類型", sortKey: "type", render: (row) => <span className="status-pill">{row.entityType === "INSTITUTIONS" ? "課室部門" : "單位"}</span> },
+          { id: "institution", label: "所屬課室部門", sortKey: "institution", render: (row) => row.entityType === "INSTITUTIONS" ? "—" : `${row.institutionCode}｜${row.institutionName}` },
           { id: "code", label: "代碼", sortKey: "code", locked: true, render: (row) => <strong>{row.code}</strong> },
           { id: "name", label: "名稱", sortKey: "name", render: (row) => row.name },
           { id: "status", label: "狀態", render: (row) => <span className={`status-pill ${row.isActive ? "success" : ""}`}>{row.isActive ? "啟用" : "停用"}</span> },
