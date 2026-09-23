@@ -66,24 +66,47 @@ export default function MasterDataPanel({ allowedEntityTypes }: Props) {
     resetPreview();
   }
 
-  async function handleFile(file: File | undefined) {
-    if (!file) return;
+  const [pasteMode, setPasteMode] = useState(false);
+  const [pastedText, setPastedText] = useState("");
+
+  function parseTextContent(rawText: string, sourceName: string) {
     importAttemptRef.current = null;
-    setFileName(file.name);
+    setFileName(sourceName);
     setRows([]);
     setSampleMode(false);
     setSampleConfirmed(false);
     try {
-      if (file.size > 10_000_000) throw new Error("檔案超過 10 MB 上限");
-      showNotice("正在讀取檔案…");
-      const text = await file.text();
-      const result = file.name.toLowerCase().endsWith(".csv") ? parseMasterDataCsv(text) : parseMasterDataJson(text);
+      const trimmed = rawText.trim();
+      const isCsv = sourceName.toLowerCase().endsWith(".csv") || trimmed.startsWith("code,") || trimmed.startsWith('"code"') || !trimmed.startsWith("[");
+      const result = isCsv ? parseMasterDataCsv(rawText) : parseMasterDataJson(rawText);
       if (result.errors.length > 0) throw new Error(`第 ${result.errors[0].row} 列：${result.errors[0].message}`);
       setRows(result.rows);
       showNotice(`已預覽 ${result.rows.length} 列；尚未寫入資料庫`, "success");
     } catch (error) {
       setRows([]);
       showNotice(error instanceof Error ? error.message : "JSON 無法解析", "error");
+    }
+  }
+
+  async function handleFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      if (file.size > 10_000_000) throw new Error("檔案超過 10 MB 上限");
+      showNotice("正在讀取檔案…");
+      const buffer = await file.arrayBuffer();
+      let text = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+      if (text.includes("\uFFFD")) {
+        try {
+          const big5 = new TextDecoder("big5", { fatal: false }).decode(buffer);
+          if (!big5.includes("\uFFFD")) text = big5;
+        } catch {
+          // keep utf-8
+        }
+      }
+      parseTextContent(text, file.name);
+    } catch (error) {
+      setRows([]);
+      showNotice(error instanceof Error ? error.message : "檔案無法讀取", "error");
     }
   }
 
@@ -225,16 +248,67 @@ export default function MasterDataPanel({ allowedEntityTypes }: Props) {
             {visibleEntityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
-        <label className="file-picker">
-          <span>選擇 CSV／JSON</span>
-          <input type="file" accept="text/csv,.csv,application/json,.json" onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; input.value = ""; void handleFile(file); }} disabled={busy} />
+        <label
+          className="file-picker"
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const droppedFile = e.dataTransfer.files?.[0];
+            if (droppedFile) void handleFile(droppedFile);
+          }}
+        >
+          <span>選擇 CSV／JSON（或拖曳檔案至此）</span>
+          <input
+            type="file"
+            accept=".csv,.json,text/csv,application/json"
+            onClick={(event) => { event.currentTarget.value = ""; }}
+            onChange={async (event) => {
+              const input = event.currentTarget;
+              const file = input.files?.[0];
+              try {
+                if (file) await handleFile(file);
+              } finally {
+                input.value = "";
+              }
+            }}
+            disabled={busy}
+          />
         </label>
       </div>
       {fileName ? <p className="file-name">{fileName}／{rows.length} 列</p> : null}
       <div className="button-row">
         <button className="secondary-button" type="button" disabled={busy} onClick={loadSamplePreview}>載入範例到預覽</button>
         <button className="secondary-button" type="button" disabled={busy} onClick={downloadSample}>下載範例 CSV</button>
+        <button className="secondary-button" type="button" disabled={busy} onClick={() => setPasteMode((open) => !open)}>{pasteMode ? "收起貼上" : "或直接貼上 CSV／JSON"}</button>
       </div>
+      {pasteMode ? (
+        <div className="form-grid" style={{ marginTop: "8px" }}>
+          <label className="field" style={{ gridColumn: "1 / -1" }}>
+            <span>貼上 CSV 或 JSON 文字內容</span>
+            <textarea
+              rows={5}
+              value={pastedText}
+              onChange={(event) => setPastedText(event.target.value)}
+              placeholder="請直接在此貼上包含標題列的 CSV 文字或 JSON 陣列…"
+              disabled={busy}
+            />
+          </label>
+          <div className="button-row" style={{ gridColumn: "1 / -1" }}>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={busy || !pastedText.trim()}
+              onClick={() => {
+                parseTextContent(pastedText.trim(), `manual-${entityType.toLowerCase()}.csv`);
+                setPasteMode(false);
+              }}
+            >
+              解析並預覽貼上的內容
+            </button>
+          </div>
+        </div>
+      ) : null}
       {sampleMode ? <label className="checkbox-field"><input type="checkbox" checked={sampleConfirmed} onChange={(event) => setSampleConfirmed(event.target.checked)} disabled={busy} />我確認這是 DEMO 測試資料，且目前連線的是 disposable staging</label> : null}
       <div className="button-row">
         <button className="primary-button" type="button" disabled={busy || rows.length === 0 || (sampleMode && !sampleConfirmed)} onClick={() => void applyImport()}>確認整批匯入</button>

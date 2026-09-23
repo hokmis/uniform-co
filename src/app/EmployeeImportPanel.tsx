@@ -67,7 +67,17 @@ export default function EmployeeImportPanel() {
       return;
     }
     try {
-      previewText(file.name, await file.text());
+      const buffer = await file.arrayBuffer();
+      let text = new TextDecoder("utf-8", { fatal: false }).decode(buffer);
+      if (text.includes("\uFFFD")) {
+        try {
+          const big5 = new TextDecoder("big5", { fatal: false }).decode(buffer);
+          if (!big5.includes("\uFFFD")) text = big5;
+        } catch {
+          // keep utf-8
+        }
+      }
+      previewText(file.name, text);
     } catch {
       previewText(file.name, "");
       setResult({ headers: [], rows: [], errors: [{ row: 1, code: "MALFORMED_CSV", message: "無法讀取所選 CSV 檔案" }] });
@@ -166,12 +176,30 @@ export default function EmployeeImportPanel() {
       <p className="auth-message">
         CSV 先在瀏覽器預覽，再由受保護的 atomic import RPC 驗證整批並套用；缺部門或重複工號不會寫入正式主檔。
       </p>
-      <label className="file-picker">
-        <span>選擇 CSV</span>
+      <label
+        className="file-picker"
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const droppedFile = e.dataTransfer.files?.[0];
+          if (droppedFile) void handleFile(droppedFile);
+        }}
+      >
+        <span>選擇 CSV（或拖曳檔案至此）</span>
         <input
           type="file"
           accept=".csv,text/csv"
-          onChange={(event) => { const input = event.currentTarget; const file = input.files?.[0]; input.value = ""; void handleFile(file); }}
+          onClick={(event) => { event.currentTarget.value = ""; }}
+          onChange={async (event) => {
+            const input = event.currentTarget;
+            const file = input.files?.[0];
+            try {
+              if (file) await handleFile(file);
+            } finally {
+              input.value = "";
+            }
+          }}
           disabled={busy}
         />
       </label>
