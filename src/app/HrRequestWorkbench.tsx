@@ -109,6 +109,7 @@ export default function HrRequestWorkbench() {
     previewMode ? { "item-m": 0, "item-l": 0 } : {},
   );
   const [increasePage, setIncreasePage] = useState(1);
+  const [increaseSearch, setIncreaseSearch] = useState("");
   const [dataMessage, setDataMessage] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
   const [loadingData, setLoadingData] = useState(() => Boolean(client));
@@ -145,12 +146,22 @@ export default function HrRequestWorkbench() {
   const visibleItemOptions = useMemo(() => hasCurrentDataSnapshot ? itemOptions : [], [hasCurrentDataSnapshot, itemOptions]);
   const visibleLines = useMemo(() => hasCurrentDataSnapshot ? lines : [], [hasCurrentDataSnapshot, lines]);
 
+  const filteredIncreaseItems = useMemo(() => {
+    const q = increaseSearch.trim().toLowerCase();
+    if (!q) return visibleItemOptions;
+    return visibleItemOptions.filter((item) =>
+      item.itemCode.toLowerCase().includes(q)
+      || item.itemName.toLowerCase().includes(q)
+      || (item.size && item.size.toLowerCase().includes(q)),
+    );
+  }, [increaseSearch, visibleItemOptions]);
+
   const increasePageSize = 10;
-  const totalIncreasePages = Math.max(1, Math.ceil(visibleItemOptions.length / increasePageSize));
+  const totalIncreasePages = Math.max(1, Math.ceil(filteredIncreaseItems.length / increasePageSize));
   const currentIncreasePage = Math.min(Math.max(1, increasePage), totalIncreasePages);
   const pagedIncreaseItems = useMemo(
-    () => visibleItemOptions.slice((currentIncreasePage - 1) * increasePageSize, currentIncreasePage * increasePageSize),
-    [currentIncreasePage, visibleItemOptions],
+    () => filteredIncreaseItems.slice((currentIncreasePage - 1) * increasePageSize, currentIncreasePage * increasePageSize),
+    [currentIncreasePage, filteredIncreaseItems],
   );
 
   function markDraftChanged() {
@@ -168,6 +179,7 @@ export default function HrRequestWorkbench() {
     setLines([]);
     setIncreases(Object.fromEntries(itemOptions.map((item) => [item.itemId, 0])));
     setIncreasePage(1);
+    setIncreaseSearch("");
   }
 
   function resetEntryAfterCancel() {
@@ -633,34 +645,74 @@ export default function HrRequestWorkbench() {
           <div className="subheading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
             <div>
               <h3>品號彙總增庫量</h3>
-              <span>尺寸選填；庫存按品號獨立計算{visibleItemOptions.length > 0 ? `（每頁 10 筆，共 ${visibleItemOptions.length} 個品號）` : ""}</span>
+              <span>尺寸選填；庫存按品號獨立計算{filteredIncreaseItems.length > 0 ? `（每頁 10 筆，共 ${filteredIncreaseItems.length} 個品號${increaseSearch.trim() ? `／搜尋「${increaseSearch.trim()}」` : ""}）` : ""}</span>
             </div>
-            {totalIncreasePages > 1 ? (
-              <div className="button-row pagination-controls" style={{ margin: 0, gap: "6px", alignItems: "center" }}>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
-                  onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
-                  style={{ padding: "4px 10px", fontSize: "13px" }}
-                >
-                  上一頁
-                </button>
-                <span style={{ alignSelf: "center", fontSize: "13px", fontWeight: 600 }}>
-                  第 {currentIncreasePage} / {totalIncreasePages} 頁
-                </span>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
-                  onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
-                  style={{ padding: "4px 10px", fontSize: "13px" }}
-                >
-                  下一頁
-                </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                <input
+                  type="search"
+                  value={increaseSearch}
+                  onChange={(event) => {
+                    setIncreaseSearch(event.target.value);
+                    setIncreasePage(1);
+                  }}
+                  placeholder="搜尋品號、品名或尺寸…"
+                  disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                  style={{
+                    padding: "5px 10px",
+                    fontSize: "13px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--line, #ccc)",
+                    width: "200px",
+                  }}
+                  aria-label="搜尋增庫品項"
+                />
+                {increaseSearch ? (
+                  <button
+                    className="text-button"
+                    type="button"
+                    onClick={() => {
+                      setIncreaseSearch("");
+                      setIncreasePage(1);
+                    }}
+                    style={{ fontSize: "12px", padding: "2px 4px" }}
+                  >
+                    清除
+                  </button>
+                ) : null}
               </div>
-            ) : null}
+              {totalIncreasePages > 1 ? (
+                <div className="button-row pagination-controls" style={{ margin: 0, gap: "6px", alignItems: "center" }}>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
+                    onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
+                    style={{ padding: "4px 10px", fontSize: "13px" }}
+                  >
+                    上一頁
+                  </button>
+                  <span style={{ alignSelf: "center", fontSize: "13px", fontWeight: 600 }}>
+                    第 {currentIncreasePage} / {totalIncreasePages} 頁
+                  </span>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
+                    onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
+                    style={{ padding: "4px 10px", fontSize: "13px" }}
+                  >
+                    下一頁
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
+          {filteredIncreaseItems.length === 0 ? (
+            <p className="empty-state" style={{ padding: "16px 0", textAlign: "center" }}>
+              查無符合「{increaseSearch}」的品號；請調整搜尋關鍵字或點擊清除。
+            </p>
+          ) : null}
           {pagedIncreaseItems.map((item) => (
             <label className="increase-row" key={item.itemId}>
               <span>
@@ -689,7 +741,7 @@ export default function HrRequestWorkbench() {
           {totalIncreasePages > 1 ? (
             <div className="button-row pagination-controls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
               <span style={{ fontSize: "13px", color: "var(--muted, #666)" }}>
-                顯示第 {(currentIncreasePage - 1) * increasePageSize + 1} 至 {Math.min(currentIncreasePage * increasePageSize, visibleItemOptions.length)} 筆，共 {visibleItemOptions.length} 筆
+                顯示第 {(currentIncreasePage - 1) * increasePageSize + 1} 至 {Math.min(currentIncreasePage * increasePageSize, filteredIncreaseItems.length)} 筆，共 {filteredIncreaseItems.length} 筆
               </span>
               <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <button
