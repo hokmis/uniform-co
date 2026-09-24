@@ -16,6 +16,7 @@ import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
 import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { loadHrRequestHistoryFallback, loadHrRequestHistoryDetailFallback } from "@/src/lib/hr-request-history-fallback";
+import { loadOrganizationMasterData } from "@/src/lib/master-data-cache";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 
@@ -37,6 +38,8 @@ type IssueLine = {
   employee_name_snapshot: string | null;
   institution_code_snapshot: string | null;
   department_code_snapshot: string | null;
+  institution_name_snapshot?: string | null;
+  department_name_snapshot?: string | null;
   item_code_snapshot: string | null;
   item_name_snapshot: string | null;
   size_snapshot: string | null;
@@ -80,6 +83,7 @@ export default function HrRequestHistoryPanel() {
   const [items, setItems] = useState<RequestItem[]>([]);
   const [issueLines, setIssueLines] = useState<IssueLine[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [orgMap, setOrgMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -250,7 +254,9 @@ export default function HrRequestHistoryPanel() {
         employee_no_snapshot: string | null;
         employee_name_snapshot: string | null;
         institution_code_snapshot: string | null;
+        institution_name_snapshot?: string | null;
         department_code_snapshot: string | null;
+        department_name_snapshot?: string | null;
         size_snapshot: string | null;
         quantity: number | null;
         reservation_status: string | null;
@@ -272,7 +278,9 @@ export default function HrRequestHistoryPanel() {
         employee_no_snapshot: row.employee_no_snapshot,
         employee_name_snapshot: row.employee_name_snapshot,
         institution_code_snapshot: row.institution_code_snapshot,
+        institution_name_snapshot: row.institution_name_snapshot ?? null,
         department_code_snapshot: row.department_code_snapshot,
+        department_name_snapshot: row.department_name_snapshot ?? null,
         item_code_snapshot: row.item_code_snapshot,
         item_name_snapshot: row.item_name_snapshot,
         size_snapshot: row.size_snapshot,
@@ -293,6 +301,27 @@ export default function HrRequestHistoryPanel() {
     }
     setDetailLoading(false);
   }
+
+  useEffect(() => {
+    if (!client || !panelActive) return;
+    let active = true;
+    void loadOrganizationMasterData(client)
+      .then((orgData) => {
+        if (!active || !orgData) return;
+        const nextMap = new Map<string, string>();
+        for (const inst of orgData.institutions ?? []) {
+          if (inst.code) nextMap.set(inst.code, inst.name || inst.code);
+        }
+        for (const dept of orgData.departments ?? []) {
+          if (dept.code) nextMap.set(dept.code, dept.name || dept.code);
+        }
+        setOrgMap(nextMap);
+      })
+      .catch(() => {
+        // non-blocking master data load
+      });
+    return () => { active = false; };
+  }, [client, panelActive]);
 
   useEffect(() => {
     if (!client || !panelActive) return;
@@ -391,7 +420,24 @@ export default function HrRequestHistoryPanel() {
         <h4>品號彙總</h4>
         <div className="summary-list">{items.map((item) => <div className="summary-row" key={item.id}><span><strong>{item.item_code_snapshot ?? item.item_id}</strong><small>{item.item_name_snapshot ?? "制服品號"}／{item.unit_snapshot ?? "—"}</small></span><span>發放 {numberValue(item.issue_quantity)} ＋ 增庫 {numberValue(item.increase_quantity)}</span><strong>需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}</strong></div>)}</div>
         <h4>發放明細</h4>
-        <div className="summary-list">{issueLines.map((line) => <div className="summary-row" key={line.id}><span><strong>{line.institution_code_snapshot || line.department_code_snapshot || "—"}</strong><small>{[line.item_code_snapshot ?? "—", line.item_name_snapshot, line.size_snapshot].filter(Boolean).join(" ")}</small></span><strong>{numberValue(line.quantity)} {line.unit_snapshot ?? ""}</strong></div>)}</div>
+        <div className="summary-list">{issueLines.map((line) => {
+          const unitCode = line.institution_code_snapshot || line.department_code_snapshot || "";
+          const unitName = line.institution_name_snapshot
+            || line.department_name_snapshot
+            || (line.institution_code_snapshot ? orgMap.get(line.institution_code_snapshot) : undefined)
+            || (line.department_code_snapshot ? orgMap.get(line.department_code_snapshot) : undefined)
+            || "";
+          const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
+          return (
+            <div className="summary-row" key={line.id}>
+              <span>
+                <strong>{unitDisplay}</strong>
+                <small>{[line.item_code_snapshot ?? "—", line.item_name_snapshot, line.size_snapshot].filter(Boolean).join(" ")}</small>
+              </span>
+              <strong>{numberValue(line.quantity)} {line.unit_snapshot ?? ""}</strong>
+            </div>
+          );
+        })}</div>
         <p className="muted">預留紀錄：{reservations.length} 筆；有效 {reservations.filter((row) => row.status === "ACTIVE").length} 筆，已關閉／釋放 {reservations.filter((row) => row.status !== "ACTIVE").length} 筆。</p>
       </>}
     </div> : null}
