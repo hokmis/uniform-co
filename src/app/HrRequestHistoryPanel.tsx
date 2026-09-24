@@ -391,7 +391,7 @@ export default function HrRequestHistoryPanel() {
         <h4>品號彙總</h4>
         <div className="summary-list">{items.map((item) => <div className="summary-row" key={item.id}><span><strong>{item.item_code_snapshot ?? item.item_id}</strong><small>{item.item_name_snapshot ?? "制服品號"}／{item.unit_snapshot ?? "—"}</small></span><span>發放 {numberValue(item.issue_quantity)} ＋ 增庫 {numberValue(item.increase_quantity)}</span><strong>需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}</strong></div>)}</div>
         <h4>發放明細</h4>
-        <div className="summary-list">{issueLines.map((line) => <div className="summary-row" key={line.id}><span><strong>{line.department_code_snapshot || line.institution_code_snapshot || "—"}</strong><small>{[line.item_code_snapshot ?? "—", line.item_name_snapshot, line.size_snapshot].filter(Boolean).join(" ")}</small></span><strong>{numberValue(line.quantity)} {line.unit_snapshot ?? ""}</strong></div>)}</div>
+        <div className="summary-list">{issueLines.map((line) => <div className="summary-row" key={line.id}><span><strong>{line.institution_code_snapshot || line.department_code_snapshot || "—"}</strong><small>{[line.item_code_snapshot ?? "—", line.item_name_snapshot, line.size_snapshot].filter(Boolean).join(" ")}</small></span><strong>{numberValue(line.quantity)} {line.unit_snapshot ?? ""}</strong></div>)}</div>
         <p className="muted">預留紀錄：{reservations.length} 筆；有效 {reservations.filter((row) => row.status === "ACTIVE").length} 筆，已關閉／釋放 {reservations.filter((row) => row.status !== "ACTIVE").length} 筆。</p>
       </>}
     </div> : null}
