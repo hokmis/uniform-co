@@ -450,7 +450,21 @@ export default function HrRequestWorkbench() {
     const increasePayload = visibleItemOptions
       .map((item) => ({ itemId: item.itemId, quantity: increases[item.itemId] ?? 0 }))
       .filter((line) => line.quantity > 0);
-    const normalizedNote = requestNote.trim();
+    const unitMap: Record<number, string> = {};
+    visibleLines.forEach((line, index) => {
+      if (line.departmentCode) {
+        unitMap[index + 1] = line.departmentCode;
+      }
+    });
+    const unitMapTag = Object.keys(unitMap).length > 0 ? `<!--unit_map:${JSON.stringify(unitMap)}-->` : "";
+    const cleanUserNote = requestNote.replace(/<!--unit_map:.*?-->/g, "").trim();
+    const normalizedNote = cleanUserNote ? `${cleanUserNote}\n${unitMapTag}`.trim() : (unitMapTag || null);
+    if (Object.keys(unitMap).length > 0 && typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`hr_request_units_${operation.draftId}`, JSON.stringify(unitMap));
+        if (submittedRequestId) localStorage.setItem(`hr_request_units_${submittedRequestId}`, JSON.stringify(unitMap));
+      } catch {}
+    }
     if (submissionRoute.kind === "invalid") {
       const message = submissionRoute.reason === "missing-operation-id"
         ? "需求單識別資料遺失，請先從需求查詢重新開啟，不會另建一張需求。"
@@ -465,7 +479,7 @@ export default function HrRequestWorkbench() {
       const updateResult = await client.rpc("update_hr_request", {
         p_request_id: submissionRoute.requestId,
         p_distribution_date: distributionDate,
-        p_note: normalizedNote || null,
+        p_note: normalizedNote,
         p_issue_lines: issuePayload,
         p_increase_lines: increasePayload,
         p_idempotency_key: `UPDATE-${operation.updateKey}`,
@@ -473,6 +487,12 @@ export default function HrRequestWorkbench() {
       });
       const updated = updateResult.data;
       if (!updateResult.error && updated?.id) {
+        if (Object.keys(unitMap).length > 0 && typeof window !== "undefined") {
+          try {
+            localStorage.setItem(`hr_request_units_${updated.id}`, JSON.stringify(unitMap));
+            if (updated.request_no) localStorage.setItem(`hr_request_units_${updated.request_no}`, JSON.stringify(unitMap));
+          } catch {}
+        }
         setRequestEntryState({ kind: "submitted", requestId: updated.id, editing: false });
         setSubmitMessage(`已更新 ${updated.request_no ?? "本張需求"}，庫存預留已重新驗證。`);
         window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
@@ -488,7 +508,7 @@ export default function HrRequestWorkbench() {
       requestId: submissionRequestId,
       requestNo: `HR-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`,
       distributionDate,
-      note: normalizedNote,
+      note: normalizedNote ?? "",
       issueLines: issuePayload,
       increaseLines: increasePayload,
       createIdempotencyKey: `CREATE-${operation.createKey}`,
@@ -506,6 +526,12 @@ export default function HrRequestWorkbench() {
     setSubmissionRecovery(submission.outcomeUnknown ? { input: submissionInput } : null);
     const request = submission.request;
     if (request?.id) {
+      if (Object.keys(unitMap).length > 0 && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(`hr_request_units_${request.id}`, JSON.stringify(unitMap));
+          if (request.request_no) localStorage.setItem(`hr_request_units_${request.request_no}`, JSON.stringify(unitMap));
+        } catch {}
+      }
       operationRef.current = { ...operation, draftId: request.id };
       if (request.status === "DRAFT") {
         setRequestEntryState({ kind: "draft", requestId: request.id });
@@ -569,7 +595,7 @@ export default function HrRequestWorkbench() {
         </div>
 
         <label className="field date-field"><span>發放日期</span><input type="date" value={distributionDate} onChange={(event) => { markDraftChanged(); setDistributionDate(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} required /></label>
-        <label className="field"><span>備註（選填）</span><input value={requestNote} onChange={(event) => { markDraftChanged(); setRequestNote(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} maxLength={2000} placeholder="例如：新人報到／換季發放" /></label>
+        <label className="field"><span>備註（選填）</span><input value={requestNote.replace(/<!--unit_map:.*?-->/g, "").trim()} onChange={(event) => { markDraftChanged(); setRequestNote(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} maxLength={2000} placeholder="例如：新人報到／換季發放" /></label>
         <div className="request-table" role="table" aria-label="發放明細">
           <div className="request-table-row request-table-header" role="row">
             <span>報局單位</span>

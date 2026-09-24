@@ -16,7 +16,7 @@ import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
 import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { loadHrRequestHistoryFallback, loadHrRequestHistoryDetailFallback } from "@/src/lib/hr-request-history-fallback";
-import { loadOrganizationMasterData } from "@/src/lib/master-data-cache";
+import { loadActiveEmployeeOptions, loadOrganizationMasterData } from "@/src/lib/master-data-cache";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 
@@ -108,6 +108,25 @@ export default function HrRequestHistoryPanel() {
   const filteredRows = useMemo(() => filterHrRequestHistory(visibleRows, query, statusFilter), [query, statusFilter, visibleRows]);
   const sortedRows = useMemo(() => sortHrRequestHistory(filteredRows, sortKey, sortDirection), [filteredRows, sortDirection, sortKey]);
   const selected = useMemo(() => visibleRows.find((row) => row.id === selectedId) ?? null, [selectedId, visibleRows]);
+  const parsedUnitMap = useMemo(() => {
+    let map: Record<string, string> = {};
+    if (selected?.note) {
+      const match = selected.note.match(/<!--unit_map:(.*?)-->/);
+      if (match) {
+        try {
+          map = JSON.parse(match[1]);
+        } catch {}
+      }
+    }
+    if (Object.keys(map).length === 0 && selected && typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem(`hr_request_units_${selected.id}`)
+          || localStorage.getItem(`hr_request_units_${selected.requestNo}`);
+        if (cached) map = JSON.parse(cached);
+      } catch {}
+    }
+    return map;
+  }, [selected]);
   const activeReserved = reservations.filter((row) => row.status === "ACTIVE").reduce((sum, row) => sum + numberValue(row.quantity), 0);
 
   async function loadRows(nextSelectedId = selectedIdRef.current) {
@@ -305,15 +324,26 @@ export default function HrRequestHistoryPanel() {
   useEffect(() => {
     if (!client || !panelActive) return;
     let active = true;
-    void loadOrganizationMasterData(client)
-      .then((orgData) => {
-        if (!active || !orgData) return;
+    Promise.all([
+      loadOrganizationMasterData(client).catch(() => ({ institutions: [], departments: [], errors: [] })),
+      loadActiveEmployeeOptions(client).catch(() => ({ employees: [], errors: [] })),
+    ])
+      .then(([orgData, empData]) => {
+        if (!active) return;
         const nextMap = new Map<string, string>();
-        for (const inst of orgData.institutions ?? []) {
-          if (inst.code) nextMap.set(inst.code, inst.name || inst.code);
-        }
-        for (const dept of orgData.departments ?? []) {
+        for (const dept of orgData?.departments ?? []) {
           if (dept.code) nextMap.set(dept.code, dept.name || dept.code);
+        }
+        for (const inst of orgData?.institutions ?? []) {
+          if (inst.code && !nextMap.has(inst.code)) nextMap.set(inst.code, inst.name || inst.code);
+        }
+        for (const emp of empData?.employees ?? []) {
+          if (emp.departmentCode && (!nextMap.has(emp.departmentCode) || nextMap.get(emp.departmentCode) === emp.departmentCode)) {
+            nextMap.set(emp.departmentCode, emp.departmentName || emp.departmentCode);
+          }
+          if (emp.institutionCode && (!nextMap.has(emp.institutionCode) || nextMap.get(emp.institutionCode) === emp.institutionCode)) {
+            nextMap.set(emp.institutionCode, emp.institutionName || emp.institutionCode);
+          }
         }
         setOrgMap(nextMap);
       })
@@ -415,18 +445,41 @@ export default function HrRequestHistoryPanel() {
     {selected ? <div className="panel hr-request-history-detail" aria-live="polite">
       <div className="panel-heading"><div><p className="eyebrow">REQUEST DETAIL</p><h3>{selected.requestNo}</h3></div><span className={`status-pill ${selected.status === "SHIPPED" ? "success" : selected.status === "CANCELLED" ? "danger" : ""}`}>{hrRequestStatusLabel(selected.status)}</span></div>
       <div className="metric-grid"><div className="metric"><span>發放日期</span><strong>{selected.distributionDate}</strong></div><div className="metric"><span>有效預留</span><strong>{activeReserved}</strong></div><div className="metric"><span>發貨單</span><strong>{selected.shipmentNo ?? "—"}</strong></div><div className="metric"><span>資料版本</span><strong>{selected.rowVersion}</strong></div></div>
-      {selected.note ? <p className="auth-message">備註：{selected.note}</p> : null}
+      {selected.note ? (() => {
+        const cleanNote = selected.note.replace(/<!--unit_map:.*?-->/g, "").trim();
+        return cleanNote ? <p className="auth-message">備註：{cleanNote}</p> : null;
+      })() : null}
       {detailLoading ? <p className="muted">明細讀取中…</p> : detailLoadedForRequestId !== selectedId ? <p className="auth-message">目前需求的明細尚未載入，請重新整理後再試。</p> : <>
         <h4>品號彙總</h4>
         <div className="summary-list">{items.map((item) => <div className="summary-row" key={item.id}><span><strong>{item.item_code_snapshot ?? item.item_id}</strong><small>{item.item_name_snapshot ?? "制服品號"}／{item.unit_snapshot ?? "—"}</small></span><span>發放 {numberValue(item.issue_quantity)} ＋ 增庫 {numberValue(item.increase_quantity)}</span><strong>需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}</strong></div>)}</div>
         <h4>發放明細</h4>
         <div className="summary-list">{issueLines.map((line) => {
-          const unitCode = line.institution_code_snapshot || line.department_code_snapshot || "";
-          const unitName = line.institution_name_snapshot
-            || line.department_name_snapshot
-            || (line.institution_code_snapshot ? orgMap.get(line.institution_code_snapshot) : undefined)
-            || (line.department_code_snapshot ? orgMap.get(line.department_code_snapshot) : undefined)
-            || "";
+          const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
+          let unitCode = selectedCode || "";
+          let unitName = "";
+
+          if (selectedCode) {
+            if (selectedCode === line.department_code_snapshot) {
+              unitName = line.department_name_snapshot || orgMap.get(selectedCode) || "";
+            } else if (selectedCode === line.institution_code_snapshot) {
+              unitName = line.institution_name_snapshot || orgMap.get(selectedCode) || "";
+            } else {
+              unitName = orgMap.get(selectedCode) || "";
+            }
+          } else {
+            // For requests without unitMap metadata, check if department or institution is in orgMap
+            if (line.department_code_snapshot && orgMap.has(line.department_code_snapshot)) {
+              unitCode = line.department_code_snapshot;
+              unitName = line.department_name_snapshot || orgMap.get(line.department_code_snapshot) || "";
+            } else if (line.institution_code_snapshot && orgMap.has(line.institution_code_snapshot)) {
+              unitCode = line.institution_code_snapshot;
+              unitName = line.institution_name_snapshot || orgMap.get(line.institution_code_snapshot) || "";
+            } else {
+              unitCode = line.institution_code_snapshot || line.department_code_snapshot || "";
+              unitName = line.institution_name_snapshot || line.department_name_snapshot || (unitCode ? orgMap.get(unitCode) : undefined) || "";
+            }
+          }
+
           const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
           return (
             <div className="summary-row" key={line.id}>
