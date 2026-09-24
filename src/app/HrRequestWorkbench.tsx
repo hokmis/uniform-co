@@ -276,19 +276,32 @@ export default function HrRequestWorkbench() {
         employeeOptionsRef.current = employeeRows;
         itemOptionsRef.current = itemRows;
         setEmployeeOptions(employeeRows);
+        const deptMap = new Map<string, string>();
+        const orgDepartments = ((orgData?.departments ?? []) as { code: string; name: string; is_active: boolean }[])
+          .filter((dept) => dept.is_active)
+          .map((dept) => ({ code: dept.code, name: dept.name }));
+        for (const dept of orgDepartments) {
+          if (dept.code) {
+            deptMap.set(dept.code, dept.name || dept.code);
+          }
+        }
         const orgInstitutions = ((orgData?.institutions ?? []) as { code: string; name: string; is_active: boolean }[])
           .filter((inst) => inst.is_active)
           .map((inst) => ({ code: inst.code, name: inst.name }));
-        const instMap = new Map<string, string>();
         for (const inst of orgInstitutions) {
-          instMap.set(inst.code, inst.name);
-        }
-        for (const emp of employeeRows) {
-          if (emp.institutionCode && !instMap.has(emp.institutionCode)) {
-            instMap.set(emp.institutionCode, emp.institutionName || emp.institutionCode);
+          if (inst.code && !deptMap.has(inst.code)) {
+            deptMap.set(inst.code, inst.name || inst.code);
           }
         }
-        setDepartmentOptions(Array.from(instMap.entries()).map(([code, name]) => ({ code, name })));
+        for (const emp of employeeRows) {
+          if (emp.departmentCode && (!deptMap.has(emp.departmentCode) || deptMap.get(emp.departmentCode) === emp.departmentCode)) {
+            deptMap.set(emp.departmentCode, emp.departmentName || emp.departmentCode);
+          }
+          if (emp.institutionCode && (!deptMap.has(emp.institutionCode) || deptMap.get(emp.institutionCode) === emp.institutionCode)) {
+            deptMap.set(emp.institutionCode, emp.institutionName || emp.institutionCode);
+          }
+        }
+        setDepartmentOptions(Array.from(deptMap.entries()).map(([code, name]) => ({ code, name })));
         setItemOptions(itemRows);
         dataSnapshotAccountIdRef.current = accountId;
         setDataSnapshotAccountId(accountId);
@@ -332,7 +345,7 @@ export default function HrRequestWorkbench() {
       }
       const issueLines: IssueLineDraft[] = visibleLines.map((line) => {
         const emp = visibleEmployeeOptions.find((employee) => employee.employeeId === line.employeeId)
-          ?? (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.institutionCode === line.departmentCode) : undefined)
+          ?? (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.departmentCode === line.departmentCode || employee.institutionCode === line.departmentCode) : undefined)
           ?? visibleEmployeeOptions[0];
         return {
           ...line,
@@ -369,7 +382,7 @@ export default function HrRequestWorkbench() {
           return { ...line, quantity: Number(value) || 0 };
         }
         if (field === "departmentCode") {
-          const matchedEmp = visibleEmployeeOptions.find((emp) => emp.institutionCode === value)
+          const matchedEmp = visibleEmployeeOptions.find((emp) => emp.departmentCode === value || emp.institutionCode === value)
             ?? visibleEmployeeOptions[0];
           return {
             ...line,
@@ -429,7 +442,7 @@ export default function HrRequestWorkbench() {
     const submissionRoute = resolveHrRequestSubmissionRoute(operation.draftId, requestEntryState);
     const issuePayload = visibleLines.map((line) => {
       const resolvedEmpId = line.employeeId
-        || (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.institutionCode === line.departmentCode)?.employeeId : undefined)
+        || (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.departmentCode === line.departmentCode || employee.institutionCode === line.departmentCode)?.employeeId : undefined)
         || visibleEmployeeOptions[0]?.employeeId
         || "";
       return { employeeId: resolvedEmpId, itemId: line.itemId, quantity: line.quantity };
@@ -576,7 +589,7 @@ export default function HrRequestWorkbench() {
                   <option value="">請選擇報局單位</option>
                   {visibleDepartmentOptions.map((dept) => (
                     <option key={dept.code} value={dept.code}>
-                      {dept.code}｜{dept.name}
+                      {dept.name && dept.name !== dept.code ? `${dept.code}｜${dept.name}` : dept.code}
                     </option>
                   ))}
                 </select>
