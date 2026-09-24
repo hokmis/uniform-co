@@ -16,7 +16,7 @@ import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
 import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { loadHrRequestHistoryFallback, loadHrRequestHistoryDetailFallback } from "@/src/lib/hr-request-history-fallback";
-import { loadActiveEmployeeOptions, loadOrganizationMasterData } from "@/src/lib/master-data-cache";
+import { loadOrganizationMasterData } from "@/src/lib/master-data-cache";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 
@@ -324,20 +324,12 @@ export default function HrRequestHistoryPanel() {
   useEffect(() => {
     if (!client || !panelActive) return;
     let active = true;
-    Promise.all([
-      loadOrganizationMasterData(client).catch(() => ({ institutions: [], departments: [], errors: [] })),
-      loadActiveEmployeeOptions(client).catch(() => ({ employees: [], errors: [] })),
-    ])
-      .then(([orgData, empData]) => {
+    loadOrganizationMasterData(client)
+      .then((orgData) => {
         if (!active) return;
         const nextMap = new Map<string, string>();
         for (const dept of orgData?.departments ?? []) {
           if (dept.code) nextMap.set(dept.code, dept.name || dept.code);
-        }
-        for (const emp of empData?.employees ?? []) {
-          if (emp.departmentCode && (!nextMap.has(emp.departmentCode) || nextMap.get(emp.departmentCode) === emp.departmentCode)) {
-            nextMap.set(emp.departmentCode, emp.departmentName || emp.departmentCode);
-          }
         }
         setOrgMap(nextMap);
       })
