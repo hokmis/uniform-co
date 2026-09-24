@@ -330,13 +330,18 @@ export default function HrRequestWorkbench() {
       if (dataReadBlocked) {
         throw new HrRequestValidationError("員工與制服品號選項尚未載入，請稍候或重新整理資料");
       }
-      const issueLines: IssueLineDraft[] = visibleLines.map((line) => ({
-        ...line,
-        employee: visibleEmployeeOptions.find((employee) => employee.employeeId === line.employeeId)!,
-        item: visibleItemOptions.find((item) => item.itemId === line.itemId)!,
-      }));
+      const issueLines: IssueLineDraft[] = visibleLines.map((line) => {
+        const emp = visibleEmployeeOptions.find((employee) => employee.employeeId === line.employeeId)
+          ?? (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.institutionCode === line.departmentCode) : undefined)
+          ?? visibleEmployeeOptions[0];
+        return {
+          ...line,
+          employee: emp!,
+          item: visibleItemOptions.find((item) => item.itemId === line.itemId)!,
+        };
+      });
       if (issueLines.some((line) => !line.employee || !line.item)) {
-        throw new HrRequestValidationError("員工或制服品號已不在目前可用清單，請重新載入後再送出");
+        throw new HrRequestValidationError("請確認所有明細均已選擇報局單位與制服品號");
       }
       const increaseLines = visibleItemOptions.map((item) => ({
         item,
@@ -364,9 +369,12 @@ export default function HrRequestWorkbench() {
           return { ...line, quantity: Number(value) || 0 };
         }
         if (field === "departmentCode") {
+          const matchedEmp = visibleEmployeeOptions.find((emp) => emp.institutionCode === value)
+            ?? visibleEmployeeOptions[0];
           return {
             ...line,
             departmentCode: value,
+            employeeId: matchedEmp?.employeeId ?? "",
           };
         }
         if (field === "employeeId") {
@@ -374,7 +382,7 @@ export default function HrRequestWorkbench() {
           return {
             ...line,
             employeeId: value,
-            departmentCode: selectedEmp?.institutionCode || "",
+            departmentCode: selectedEmp?.institutionCode || line.departmentCode,
           };
         }
         return { ...line, [field]: value };
@@ -384,11 +392,11 @@ export default function HrRequestWorkbench() {
 
   function addLine() {
     const nextId = `line-${crypto.randomUUID()}`;
-    if (dataReadBlocked || visibleEmployeeOptions.length === 0 || visibleItemOptions.length === 0) return;
+    if (dataReadBlocked || visibleItemOptions.length === 0) return;
     markDraftChanged();
     setLines((current) => [
       ...current,
-      { lineId: nextId, employeeId: "", itemId: "", quantity: 1 },
+      { lineId: nextId, employeeId: "", itemId: "", quantity: 1, departmentCode: "" },
     ]);
   }
 
@@ -419,7 +427,13 @@ export default function HrRequestWorkbench() {
     const operation = operationRef.current ?? createHrRequestOperation(() => crypto.randomUUID());
     operationRef.current = operation;
     const submissionRoute = resolveHrRequestSubmissionRoute(operation.draftId, requestEntryState);
-    const issuePayload = visibleLines.map((line) => ({ employeeId: line.employeeId, itemId: line.itemId, quantity: line.quantity }));
+    const issuePayload = visibleLines.map((line) => {
+      const resolvedEmpId = line.employeeId
+        || (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.institutionCode === line.departmentCode)?.employeeId : undefined)
+        || visibleEmployeeOptions[0]?.employeeId
+        || "";
+      return { employeeId: resolvedEmpId, itemId: line.itemId, quantity: line.quantity };
+    });
     const increasePayload = visibleItemOptions
       .map((item) => ({ itemId: item.itemId, quantity: increases[item.itemId] ?? 0 }))
       .filter((line) => line.quantity > 0);
@@ -545,7 +559,6 @@ export default function HrRequestWorkbench() {
         <label className="field"><span>備註（選填）</span><input value={requestNote} onChange={(event) => { markDraftChanged(); setRequestNote(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} maxLength={2000} placeholder="例如：新人報到／換季發放" /></label>
         <div className="request-table" role="table" aria-label="發放明細">
           <div className="request-table-row request-table-header" role="row">
-            <span>員工／機構</span>
             <span>報局單位</span>
             <span>制服品號</span>
             <span>發放量</span>
@@ -554,36 +567,20 @@ export default function HrRequestWorkbench() {
           {lines.map((line) => (
             <div className="request-table-row" role="row" key={line.lineId}>
               <label className="field">
-                <span className="sr-only">員工</span>
+                <span className="sr-only">報局單位</span>
                 <select
-                  value={line.employeeId}
-                  onChange={(event) => updateLine(line.lineId, "employeeId", event.target.value)}
+                  value={line.departmentCode ?? ""}
+                  onChange={(event) => updateLine(line.lineId, "departmentCode", event.target.value)}
                   disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
                 >
-                  <option value="">請選擇員工</option>
-                  {visibleEmployeeOptions.map((employee) => (
-                    <option key={employee.employeeId} value={employee.employeeId}>
-                      {employee.employeeNo}｜{employee.employeeName}（{employee.institutionCode}/
-                      {employee.departmentCode}）
+                  <option value="">請選擇報局單位</option>
+                  {visibleDepartmentOptions.map((dept) => (
+                    <option key={dept.code} value={dept.code}>
+                      {dept.code}｜{dept.name}
                     </option>
                   ))}
                 </select>
               </label>
-                <label className="field">
-                  <span className="sr-only">報局單位</span>
-                  <select
-                    value={line.departmentCode ?? ""}
-                    onChange={(event) => updateLine(line.lineId, "departmentCode", event.target.value)}
-                    disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                  >
-                    <option value="">全部報局單位</option>
-                    {visibleDepartmentOptions.map((dept) => (
-                      <option key={dept.code} value={dept.code}>
-                        {dept.code}｜{dept.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <label className="field">
                   <span className="sr-only">制服品號</span>
                   <select

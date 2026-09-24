@@ -42,13 +42,12 @@ describe("HR request UI flow", () => {
     expect(source).not.toContain("onClick={reloadOperationalData} disabled={loadingData || submitting}");
   });
 
-  it("requires an explicit employee and item before adding an issue line", () => {
+  it("requires an explicit department and item before adding an issue line", () => {
     expect(source).toContain('setLines((current) => sameAccountSnapshot ? preserveHrRequestDraftLines(current, null) : [])');
-    expect(source).toContain('if (dataReadBlocked || visibleEmployeeOptions.length === 0 || visibleItemOptions.length === 0) return;');
-    expect(source).toContain('{ lineId: nextId, employeeId: "", itemId: "", quantity: 1 }');
-    expect(source).toContain('<option value="">請選擇員工</option>');
+    expect(source).toContain('if (dataReadBlocked || visibleItemOptions.length === 0) return;');
+    expect(source).toContain('<option value="">請選擇報局單位</option>');
     expect(source).toContain('<option value="">請選擇制服品號</option>');
-    expect(source).not.toContain('employeeId: employeeOptions[0].employeeId');
+    expect(source).not.toContain('<span>員工／機構</span>');
     expect(source).not.toContain('itemId: itemOptions[0].itemId');
   });
 
