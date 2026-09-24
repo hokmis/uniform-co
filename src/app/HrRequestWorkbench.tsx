@@ -276,21 +276,21 @@ export default function HrRequestWorkbench() {
         employeeOptionsRef.current = employeeRows;
         itemOptionsRef.current = itemRows;
         setEmployeeOptions(employeeRows);
-        const instMap = new Map<string, string>();
-        const orgInstitutions = ((orgData?.institutions ?? []) as { code: string; name: string; is_active: boolean }[])
-          .filter((inst) => inst.is_active)
-          .map((inst) => ({ code: inst.code, name: inst.name }));
-        for (const inst of orgInstitutions) {
-          if (inst.code) {
-            instMap.set(inst.code, inst.name || inst.code);
+        const deptMap = new Map<string, string>();
+        const orgDepartments = ((orgData?.departments ?? []) as { code: string; name: string; is_active: boolean }[])
+          .filter((dept) => dept.is_active)
+          .map((dept) => ({ code: dept.code, name: dept.name }));
+        for (const dept of orgDepartments) {
+          if (dept.code) {
+            deptMap.set(dept.code, dept.name || dept.code);
           }
         }
         for (const emp of employeeRows) {
-          if (emp.institutionCode && (!instMap.has(emp.institutionCode) || instMap.get(emp.institutionCode) === emp.institutionCode)) {
-            instMap.set(emp.institutionCode, emp.institutionName || emp.institutionCode);
+          if (emp.departmentCode && (!deptMap.has(emp.departmentCode) || deptMap.get(emp.departmentCode) === emp.departmentCode)) {
+            deptMap.set(emp.departmentCode, emp.departmentName || emp.departmentCode);
           }
         }
-        setDepartmentOptions(Array.from(instMap.entries()).map(([code, name]) => ({ code, name })));
+        setDepartmentOptions(Array.from(deptMap.entries()).map(([code, name]) => ({ code, name })));
         setItemOptions(itemRows);
         dataSnapshotAccountIdRef.current = accountId;
         setDataSnapshotAccountId(accountId);

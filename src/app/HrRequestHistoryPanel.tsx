@@ -328,11 +328,11 @@ export default function HrRequestHistoryPanel() {
       .then((orgData) => {
         if (!active) return;
         const nextMap = new Map<string, string>();
-        for (const inst of orgData?.institutions ?? []) {
-          if (inst.code) nextMap.set(inst.code, inst.name || inst.code);
-        }
         for (const dept of orgData?.departments ?? []) {
-          if (dept.code && !nextMap.has(dept.code)) nextMap.set(dept.code, dept.name || dept.code);
+          if (dept.code) nextMap.set(dept.code, dept.name || dept.code);
+        }
+        for (const inst of orgData?.institutions ?? []) {
+          if (inst.code && !nextMap.has(inst.code)) nextMap.set(inst.code, inst.name || inst.code);
         }
         setOrgMap(nextMap);
       })
@@ -444,12 +444,12 @@ export default function HrRequestHistoryPanel() {
         <h4>發放明細</h4>
         <div className="summary-list">{issueLines.map((line) => {
           const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
-          const unitCode = selectedCode || line.institution_code_snapshot || line.department_code_snapshot || "";
-          const unitName = (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
-            || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
+          const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
+          const unitName = (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
             || orgMap.get(unitCode)
-            || line.institution_name_snapshot
+            || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
             || line.department_name_snapshot
+            || line.institution_name_snapshot
             || "";
 
           const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
