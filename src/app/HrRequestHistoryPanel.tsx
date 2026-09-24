@@ -445,9 +445,10 @@ export default function HrRequestHistoryPanel() {
         <div className="summary-list">{issueLines.map((line) => {
           const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
           const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
-          const unitName = (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
-            || orgMap.get(unitCode)
+          const unitName = (selectedCode && orgMap.get(selectedCode))
+            || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
             || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
+            || orgMap.get(unitCode)
             || line.department_name_snapshot
             || line.institution_name_snapshot
             || "";
