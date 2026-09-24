@@ -285,20 +285,9 @@ export default function HrRequestWorkbench() {
             deptMap.set(dept.code, dept.name || dept.code);
           }
         }
-        const orgInstitutions = ((orgData?.institutions ?? []) as { code: string; name: string; is_active: boolean }[])
-          .filter((inst) => inst.is_active)
-          .map((inst) => ({ code: inst.code, name: inst.name }));
-        for (const inst of orgInstitutions) {
-          if (inst.code && !deptMap.has(inst.code)) {
-            deptMap.set(inst.code, inst.name || inst.code);
-          }
-        }
         for (const emp of employeeRows) {
           if (emp.departmentCode && (!deptMap.has(emp.departmentCode) || deptMap.get(emp.departmentCode) === emp.departmentCode)) {
             deptMap.set(emp.departmentCode, emp.departmentName || emp.departmentCode);
-          }
-          if (emp.institutionCode && (!deptMap.has(emp.institutionCode) || deptMap.get(emp.institutionCode) === emp.institutionCode)) {
-            deptMap.set(emp.institutionCode, emp.institutionName || emp.institutionCode);
           }
         }
         setDepartmentOptions(Array.from(deptMap.entries()).map(([code, name]) => ({ code, name })));
@@ -345,7 +334,7 @@ export default function HrRequestWorkbench() {
       }
       const issueLines: IssueLineDraft[] = visibleLines.map((line) => {
         const emp = visibleEmployeeOptions.find((employee) => employee.employeeId === line.employeeId)
-          ?? (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.departmentCode === line.departmentCode || employee.institutionCode === line.departmentCode) : undefined)
+          ?? (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.departmentCode === line.departmentCode) : undefined)
           ?? visibleEmployeeOptions[0];
         return {
           ...line,
@@ -382,7 +371,7 @@ export default function HrRequestWorkbench() {
           return { ...line, quantity: Number(value) || 0 };
         }
         if (field === "departmentCode") {
-          const matchedEmp = visibleEmployeeOptions.find((emp) => emp.departmentCode === value || emp.institutionCode === value)
+          const matchedEmp = visibleEmployeeOptions.find((emp) => emp.departmentCode === value)
             ?? visibleEmployeeOptions[0];
           return {
             ...line,
@@ -395,7 +384,7 @@ export default function HrRequestWorkbench() {
           return {
             ...line,
             employeeId: value,
-            departmentCode: selectedEmp?.institutionCode || line.departmentCode,
+            departmentCode: selectedEmp?.departmentCode || line.departmentCode,
           };
         }
         return { ...line, [field]: value };
@@ -442,7 +431,7 @@ export default function HrRequestWorkbench() {
     const submissionRoute = resolveHrRequestSubmissionRoute(operation.draftId, requestEntryState);
     const issuePayload = visibleLines.map((line) => {
       const resolvedEmpId = line.employeeId
-        || (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.departmentCode === line.departmentCode || employee.institutionCode === line.departmentCode)?.employeeId : undefined)
+        || (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.departmentCode === line.departmentCode)?.employeeId : undefined)
         || visibleEmployeeOptions[0]?.employeeId
         || "";
       return { employeeId: resolvedEmpId, itemId: line.itemId, quantity: line.quantity };

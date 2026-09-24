@@ -334,15 +334,9 @@ export default function HrRequestHistoryPanel() {
         for (const dept of orgData?.departments ?? []) {
           if (dept.code) nextMap.set(dept.code, dept.name || dept.code);
         }
-        for (const inst of orgData?.institutions ?? []) {
-          if (inst.code && !nextMap.has(inst.code)) nextMap.set(inst.code, inst.name || inst.code);
-        }
         for (const emp of empData?.employees ?? []) {
           if (emp.departmentCode && (!nextMap.has(emp.departmentCode) || nextMap.get(emp.departmentCode) === emp.departmentCode)) {
             nextMap.set(emp.departmentCode, emp.departmentName || emp.departmentCode);
-          }
-          if (emp.institutionCode && (!nextMap.has(emp.institutionCode) || nextMap.get(emp.institutionCode) === emp.institutionCode)) {
-            nextMap.set(emp.institutionCode, emp.institutionName || emp.institutionCode);
           }
         }
         setOrgMap(nextMap);
@@ -455,32 +449,15 @@ export default function HrRequestHistoryPanel() {
         <h4>發放明細</h4>
         <div className="summary-list">{issueLines.map((line) => {
           const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
-          let unitCode = selectedCode || "";
-          let unitName = "";
+          const deptCode = (selectedCode && (orgMap.has(selectedCode) || selectedCode === line.department_code_snapshot))
+            ? selectedCode
+            : (line.department_code_snapshot || selectedCode || "");
+          const deptName = orgMap.get(deptCode)
+            || (deptCode === line.department_code_snapshot ? line.department_name_snapshot : null)
+            || line.department_name_snapshot
+            || "";
 
-          if (selectedCode) {
-            if (selectedCode === line.department_code_snapshot) {
-              unitName = line.department_name_snapshot || orgMap.get(selectedCode) || "";
-            } else if (selectedCode === line.institution_code_snapshot) {
-              unitName = line.institution_name_snapshot || orgMap.get(selectedCode) || "";
-            } else {
-              unitName = orgMap.get(selectedCode) || "";
-            }
-          } else {
-            // For requests without unitMap metadata, check if department or institution is in orgMap
-            if (line.department_code_snapshot && orgMap.has(line.department_code_snapshot)) {
-              unitCode = line.department_code_snapshot;
-              unitName = line.department_name_snapshot || orgMap.get(line.department_code_snapshot) || "";
-            } else if (line.institution_code_snapshot && orgMap.has(line.institution_code_snapshot)) {
-              unitCode = line.institution_code_snapshot;
-              unitName = line.institution_name_snapshot || orgMap.get(line.institution_code_snapshot) || "";
-            } else {
-              unitCode = line.institution_code_snapshot || line.department_code_snapshot || "";
-              unitName = line.institution_name_snapshot || line.department_name_snapshot || (unitCode ? orgMap.get(unitCode) : undefined) || "";
-            }
-          }
-
-          const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
+          const unitDisplay = deptName && deptName !== deptCode ? `${deptCode}｜${deptName}` : (deptCode || "—");
           return (
             <div className="summary-row" key={line.id}>
               <span>
