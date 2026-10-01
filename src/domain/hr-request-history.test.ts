@@ -57,4 +57,13 @@ describe("HR request history rules", () => {
     expect(filterHrRequestHistory(rows, "", "ALL", "2026-10").map((row) => row.id)).toEqual([]);
     expect(filterHrRequestHistory(rows, "新人", "ALL", "2026-09").map((row) => row.id)).toEqual(["2"]);
   });
+
+  it("filters by custom date range", () => {
+    expect(filterHrRequestHistory(rows, "", "ALL", { startDate: "2026-09-02", endDate: "2026-09-02" }).map((row) => row.id)).toEqual(["2"]);
+    expect(filterHrRequestHistory(rows, "", "ALL", { startDate: "2026-09-01", endDate: "2026-09-01" }).map((row) => row.id)).toEqual(["1"]);
+    expect(filterHrRequestHistory(rows, "", "ALL", { startDate: "2026-09-01", endDate: "2026-09-30" }).map((row) => row.id)).toEqual(["2", "1"]);
+    expect(filterHrRequestHistory(rows, "", "ALL", { startDate: "2026-09-02" }).map((row) => row.id)).toEqual(["2"]);
+    expect(filterHrRequestHistory(rows, "", "ALL", { endDate: "2026-09-01" }).map((row) => row.id)).toEqual(["1"]);
+    expect(filterHrRequestHistory(rows, "", "ALL", "2026-09-01", "2026-09-01").map((row) => row.id)).toEqual(["1"]);
+  });
 });

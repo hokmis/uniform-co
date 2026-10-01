@@ -76,7 +76,8 @@ export default function HrRequestHistoryPanel() {
   const [rows, setRows] = useState<HrRequestHistoryRow[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<HrRequestStatusFilter>("ALL");
-  const [monthFilter, setMonthFilter] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [sortKey, setSortKey] = useState<HrRequestHistorySortKey>("distribution_date");
   const [sortDirection, setSortDirection] = useState<HrRequestHistorySortDirection>("desc");
   const [page, setPage] = useState(1);
@@ -106,18 +107,18 @@ export default function HrRequestHistoryPanel() {
       && dataSnapshotAccountId === accountId,
   );
   const visibleRows = useMemo(() => hasCurrentDataSnapshot ? rows : [], [hasCurrentDataSnapshot, rows]);
-  const availableMonths = useMemo(() => {
-    const set = new Set<string>();
-    for (const row of visibleRows) {
-      if (row.distributionDate && row.distributionDate.length >= 7) {
-        set.add(row.distributionDate.slice(0, 7));
-      } else if (row.createdAt && row.createdAt.length >= 7) {
-        set.add(row.createdAt.slice(0, 7));
-      }
+  const dateRangeLabel = useMemo(() => {
+    if (startDate && endDate) {
+      return startDate === endDate ? startDate : `${startDate} ～ ${endDate}`;
     }
-    return Array.from(set).sort().reverse();
-  }, [visibleRows]);
-  const filteredRows = useMemo(() => filterHrRequestHistory(visibleRows, query, statusFilter, monthFilter), [monthFilter, query, statusFilter, visibleRows]);
+    if (startDate) return `${startDate} 起`;
+    if (endDate) return `至 ${endDate}`;
+    return "";
+  }, [endDate, startDate]);
+  const filteredRows = useMemo(
+    () => filterHrRequestHistory(visibleRows, query, statusFilter, { startDate, endDate }),
+    [endDate, query, startDate, statusFilter, visibleRows],
+  );
   const sortedRows = useMemo(() => sortHrRequestHistory(filteredRows, sortKey, sortDirection), [filteredRows, sortDirection, sortKey]);
   const selected = useMemo(() => visibleRows.find((row) => row.id === selectedId) ?? null, [selectedId, visibleRows]);
   const parsedUnitMap = useMemo(() => {
@@ -414,36 +415,40 @@ export default function HrRequestHistoryPanel() {
   return <section className="panel hr-request-history-panel" aria-label="人資需求單查詢">
     <div className="panel-heading"><div><p className="eyebrow">REQUEST HISTORY</p><h2>需求單查詢與明細</h2></div><span className="status-pill">唯讀查詢</span></div>
     <p className="auth-message">送出後會先保留庫存；倉庫確認完成後才會成為已發放。此清單可追蹤需求、預留、發貨與取消狀態。</p>
-    <div className="inventory-toolbar">
+    <div className="inventory-toolbar hr-request-history-toolbar">
       <label className="field"><span>搜尋需求單／備註／發貨單</span><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="例如 HR-2026 或新人" /></label>
       <label className="field"><span>需求狀態</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as HrRequestStatusFilter); setPage(1); }}><option value="ALL">全部狀態</option>{hrRequestStatuses.map((status) => <option key={status} value={status}>{hrRequestStatusLabel(status)}</option>)}</select></label>
       <label className="field">
-        <span>查詢月份</span>
+        <span>起始日期</span>
         <input
-          type="month"
-          value={monthFilter}
-          onChange={(event) => { setMonthFilter(event.target.value); setPage(1); }}
-          list="hr-request-history-months"
-          aria-label="依月份查詢需求單"
+          type="date"
+          value={startDate}
+          onChange={(event) => { setStartDate(event.target.value); setPage(1); }}
+          aria-label="依起始年月日查詢"
         />
-        <datalist id="hr-request-history-months">
-          {availableMonths.map((month) => (
-            <option key={month} value={month} />
-          ))}
-        </datalist>
+      </label>
+      <label className="field">
+        <span>結束日期</span>
+        <input
+          type="date"
+          value={endDate}
+          onChange={(event) => { setEndDate(event.target.value); setPage(1); }}
+          aria-label="依結束年月日查詢"
+        />
       </label>
       <div className="inventory-toolbar-action"><button className="secondary-button" type="button" onClick={() => void loadRows()}>{loading ? "讀取中…" : "重新整理"}</button></div>
     </div>
     <div className="management-catalog-result">
-      <p className="muted" role="status">{message || "尚未載入"}；符合條件 {sortedRows.length} 張{monthFilter ? `（${monthFilter}）` : ""}</p>
-      {(query || statusFilter !== "ALL" || monthFilter) ? (
+      <p className="muted" role="status">{message || "尚未載入"}；符合條件 {sortedRows.length} 張{dateRangeLabel ? `（${dateRangeLabel}）` : ""}</p>
+      {(query || statusFilter !== "ALL" || startDate || endDate) ? (
         <button
           className="text-button"
           type="button"
           onClick={() => {
             setQuery("");
             setStatusFilter("ALL");
-            setMonthFilter("");
+            setStartDate("");
+            setEndDate("");
             setPage(1);
           }}
         >

@@ -297,6 +297,7 @@ body {
 .workspace-panel-grid > .import-panel { margin-top: 0; }
 .workspace-section > .workspace { margin-top: 0; }
 .inventory-toolbar { align-items: end; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) 180px 190px auto; margin-top: 18px; }
+.hr-request-history-toolbar { grid-template-columns: minmax(0, 1.2fr) 150px 160px 160px auto; }
 .inventory-toolbar-action { align-self: end; }
 .inventory-availability-metrics,
 .procurement-reason-metrics { margin-top: 18px; }

@@ -39,20 +39,52 @@ export function hrRequestStatusLabel(status: string): string {
   return statusLabels[status as HrRequestStatus] ?? (status || "未知狀態");
 }
 
+export type HrRequestDateRange = {
+  startDate?: string;
+  endDate?: string;
+};
+
 export function filterHrRequestHistory(
   rows: readonly HrRequestHistoryRow[],
   query: string,
   status: HrRequestStatusFilter,
-  monthFilter: string = "",
+  dateFilter?: string | HrRequestDateRange,
+  endDateParam?: string,
 ): HrRequestHistoryRow[] {
   const normalizedQuery = query.trim().toLocaleLowerCase("zh-TW");
-  const normalizedMonth = monthFilter.trim();
+
+  let startDate = "";
+  let endDate = "";
+  let monthFilter = "";
+
+  if (typeof dateFilter === "object" && dateFilter !== null) {
+    startDate = (dateFilter.startDate || "").trim();
+    endDate = (dateFilter.endDate || "").trim();
+  } else if (typeof dateFilter === "string") {
+    const trimmed = dateFilter.trim();
+    if (endDateParam !== undefined) {
+      startDate = trimmed;
+      endDate = (endDateParam || "").trim();
+    } else if (trimmed.length === 7 && trimmed.includes("-")) {
+      monthFilter = trimmed;
+    } else if (trimmed) {
+      startDate = trimmed;
+    }
+  }
+
   return rows.filter((row) => {
     if (status !== "ALL" && row.status !== status) return false;
-    if (normalizedMonth && normalizedMonth !== "ALL") {
+    const rowDate = row.distributionDate || (row.createdAt ? row.createdAt.slice(0, 10) : "");
+    if (startDate && rowDate && rowDate < startDate) {
+      return false;
+    }
+    if (endDate && rowDate && rowDate > endDate) {
+      return false;
+    }
+    if (monthFilter && monthFilter !== "ALL") {
       const distMonth = (row.distributionDate || "").slice(0, 7);
       const createdMonth = (row.createdAt || "").slice(0, 7);
-      if (distMonth !== normalizedMonth && createdMonth !== normalizedMonth) {
+      if (distMonth !== monthFilter && createdMonth !== monthFilter) {
         return false;
       }
     }
