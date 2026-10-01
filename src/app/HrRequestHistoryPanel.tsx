@@ -18,6 +18,13 @@ import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/doma
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { loadHrRequestHistoryFallback, loadHrRequestHistoryDetailFallback } from "@/src/lib/hr-request-history-fallback";
 import { loadOrganizationMasterData } from "@/src/lib/master-data-cache";
+import {
+  buildPivotTableData,
+  generatePivotXlsx,
+  downloadPivotXlsx,
+  type RawIssueLineInput,
+  type ItemStockInfo,
+} from "@/src/domain/hr-request-pivot-export";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 
@@ -90,6 +97,7 @@ export default function HrRequestHistoryPanel() {
   const [orgMap, setOrgMap] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [rangeExporting, setRangeExporting] = useState(false);
   const [message, setMessage] = useState("");
   const hasSession = isAuthenticated;
   const rowsRef = useRef<HrRequestHistoryRow[]>([]);
@@ -143,6 +151,186 @@ export default function HrRequestHistoryPanel() {
     return map;
   }, [selected]);
   const activeReserved = reservations.filter((row) => row.status === "ACTIVE").reduce((sum, row) => sum + numberValue(row.quantity), 0);
+
+  function handleExportSelected() {
+    if (!selected) return;
+    if (issueLines.length === 0) {
+      setMessage("目前選取的需求單沒有發放明細可供匯出。");
+      return;
+    }
+    const rawLines: RawIssueLineInput[] = issueLines.map((line) => {
+      const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
+      const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
+      const unitName = (selectedCode && orgMap.get(selectedCode))
+        || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
+        || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
+        || orgMap.get(unitCode)
+        || line.department_name_snapshot
+        || line.institution_name_snapshot
+        || unitCode;
+      return {
+        itemCode: line.item_code_snapshot || "",
+        itemName: line.item_name_snapshot || "",
+        size: line.size_snapshot || "",
+        unit: line.unit_snapshot || "件",
+        institutionCodeOrName: unitName || unitCode,
+        quantity: numberValue(line.quantity),
+      };
+    });
+
+    const stockMap = new Map<string, ItemStockInfo>();
+    for (const item of items) {
+      if (item.item_code_snapshot) {
+        stockMap.set(item.item_code_snapshot, {
+          itemCode: item.item_code_snapshot,
+          increaseQuantity: numberValue(item.increase_quantity),
+        });
+      }
+    }
+
+    const pivotData = buildPivotTableData(rawLines, stockMap);
+    const xlsxBytes = generatePivotXlsx(pivotData, {
+      title: `${selected.requestNo} 制服領用統計表`,
+      dateRangeLabel: selected.distributionDate || dateRangeLabel,
+    });
+
+    downloadPivotXlsx(xlsxBytes, `${selected.requestNo}-領用統計表.xlsx`);
+    setMessage(`已成功匯出需求單 ${selected.requestNo} 的制服領用統計表 (Excel)`);
+  }
+
+  async function handleExportRange() {
+    if (!client) {
+      setMessage("預覽模式：尚未連接資料庫，無法匯出。");
+      return;
+    }
+    const targetRows = sortedRows.filter((r) => r.status !== "CANCELLED");
+    if (targetRows.length === 0) {
+      setMessage("目前篩選條件下沒有有效（非取消）的需求單可供匯出。");
+      return;
+    }
+    setRangeExporting(true);
+    setMessage(`正在讀取 ${targetRows.length} 張需求單之明細資料以產生彙總表…`);
+
+    try {
+      const targetIds = targetRows.map((r) => r.id);
+      const [detailResult] = await retrySupabaseQueriesAfterSessionRefresh(
+        client,
+        async () => [
+          await client
+            .from("v_hr_request_history_detail")
+            .select("request_id,detail_kind,detail_id,item_id,item_code_snapshot,item_name_snapshot,unit_snapshot,issue_quantity,increase_quantity,requested_transfer_quantity,line_no,employee_no_snapshot,employee_name_snapshot,institution_code_snapshot,department_code_snapshot,size_snapshot,quantity,reservation_status,closed_at")
+            .in("request_id", targetIds)
+            .order("request_id")
+            .order("detail_kind")
+            .order("line_no"),
+        ] as const,
+      );
+
+      if (detailResult.error) {
+        setMessage(`區間明細讀取失敗：${safeSupabaseReadErrorMessage(detailResult.error)}`);
+        setRangeExporting(false);
+        return;
+      }
+
+      type DetailRow = {
+        request_id: string;
+        detail_kind: "ITEM" | "ISSUE" | "RESERVATION";
+        line_no: number | null;
+        item_code_snapshot: string | null;
+        item_name_snapshot: string | null;
+        size_snapshot: string | null;
+        unit_snapshot: string | null;
+        quantity: number | null;
+        increase_quantity: number | null;
+        institution_code_snapshot: string | null;
+        department_code_snapshot: string | null;
+        institution_name_snapshot?: string | null;
+        department_name_snapshot?: string | null;
+      };
+
+      const details = (detailResult.data ?? []) as DetailRow[];
+
+      const unitMapByRequestId = new Map<string, Record<string, string>>();
+      for (const req of targetRows) {
+        let map: Record<string, string> = {};
+        if (req.note) {
+          const match = req.note.match(/<!--unit_map:(.*?)-->/);
+          if (match) {
+            try {
+              map = JSON.parse(match[1]);
+            } catch {}
+          }
+        }
+        if (Object.keys(map).length === 0 && typeof window !== "undefined") {
+          try {
+            const cached = localStorage.getItem(`hr_request_units_${req.id}`)
+              || localStorage.getItem(`hr_request_units_${req.requestNo}`);
+            if (cached) map = JSON.parse(cached);
+          } catch {}
+        }
+        unitMapByRequestId.set(req.id, map);
+      }
+
+      const rawLines: RawIssueLineInput[] = [];
+      const stockMap = new Map<string, ItemStockInfo>();
+
+      for (const d of details) {
+        if (d.detail_kind === "ISSUE") {
+          const reqUnitMap = unitMapByRequestId.get(d.request_id) || {};
+          const lineNo = numberValue(d.line_no);
+          const selectedCode = reqUnitMap[lineNo] || reqUnitMap[String(lineNo)];
+          const unitCode = selectedCode || d.department_code_snapshot || d.institution_code_snapshot || "";
+          const unitName = (selectedCode && orgMap.get(selectedCode))
+            || (unitCode === d.department_code_snapshot ? d.department_name_snapshot : null)
+            || (unitCode === d.institution_code_snapshot ? d.institution_name_snapshot : null)
+            || orgMap.get(unitCode)
+            || d.department_name_snapshot
+            || d.institution_name_snapshot
+            || unitCode;
+
+          rawLines.push({
+            itemCode: d.item_code_snapshot || "",
+            itemName: d.item_name_snapshot || "",
+            size: d.size_snapshot || "",
+            unit: d.unit_snapshot || "件",
+            institutionCodeOrName: unitName || unitCode,
+            quantity: numberValue(d.quantity),
+          });
+        } else if (d.detail_kind === "ITEM") {
+          const itemCode = d.item_code_snapshot;
+          if (itemCode) {
+            const existing = stockMap.get(itemCode);
+            const inc = numberValue(d.increase_quantity);
+            stockMap.set(itemCode, {
+              itemCode,
+              increaseQuantity: (existing?.increaseQuantity || 0) + inc,
+            });
+          }
+        }
+      }
+
+      if (rawLines.length === 0) {
+        setMessage("選取的區間需求單中沒有任何發放明細。");
+        setRangeExporting(false);
+        return;
+      }
+
+      const pivotData = buildPivotTableData(rawLines, stockMap);
+      const rangeTitle = dateRangeLabel ? `平日制服領用統計表（${dateRangeLabel}）` : "平日制服領用統計表";
+      const xlsxBytes = generatePivotXlsx(pivotData, {
+        title: rangeTitle,
+        dateRangeLabel: dateRangeLabel || `${startDate || "全部"} ～ ${endDate || "全部"}`,
+      });
+
+      const fileDateStr = `${startDate || "all"}_${endDate || "all"}`;
+      downloadPivotXlsx(xlsxBytes, `平日制服領用統計表-${fileDateStr}.xlsx`);
+      setMessage(`已成功匯出 ${targetRows.length} 張需求單之彙總領用統計表 (Excel)`);
+    } catch (err) {
+      setMessage(`匯出發生例外錯誤：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRangeExporting(false);
+    }
+  }
 
   async function loadRows(nextSelectedId = selectedIdRef.current) {
     if (!client) return;
@@ -438,7 +626,18 @@ export default function HrRequestHistoryPanel() {
           aria-label="依結束年月日查詢"
         />
       </label>
-      <div className="inventory-toolbar-action"><button className="secondary-button" type="button" onClick={() => void loadRows()}>{loading ? "讀取中…" : "重新整理"}</button></div>
+      <div className="inventory-toolbar-action" style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
+        <button className="secondary-button" type="button" onClick={() => void loadRows()}>{loading ? "讀取中…" : "重新整理"}</button>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => void handleExportRange()}
+          disabled={loading || rangeExporting || sortedRows.length === 0}
+          title="匯出目前篩選區間內所有需求單的二維交叉領用統計總表 (Excel)"
+        >
+          {rangeExporting ? "匯出中…" : "匯出區間領用統計 (Excel)"}
+        </button>
+      </div>
     </div>
     <div className="management-catalog-result">
       <p className="muted" role="status">{message || "尚未載入"}；符合條件 {sortedRows.length} 張{dateRangeLabel ? `（${dateRangeLabel}）` : ""}</p>
@@ -497,7 +696,21 @@ export default function HrRequestHistoryPanel() {
       ] satisfies readonly ManagementCatalogColumn<HrRequestHistoryRow, HrRequestHistorySortKey>[]}
     />
     {selected ? <div className="panel hr-request-history-detail" aria-live="polite">
-      <div className="panel-heading"><div><p className="eyebrow">REQUEST DETAIL</p><h3>{selected.requestNo}</h3></div><span className={`status-pill ${selected.status === "SHIPPED" ? "success" : selected.status === "CANCELLED" ? "danger" : ""}`}>{hrRequestStatusLabel(selected.status)}</span></div>
+      <div className="panel-heading">
+        <div><p className="eyebrow">REQUEST DETAIL</p><h3>{selected.requestNo}</h3></div>
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={handleExportSelected}
+            disabled={detailLoading || issueLines.length === 0}
+            title="將此張需求單明細匯出為二維交叉領用統計表 (Excel)"
+          >
+            匯出此單領用總表 (Excel)
+          </button>
+          <span className={`status-pill ${selected.status === "SHIPPED" ? "success" : selected.status === "CANCELLED" ? "danger" : ""}`}>{hrRequestStatusLabel(selected.status)}</span>
+        </div>
+      </div>
       <div className="metric-grid"><div className="metric"><span>發放日期</span><strong>{selected.distributionDate}</strong></div><div className="metric"><span>有效預留</span><strong>{activeReserved}</strong></div><div className="metric"><span>發貨單</span><strong>{selected.shipmentNo ?? "—"}</strong></div><div className="metric"><span>資料版本</span><strong>{selected.rowVersion}</strong></div></div>
       {selected.note ? (() => {
         const cleanNote = selected.note.replace(/<!--unit_map:.*?-->/g, "").trim();
