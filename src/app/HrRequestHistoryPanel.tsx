@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ManagementCatalogTable, { type ManagementCatalogColumn } from "./ManagementCatalogTable";
 import {
   filterHrRequestHistory,
+  getDefaultHrRequestDateRange,
   hrRequestStatuses,
   hrRequestStatusLabel,
   sortHrRequestHistory,
@@ -76,8 +77,9 @@ export default function HrRequestHistoryPanel() {
   const [rows, setRows] = useState<HrRequestHistoryRow[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<HrRequestStatusFilter>("ALL");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const defaultDateRange = useMemo(() => getDefaultHrRequestDateRange(), []);
+  const [startDate, setStartDate] = useState(defaultDateRange.startDate);
+  const [endDate, setEndDate] = useState(defaultDateRange.endDate);
   const [sortKey, setSortKey] = useState<HrRequestHistorySortKey>("distribution_date");
   const [sortDirection, setSortDirection] = useState<HrRequestHistorySortDirection>("desc");
   const [page, setPage] = useState(1);
@@ -440,21 +442,36 @@ export default function HrRequestHistoryPanel() {
     </div>
     <div className="management-catalog-result">
       <p className="muted" role="status">{message || "尚未載入"}；符合條件 {sortedRows.length} 張{dateRangeLabel ? `（${dateRangeLabel}）` : ""}</p>
-      {(query || statusFilter !== "ALL" || startDate || endDate) ? (
-        <button
-          className="text-button"
-          type="button"
-          onClick={() => {
-            setQuery("");
-            setStatusFilter("ALL");
-            setStartDate("");
-            setEndDate("");
-            setPage(1);
-          }}
-        >
-          清除篩選
-        </button>
-      ) : null}
+      <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+        {(startDate !== defaultDateRange.startDate || endDate !== defaultDateRange.endDate) ? (
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              setStartDate(defaultDateRange.startDate);
+              setEndDate(defaultDateRange.endDate);
+              setPage(1);
+            }}
+          >
+            套用預設區間
+          </button>
+        ) : null}
+        {(query || statusFilter !== "ALL" || startDate || endDate) ? (
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => {
+              setQuery("");
+              setStatusFilter("ALL");
+              setStartDate("");
+              setEndDate("");
+              setPage(1);
+            }}
+          >
+            清除篩選
+          </button>
+        ) : null}
+      </div>
     </div>
     <ManagementCatalogTable<HrRequestHistoryRow, HrRequestHistorySortKey>
       ariaLabel="人資需求單查詢"

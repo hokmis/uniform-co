@@ -44,6 +44,27 @@ export type HrRequestDateRange = {
   endDate?: string;
 };
 
+export function getDefaultHrRequestDateRange(now: Date = new Date()): { startDate: string; endDate: string } {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(now);
+  const yearStr = parts.find((p) => p.type === "year")?.value ?? "2026";
+  const monthStr = parts.find((p) => p.type === "month")?.value ?? "10";
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthStr, 10);
+
+  const prevYear = month === 1 ? year - 1 : year;
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const startDate = `${prevYear}-${String(prevMonth).padStart(2, "0")}-21`;
+  const endDate = `${year}-${String(month).padStart(2, "0")}-20`;
+
+  return { startDate, endDate };
+}
+
 export function filterHrRequestHistory(
   rows: readonly HrRequestHistoryRow[],
   query: string,

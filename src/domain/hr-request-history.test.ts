@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   filterHrRequestHistory,
+  getDefaultHrRequestDateRange,
   hrRequestStatusLabel,
   sortHrRequestHistory,
   type HrRequestHistoryRow,
@@ -65,5 +66,28 @@ describe("HR request history rules", () => {
     expect(filterHrRequestHistory(rows, "", "ALL", { startDate: "2026-09-02" }).map((row) => row.id)).toEqual(["2"]);
     expect(filterHrRequestHistory(rows, "", "ALL", { endDate: "2026-09-01" }).map((row) => row.id)).toEqual(["1"]);
     expect(filterHrRequestHistory(rows, "", "ALL", "2026-09-01", "2026-09-01").map((row) => row.id)).toEqual(["1"]);
+  });
+
+  it("calculates default date range as previous month 21st to current month 20th", () => {
+    // 2026-10-01 (10月) -> 上月21日(2026-09-21) 至 本月20日(2026-10-20)
+    const oct1 = new Date("2026-10-01T12:00:00+08:00");
+    expect(getDefaultHrRequestDateRange(oct1)).toEqual({
+      startDate: "2026-09-21",
+      endDate: "2026-10-20",
+    });
+
+    // 2027-01-15 (跨年1月) -> 上月21日(2026-12-21) 至 本月20日(2027-01-20)
+    const jan15 = new Date("2027-01-15T12:00:00+08:00");
+    expect(getDefaultHrRequestDateRange(jan15)).toEqual({
+      startDate: "2026-12-21",
+      endDate: "2027-01-20",
+    });
+
+    // 2026-05-25 (5月) -> 上月21日(2026-04-21) 至 本月20日(2026-05-20)
+    const may25 = new Date("2026-05-25T12:00:00+08:00");
+    expect(getDefaultHrRequestDateRange(may25)).toEqual({
+      startDate: "2026-04-21",
+      endDate: "2026-05-20",
+    });
   });
 });
