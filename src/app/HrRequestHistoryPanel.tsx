@@ -226,8 +226,58 @@ export default function HrRequestHistoryPanel() {
         ] as const,
       );
 
-      if (detailResult.error) {
-        setMessage(`區間明細讀取失敗：${safeSupabaseReadErrorMessage(detailResult.error)}`);
+      let detailData = detailResult.data;
+      let detailError = detailResult.error;
+
+      if (detailError || !detailData || detailData.length === 0) {
+        const [linesRes, itemsRes] = await retrySupabaseQueriesAfterSessionRefresh(
+          client,
+          () => Promise.all([
+            client.from("hr_issue_lines").select("*").in("request_id", targetIds).order("line_no"),
+            client.from("hr_request_items").select("*").in("request_id", targetIds),
+          ]),
+        );
+
+        if (!linesRes.error && linesRes.data) {
+          const fallbackLines = (linesRes.data as Array<Record<string, unknown>>).map((row) => ({
+            request_id: String(row.request_id ?? ""),
+            detail_kind: "ISSUE" as const,
+            line_no: Number(row.line_no) || 0,
+            item_code_snapshot: (row.item_code_snapshot as string) || null,
+            item_name_snapshot: (row.item_name_snapshot as string) || null,
+            size_snapshot: (row.size_snapshot as string) || null,
+            unit_snapshot: (row.unit_snapshot as string) || null,
+            quantity: Number(row.quantity) || 0,
+            increase_quantity: null,
+            institution_code_snapshot: (row.institution_code_snapshot as string) || null,
+            department_code_snapshot: (row.department_code_snapshot as string) || null,
+            institution_name_snapshot: (row.institution_name_snapshot as string) || null,
+            department_name_snapshot: (row.department_name_snapshot as string) || null,
+          }));
+
+          const fallbackItems = ((itemsRes.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+            request_id: String(row.request_id ?? ""),
+            detail_kind: "ITEM" as const,
+            line_no: null,
+            item_code_snapshot: (row.item_code_snapshot as string) || null,
+            item_name_snapshot: (row.item_name_snapshot as string) || null,
+            size_snapshot: null,
+            unit_snapshot: (row.unit_snapshot as string) || null,
+            quantity: null,
+            increase_quantity: Number(row.increase_quantity) || 0,
+            institution_code_snapshot: null,
+            department_code_snapshot: null,
+            institution_name_snapshot: null,
+            department_name_snapshot: null,
+          }));
+
+          detailData = [...fallbackLines, ...fallbackItems] as unknown as typeof detailResult.data;
+          detailError = null;
+        }
+      }
+
+      if (detailError && (!detailData || detailData.length === 0)) {
+        setMessage(`區間明細讀取失敗：${safeSupabaseReadErrorMessage(detailError)}`);
         setRangeExporting(false);
         return;
       }
@@ -248,7 +298,7 @@ export default function HrRequestHistoryPanel() {
         department_name_snapshot?: string | null;
       };
 
-      const details = (detailResult.data ?? []) as DetailRow[];
+      const details = (detailData ?? []) as DetailRow[];
 
       const unitMapByRequestId = new Map<string, Record<string, string>>();
       for (const req of targetRows) {
