@@ -400,11 +400,15 @@ export default function HrRequestHistoryPanel() {
     }
     const readSequence = ++historyReadSequenceRef.current;
     setLoading(true);
-    const [historyResult] = await retrySupabaseQueriesAfterSessionRefresh(
+    const [historyResult, replenishmentResult] = await retrySupabaseQueriesAfterSessionRefresh(
       client,
       () => Promise.all([
         client.from("v_hr_request_history")
           .select("id,request_no,status,distribution_date,row_version,created_at,submitted_at,shipped_at,cancelled_at,note,shipment_no,shipment_status,active_reserved_quantity")
+          .order("created_at", { ascending: false })
+          .limit(500),
+        client.from("replenishment_requests")
+          .select("id,request_no,status,row_version,created_at,submitted_at,shipped_at,cancelled_at,note")
           .order("created_at", { ascending: false })
           .limit(500),
       ]),
@@ -438,10 +442,11 @@ export default function HrRequestHistoryPanel() {
       setLoading(false);
       return;
     }
-    const loaded = (historyData ?? []).map((row) => {
+    const hrLoaded: HrRequestHistoryRow[] = (historyData ?? []).map((row) => {
       const historyRow = row as unknown as HistoryRow;
       return {
         id: historyRow.id,
+        requestType: "HR_ISSUE",
         requestNo: historyRow.request_no,
         status: historyRow.status,
         distributionDate: historyRow.distribution_date,
@@ -454,7 +459,26 @@ export default function HrRequestHistoryPanel() {
         shipmentNo: historyRow.shipment_no,
         shipmentStatus: historyRow.shipment_status,
         activeReservedQuantity: numberValue(historyRow.active_reserved_quantity),
-      } satisfies HrRequestHistoryRow;
+      };
+    });
+    const replenishmentLoaded: HrRequestHistoryRow[] = ((replenishmentResult?.data ?? []) as Array<Record<string, unknown>>).map((rep) => ({
+      id: String(rep.id),
+      requestType: "REPLENISHMENT",
+      requestNo: String(rep.request_no),
+      status: (rep.status as HrRequestHistoryRow["status"]) || "DRAFT",
+      distributionDate: String(rep.submitted_at ?? rep.created_at ?? "").slice(0, 10),
+      rowVersion: numberValue(rep.row_version),
+      createdAt: String(rep.created_at ?? ""),
+      submittedAt: rep.submitted_at ? String(rep.submitted_at) : null,
+      shippedAt: rep.shipped_at ? String(rep.shipped_at) : null,
+      cancelledAt: rep.cancelled_at ? String(rep.cancelled_at) : null,
+      note: rep.note ? String(rep.note) : null,
+      shipmentNo: null,
+      shipmentStatus: null,
+      activeReservedQuantity: 0,
+    }));
+    const loaded = [...hrLoaded, ...replenishmentLoaded].sort((a, b) => {
+      return (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0);
     });
     const resolvedSelectedId = loaded.some((row) => row.id === nextSelectedId) ? nextSelectedId : "";
     rowsRef.current = loaded;
@@ -472,7 +496,7 @@ export default function HrRequestHistoryPanel() {
     } else if (resolvedSelectedId === selectedIdRef.current) {
       void loadDetail(resolvedSelectedId);
     }
-    setMessage(`已載入 ${loaded.length} 張需求單；狀態、預留與發貨資訊來自目前資料庫。`);
+    setMessage(`已載入 ${hrLoaded.length} 張需求單、${replenishmentLoaded.length} 張補庫單；狀態、預留與發貨資訊來自目前資料庫。`);
     setLoading(false);
   }
 
@@ -483,6 +507,56 @@ export default function HrRequestHistoryPanel() {
     const sameRequestSnapshot = previousSnapshot?.requestId === requestId;
     if (!sameRequestSnapshot) setDetailLoadedForRequestId(null);
     setDetailLoading(true);
+
+    const targetRow = rowsRef.current.find((r) => r.id === requestId);
+    if (targetRow?.requestType === "REPLENISHMENT") {
+      const [linesResult, catalogResult] = await retrySupabaseQueriesAfterSessionRefresh(
+        client,
+        async () => [
+          await client.from("replenishment_request_lines")
+            .select("id,request_id,item_id,requested_quantity,actual_transfer_quantity,item_code_snapshot,item_name_snapshot,unit_snapshot")
+            .eq("request_id", requestId),
+          await client.from("uniform_catalog_items")
+            .select("id,code,name,unit"),
+        ] as const,
+      );
+      if (readSequence !== detailReadSequenceRef.current) return;
+      if (linesResult.error) {
+        setMessage(`補庫單明細載入失敗：${safeSupabaseReadErrorMessage(linesResult.error)}`);
+      } else {
+        const itemMap = new Map<string, { code: string; name: string; unit: string }>();
+        for (const cat of (catalogResult?.data ?? []) as Array<{ id: string; code: string; name: string; unit: string }>) {
+          itemMap.set(cat.id, { code: cat.code, name: cat.name, unit: cat.unit });
+        }
+        const lines = (linesResult.data ?? []) as Array<Record<string, unknown>>;
+        const nextItems = lines.map((l) => {
+          const itemId = String(l.item_id);
+          const cat = itemMap.get(itemId);
+          const itemCode = typeof l.item_code_snapshot === "string" && l.item_code_snapshot ? l.item_code_snapshot : (cat?.code ?? itemId);
+          const itemName = typeof l.item_name_snapshot === "string" && l.item_name_snapshot ? l.item_name_snapshot : (cat?.name ?? "補庫品項");
+          const unit = typeof l.unit_snapshot === "string" && l.unit_snapshot ? l.unit_snapshot : (cat?.unit ?? "件");
+          const qty = numberValue(l.requested_quantity);
+          return {
+            id: String(l.id),
+            item_id: itemId,
+            item_code_snapshot: itemCode,
+            item_name_snapshot: itemName,
+            unit_snapshot: unit,
+            issue_quantity: 0,
+            increase_quantity: qty,
+            requested_transfer_quantity: qty,
+          };
+        });
+        setItems(nextItems);
+        setIssueLines([]);
+        setReservations([]);
+        detailSnapshotRef.current = { requestId, items: nextItems, issueLines: [], reservations: [] };
+        setDetailLoadedForRequestId(requestId);
+      }
+      setDetailLoading(false);
+      return;
+    }
+
     const [detailResult] = await retrySupabaseQueriesAfterSessionRefresh(
       client,
       async () => [await client.from("v_hr_request_history_detail").select("request_id,detail_kind,detail_id,item_id,item_code_snapshot,item_name_snapshot,unit_snapshot,issue_quantity,increase_quantity,requested_transfer_quantity,line_no,employee_no_snapshot,employee_name_snapshot,institution_code_snapshot,department_code_snapshot,size_snapshot,quantity,reservation_status,closed_at").eq("request_id", requestId).order("detail_kind").order("line_no")] as const,
@@ -737,63 +811,152 @@ export default function HrRequestHistoryPanel() {
       tableClassName="hr-request-history-table"
       emptyState={<p className="empty-state">目前沒有符合條件的需求單。</p>}
       columns={[
-        { id: "request", label: "需求單", locked: true, render: (row) => <><strong>{row.requestNo}</strong><span className="table-secondary">發放日 {row.distributionDate}</span></>, sortKey: "request_no" },
+        {
+          id: "request",
+          label: "需求單",
+          locked: true,
+          render: (row) => (
+            <>
+              <div>
+                {row.requestType === "REPLENISHMENT" ? (
+                  <span style={{ display: "inline-block", marginRight: 6, fontSize: "0.75rem", padding: "1px 6px", background: "#e0f2fe", color: "#0369a1", borderRadius: 4, fontWeight: 600 }}>
+                    額外補庫
+                  </span>
+                ) : null}
+                <strong>{row.requestNo}</strong>
+              </div>
+              <span className="table-secondary">{row.requestType === "REPLENISHMENT" ? "申請日" : "發放日"} {row.distributionDate}</span>
+            </>
+          ),
+          sortKey: "request_no",
+        },
         { id: "status", label: "狀態", sortKey: "status", render: (row) => <span className={`status-pill ${row.status === "SHIPPED" ? "success" : row.status === "CANCELLED" ? "danger" : ""}`}>{hrRequestStatusLabel(row.status)}</span> },
-        { id: "shipment", label: "發貨", render: (row) => row.shipmentNo ? `${row.shipmentNo}／${row.shipmentStatus === "POSTED" ? "已完成" : "草稿"}` : "尚未建立" },
-        { id: "reserved", label: "有效預留", render: (row) => `${row.activeReservedQuantity}`, className: "numeric-cell" },
+        { id: "shipment", label: "發貨", render: (row) => row.requestType === "REPLENISHMENT" ? "直接調撥增庫" : (row.shipmentNo ? `${row.shipmentNo}／${row.shipmentStatus === "POSTED" ? "已完成" : "草稿"}` : "尚未建立") },
+        { id: "reserved", label: "有效預留", render: (row) => row.requestType === "REPLENISHMENT" ? "—" : `${row.activeReservedQuantity}`, className: "numeric-cell" },
         { id: "version", label: "版本", sortKey: "row_version", render: (row) => row.rowVersion, className: "numeric-cell" },
         { id: "action", label: "明細", locked: true, render: (row) => <button className="text-button" type="button" onClick={() => setSelectedId(row.id)}>{selectedId === row.id ? "目前明細" : "查看"}</button> },
       ] satisfies readonly ManagementCatalogColumn<HrRequestHistoryRow, HrRequestHistorySortKey>[]}
     />
     {selected ? <div className="panel hr-request-history-detail" aria-live="polite">
       <div className="panel-heading">
-        <div><p className="eyebrow">REQUEST DETAIL</p><h3>{selected.requestNo}</h3></div>
+        <div>
+          <p className="eyebrow">{selected.requestType === "REPLENISHMENT" ? "REPLENISHMENT DETAIL" : "REQUEST DETAIL"}</p>
+          <h3>
+            {selected.requestType === "REPLENISHMENT" ? (
+              <span style={{ display: "inline-block", marginRight: 8, fontSize: "0.85rem", padding: "2px 8px", background: "#e0f2fe", color: "#0369a1", borderRadius: 4, fontWeight: 600, verticalAlign: "middle" }}>
+                額外補庫單
+              </span>
+            ) : null}
+            {selected.requestNo}
+          </h3>
+        </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={handleExportSelected}
-            disabled={detailLoading || issueLines.length === 0}
-            title="將此張需求單明細匯出為二維交叉領用統計表 (Excel)"
-          >
-            匯出此單領用總表 (Excel)
-          </button>
+          {selected.requestType !== "REPLENISHMENT" ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={handleExportSelected}
+              disabled={detailLoading || issueLines.length === 0}
+              title="將此張需求單明細匯出為二維交叉領用統計表 (Excel)"
+            >
+              匯出此單領用總表 (Excel)
+            </button>
+          ) : null}
           <span className={`status-pill ${selected.status === "SHIPPED" ? "success" : selected.status === "CANCELLED" ? "danger" : ""}`}>{hrRequestStatusLabel(selected.status)}</span>
         </div>
       </div>
-      <div className="metric-grid"><div className="metric"><span>發放日期</span><strong>{selected.distributionDate}</strong></div><div className="metric"><span>有效預留</span><strong>{activeReserved}</strong></div><div className="metric"><span>發貨單</span><strong>{selected.shipmentNo ?? "—"}</strong></div><div className="metric"><span>資料版本</span><strong>{selected.rowVersion}</strong></div></div>
+      <div className="metric-grid">
+        <div className="metric">
+          <span>{selected.requestType === "REPLENISHMENT" ? "申請日期" : "發放日期"}</span>
+          <strong>{selected.distributionDate}</strong>
+        </div>
+        <div className="metric">
+          <span>{selected.requestType === "REPLENISHMENT" ? "增庫總量" : "有效預留"}</span>
+          <strong>
+            {selected.requestType === "REPLENISHMENT"
+              ? `${items.reduce((sum, item) => sum + numberValue(item.increase_quantity), 0)} 件`
+              : activeReserved}
+          </strong>
+        </div>
+        <div className="metric">
+          <span>發貨單</span>
+          <strong>{selected.requestType === "REPLENISHMENT" ? "無（直接調撥增庫）" : (selected.shipmentNo ?? "—")}</strong>
+        </div>
+        <div className="metric">
+          <span>資料版本</span>
+          <strong>{selected.rowVersion}</strong>
+        </div>
+      </div>
       {selected.note ? (() => {
         const cleanNote = selected.note.replace(/<!--unit_map:.*?-->/g, "").trim();
         return cleanNote ? <p className="auth-message">備註：{cleanNote}</p> : null;
       })() : null}
-      {detailLoading ? <p className="muted">明細讀取中…</p> : detailLoadedForRequestId !== selectedId ? <p className="auth-message">目前需求的明細尚未載入，請重新整理後再試。</p> : <>
-        <h4>品號彙總</h4>
-        <div className="summary-list">{items.map((item) => <div className="summary-row" key={item.id}><span><strong>{item.item_code_snapshot ?? item.item_id}</strong><small>{item.item_name_snapshot ?? "制服品號"}／{item.unit_snapshot ?? "—"}</small></span><span>發放 {numberValue(item.issue_quantity)} ＋ 增庫 {numberValue(item.increase_quantity)}</span><strong>需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}</strong></div>)}</div>
-        <h4>發放明細</h4>
-        <div className="summary-list">{issueLines.map((line) => {
-          const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
-          const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
-          const unitName = (selectedCode && orgMap.get(selectedCode))
-            || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
-            || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
-            || orgMap.get(unitCode)
-            || line.department_name_snapshot
-            || line.institution_name_snapshot
-            || "";
-
-          const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
-          return (
-            <div className="summary-row" key={line.id}>
-              <span>
-                <strong>{unitDisplay}</strong>
-                <small>{[line.item_code_snapshot ?? "—", line.item_name_snapshot, line.size_snapshot].filter(Boolean).join(" ")}</small>
-              </span>
-              <strong>{numberValue(line.quantity)} {line.unit_snapshot ?? ""}</strong>
+      {detailLoading ? <p className="muted">明細讀取中…</p> : detailLoadedForRequestId !== selectedId ? <p className="auth-message">目前需求的明細尚未載入，請重新整理後再試。</p> : (
+        selected.requestType === "REPLENISHMENT" ? (
+          <>
+            <h4>增庫申請明細（額外補庫）</h4>
+            <div className="summary-list">
+              {items.map((item) => (
+                <div className="summary-row" key={item.id}>
+                  <span>
+                    <strong>{item.item_code_snapshot ?? item.item_id}</strong>
+                    <small>{item.item_name_snapshot ?? "補庫品項"}／{item.unit_snapshot ?? "件"}</small>
+                  </span>
+                  <strong>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
+                </div>
+              ))}
             </div>
-          );
-        })}</div>
-        <p className="muted">預留紀錄：{reservations.length} 筆；有效 {reservations.filter((row) => row.status === "ACTIVE").length} 筆，已關閉／釋放 {reservations.filter((row) => row.status !== "ACTIVE").length} 筆。</p>
-      </>}
+            <p className="muted">
+              額外補庫申請紀錄：共 {items.length} 個品項，總計申請增庫 {items.reduce((sum, item) => sum + numberValue(item.increase_quantity), 0)} 件。倉庫調撥確認完成後將直接增加人資常備庫存。
+            </p>
+          </>
+        ) : (
+          <>
+            <h4>品號彙總</h4>
+            <div className="summary-list">{items.map((item) => <div className="summary-row" key={item.id}><span><strong>{item.item_code_snapshot ?? item.item_id}</strong><small>{item.item_name_snapshot ?? "制服品號"}／{item.unit_snapshot ?? "—"}</small></span><span>發放 {numberValue(item.issue_quantity)} ＋ 增庫 {numberValue(item.increase_quantity)}</span><strong>需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}</strong></div>)}</div>
+            {items.some((item) => numberValue(item.increase_quantity) > 0) ? (
+              <>
+                <h4>增庫申請明細（隨單增庫）</h4>
+                <div className="summary-list">
+                  {items.filter((item) => numberValue(item.increase_quantity) > 0).map((item) => (
+                    <div className="summary-row" key={`inc-${item.id}`}>
+                      <span>
+                        <strong>{item.item_code_snapshot ?? item.item_id}</strong>
+                        <small>{item.item_name_snapshot ?? "制服品號"}／{item.unit_snapshot ?? "件"}</small>
+                      </span>
+                      <strong>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
+            <h4>發放明細</h4>
+            <div className="summary-list">{issueLines.map((line) => {
+              const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
+              const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
+              const unitName = (selectedCode && orgMap.get(selectedCode))
+                || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
+                || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
+                || orgMap.get(unitCode)
+                || line.department_name_snapshot
+                || line.institution_name_snapshot
+                || "";
+
+              const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
+              return (
+                <div className="summary-row" key={line.id}>
+                  <span>
+                    <strong>{unitDisplay}</strong>
+                    <small>{[line.item_code_snapshot ?? "—", line.item_name_snapshot, line.size_snapshot].filter(Boolean).join(" ")}</small>
+                  </span>
+                  <strong>{numberValue(line.quantity)} {line.unit_snapshot ?? ""}</strong>
+                </div>
+              );
+            })}</div>
+            <p className="muted">預留紀錄：{reservations.length} 筆；有效 {reservations.filter((row) => row.status === "ACTIVE").length} 筆，已關閉／釋放 {reservations.filter((row) => row.status !== "ACTIVE").length} 筆。</p>
+          </>
+        )
+      )}
     </div> : null}
   </section>;
 }

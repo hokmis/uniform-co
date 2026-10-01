@@ -47,6 +47,32 @@ describe("HR request history rules", () => {
     expect(hrRequestStatusLabel("INVENTORY_REVIEW_REQUIRED")).toBe("庫存待覆核");
   });
 
+  it("filters by requestType such as replenishment", () => {
+    const mixedRows: HrRequestHistoryRow[] = [
+      ...rows,
+      {
+        id: "rep-1",
+        requestType: "REPLENISHMENT",
+        requestNo: "REP-20260930-001",
+        status: "SUBMITTED",
+        distributionDate: "2026-09-30",
+        rowVersion: 1,
+        createdAt: "2026-09-30T05:00:00Z",
+        submittedAt: "2026-09-30T05:01:00Z",
+        shippedAt: null,
+        cancelledAt: null,
+        note: "二課額外補庫",
+        shipmentNo: null,
+        shipmentStatus: null,
+        activeReservedQuantity: 0,
+      },
+    ];
+
+    expect(filterHrRequestHistory(mixedRows, "額外補庫", "ALL").map((r) => r.id)).toEqual(["rep-1"]);
+    expect(filterHrRequestHistory(mixedRows, "REP-20260930", "ALL").map((r) => r.id)).toEqual(["rep-1"]);
+    expect(filterHrRequestHistory(mixedRows, "", "SUBMITTED").map((r) => r.id)).toEqual(["2", "rep-1"]);
+  });
+
   it("sorts dates and versions without mutating the source", () => {
     expect(sortHrRequestHistory(rows, "distribution_date", "asc").map((row) => row.id)).toEqual(["1", "2"]);
     expect(sortHrRequestHistory(rows, "row_version", "desc").map((row) => row.id)).toEqual(["1", "2"]);

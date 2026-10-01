@@ -11,8 +11,11 @@ export type HrRequestStatusFilter = HrRequestStatus | "ALL";
 export type HrRequestHistorySortKey = "request_no" | "distribution_date" | "status" | "row_version";
 export type HrRequestHistorySortDirection = "asc" | "desc";
 
+export type HrRequestType = "HR_ISSUE" | "REPLENISHMENT";
+
 export type HrRequestHistoryRow = {
   id: string;
+  requestType?: HrRequestType;
   requestNo: string;
   status: HrRequestStatus;
   distributionDate: string;
@@ -113,6 +116,7 @@ export function filterHrRequestHistory(
     const querySlashNormalized = normalizedQuery.replace(/\//g, "-");
     const searchableText = [
       row.requestNo,
+      row.requestType === "REPLENISHMENT" ? "額外補庫 補庫申請" : "員工需求 制服需求",
       row.distributionDate,
       (row.distributionDate || "").replace(/-/g, "/"),
       row.note ?? "",
