@@ -51,4 +51,10 @@ describe("HR request history rules", () => {
     expect(sortHrRequestHistory(rows, "row_version", "desc").map((row) => row.id)).toEqual(["1", "2"]);
     expect(rows.map((row) => row.id)).toEqual(["2", "1"]);
   });
+
+  it("filters by month", () => {
+    expect(filterHrRequestHistory(rows, "", "ALL", "2026-09").map((row) => row.id)).toEqual(["2", "1"]);
+    expect(filterHrRequestHistory(rows, "", "ALL", "2026-10").map((row) => row.id)).toEqual([]);
+    expect(filterHrRequestHistory(rows, "新人", "ALL", "2026-09").map((row) => row.id)).toEqual(["2"]);
+  });
 });

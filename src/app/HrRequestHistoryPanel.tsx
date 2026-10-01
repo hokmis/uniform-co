@@ -76,6 +76,7 @@ export default function HrRequestHistoryPanel() {
   const [rows, setRows] = useState<HrRequestHistoryRow[]>([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<HrRequestStatusFilter>("ALL");
+  const [monthFilter, setMonthFilter] = useState("");
   const [sortKey, setSortKey] = useState<HrRequestHistorySortKey>("distribution_date");
   const [sortDirection, setSortDirection] = useState<HrRequestHistorySortDirection>("desc");
   const [page, setPage] = useState(1);
@@ -105,7 +106,18 @@ export default function HrRequestHistoryPanel() {
       && dataSnapshotAccountId === accountId,
   );
   const visibleRows = useMemo(() => hasCurrentDataSnapshot ? rows : [], [hasCurrentDataSnapshot, rows]);
-  const filteredRows = useMemo(() => filterHrRequestHistory(visibleRows, query, statusFilter), [query, statusFilter, visibleRows]);
+  const availableMonths = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of visibleRows) {
+      if (row.distributionDate && row.distributionDate.length >= 7) {
+        set.add(row.distributionDate.slice(0, 7));
+      } else if (row.createdAt && row.createdAt.length >= 7) {
+        set.add(row.createdAt.slice(0, 7));
+      }
+    }
+    return Array.from(set).sort().reverse();
+  }, [visibleRows]);
+  const filteredRows = useMemo(() => filterHrRequestHistory(visibleRows, query, statusFilter, monthFilter), [monthFilter, query, statusFilter, visibleRows]);
   const sortedRows = useMemo(() => sortHrRequestHistory(filteredRows, sortKey, sortDirection), [filteredRows, sortDirection, sortKey]);
   const selected = useMemo(() => visibleRows.find((row) => row.id === selectedId) ?? null, [selectedId, visibleRows]);
   const parsedUnitMap = useMemo(() => {
@@ -405,9 +417,40 @@ export default function HrRequestHistoryPanel() {
     <div className="inventory-toolbar">
       <label className="field"><span>搜尋需求單／備註／發貨單</span><input value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }} placeholder="例如 HR-2026 或新人" /></label>
       <label className="field"><span>需求狀態</span><select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as HrRequestStatusFilter); setPage(1); }}><option value="ALL">全部狀態</option>{hrRequestStatuses.map((status) => <option key={status} value={status}>{hrRequestStatusLabel(status)}</option>)}</select></label>
+      <label className="field">
+        <span>查詢月份</span>
+        <input
+          type="month"
+          value={monthFilter}
+          onChange={(event) => { setMonthFilter(event.target.value); setPage(1); }}
+          list="hr-request-history-months"
+          aria-label="依月份查詢需求單"
+        />
+        <datalist id="hr-request-history-months">
+          {availableMonths.map((month) => (
+            <option key={month} value={month} />
+          ))}
+        </datalist>
+      </label>
       <div className="inventory-toolbar-action"><button className="secondary-button" type="button" onClick={() => void loadRows()}>{loading ? "讀取中…" : "重新整理"}</button></div>
     </div>
-    <p className="muted" role="status">{message || "尚未載入"}；符合條件 {sortedRows.length} 張</p>
+    <div className="management-catalog-result">
+      <p className="muted" role="status">{message || "尚未載入"}；符合條件 {sortedRows.length} 張{monthFilter ? `（${monthFilter}）` : ""}</p>
+      {(query || statusFilter !== "ALL" || monthFilter) ? (
+        <button
+          className="text-button"
+          type="button"
+          onClick={() => {
+            setQuery("");
+            setStatusFilter("ALL");
+            setMonthFilter("");
+            setPage(1);
+          }}
+        >
+          清除篩選
+        </button>
+      ) : null}
+    </div>
     <ManagementCatalogTable<HrRequestHistoryRow, HrRequestHistorySortKey>
       ariaLabel="人資需求單查詢"
       rows={sortedRows}

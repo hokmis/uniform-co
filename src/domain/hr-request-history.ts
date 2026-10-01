@@ -43,18 +43,30 @@ export function filterHrRequestHistory(
   rows: readonly HrRequestHistoryRow[],
   query: string,
   status: HrRequestStatusFilter,
+  monthFilter: string = "",
 ): HrRequestHistoryRow[] {
   const normalizedQuery = query.trim().toLocaleLowerCase("zh-TW");
+  const normalizedMonth = monthFilter.trim();
   return rows.filter((row) => {
     if (status !== "ALL" && row.status !== status) return false;
+    if (normalizedMonth && normalizedMonth !== "ALL") {
+      const distMonth = (row.distributionDate || "").slice(0, 7);
+      const createdMonth = (row.createdAt || "").slice(0, 7);
+      if (distMonth !== normalizedMonth && createdMonth !== normalizedMonth) {
+        return false;
+      }
+    }
     if (!normalizedQuery) return true;
-    return [
+    const querySlashNormalized = normalizedQuery.replace(/\//g, "-");
+    const searchableText = [
       row.requestNo,
       row.distributionDate,
+      (row.distributionDate || "").replace(/-/g, "/"),
       row.note ?? "",
       row.shipmentNo ?? "",
       hrRequestStatusLabel(row.status),
-    ].join(" ").toLocaleLowerCase("zh-TW").includes(normalizedQuery);
+    ].join(" ").toLocaleLowerCase("zh-TW");
+    return searchableText.includes(normalizedQuery) || searchableText.includes(querySlashNormalized);
   });
 }
 
