@@ -46,6 +46,7 @@ export default function InventoryMovementHistoryPanel() {
 
   async function loadData() {
     if (!client || !identityReady) return;
+    await Promise.resolve();
     setLoading(true);
 
     try {
@@ -85,18 +86,30 @@ export default function InventoryMovementHistoryPanel() {
   }
 
   useEffect(() => {
+    let active = true;
     if (identityReady) {
-      void loadData();
+      queueMicrotask(() => {
+        if (active) void loadData();
+      });
     }
+    return () => {
+      active = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [identityReady]);
 
   useEffect(() => {
     if (!client || !panelActive) return;
-    const refreshData = () => void loadData();
+    let active = true;
+    const refreshData = () => {
+      queueMicrotask(() => {
+        if (active) void loadData();
+      });
+    };
     window.addEventListener(hrRequestWorkflowChangedEvent, refreshData);
     window.addEventListener(inventoryDataChangedEvent, refreshData);
     return () => {
+      active = false;
       window.removeEventListener(hrRequestWorkflowChangedEvent, refreshData);
       window.removeEventListener(inventoryDataChangedEvent, refreshData);
     };
