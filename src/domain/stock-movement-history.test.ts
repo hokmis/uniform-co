@@ -8,8 +8,8 @@ import {
 
 describe("stock-movement-history", () => {
   const mockAvailability = [
-    { item_id: "item-1", item_code: "UNT0102", item_name: "短袖制服", size: "2L", unit: "件", combined_on_hand_quantity: 80 },
-    { item_id: "item-2", item_code: "REP009", item_name: "工作長褲", size: "XL", unit: "件", combined_on_hand_quantity: 45 },
+    { item_id: "item-1", item_code: "UNT0102", item_name: "短袖制服", size: "2L", unit: "件", hr_on_hand_quantity: 30, general_on_hand_quantity: 50 },
+    { item_id: "item-2", item_code: "REP009", item_name: "工作長褲", size: "XL", unit: "件", hr_on_hand_quantity: 25, general_on_hand_quantity: 20 },
   ];
 
   const mockHistory = [
@@ -83,7 +83,7 @@ describe("stock-movement-history", () => {
     },
   ];
 
-  it("aggregates ledger entries into single rows with HR delta, GENERAL delta, size, and current total", () => {
+  it("aggregates ledger entries into single rows with HR delta, GENERAL delta, size, HR on hand, and General on hand", () => {
     const rows = aggregateStockMovements(mockHistory, mockAvailability);
 
     expect(rows.length).toBe(2);
@@ -98,7 +98,8 @@ describe("stock-movement-history", () => {
     expect(repRow.size).toBe("XL");
     expect(repRow.hrDelta).toBe(20);
     expect(repRow.generalDelta).toBe(-20);
-    expect(repRow.currentCombinedOnHand).toBe(45);
+    expect(repRow.hrOnHand).toBe(25);
+    expect(repRow.generalOnHand).toBe(20);
 
     // 需求發貨紀錄 (2026-09-25)
     const shpRow = rows[1];
@@ -110,7 +111,8 @@ describe("stock-movement-history", () => {
     expect(shpRow.size).toBe("2L");
     expect(shpRow.hrDelta).toBe(2);
     expect(shpRow.generalDelta).toBe(-10);
-    expect(shpRow.currentCombinedOnHand).toBe(80);
+    expect(shpRow.hrOnHand).toBe(30);
+    expect(shpRow.generalOnHand).toBe(50);
   });
 
   it("filters stock movements by query, posting kind, and date range", () => {
@@ -139,5 +141,9 @@ describe("stock-movement-history", () => {
     const sortedByHrDelta = sortStockMovements(rows, "hr_delta", "desc");
     expect(sortedByHrDelta[0].hrDelta).toBe(20);
     expect(sortedByHrDelta[1].hrDelta).toBe(2);
+
+    const sortedByGeneralOnHand = sortStockMovements(rows, "general_on_hand", "desc");
+    expect(sortedByGeneralOnHand[0].generalOnHand).toBe(50);
+    expect(sortedByGeneralOnHand[1].generalOnHand).toBe(20);
   });
 });

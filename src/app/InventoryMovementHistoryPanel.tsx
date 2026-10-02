@@ -61,7 +61,7 @@ export default function InventoryMovementHistoryPanel() {
             .limit(1000),
           client
             .from("v_item_availability")
-            .select("item_id,item_code,item_name,size,unit,combined_on_hand_quantity")
+            .select("item_id,item_code,item_name,size,unit,hr_on_hand_quantity,general_on_hand_quantity")
             .limit(1000),
         ]),
       );
@@ -165,7 +165,7 @@ export default function InventoryMovementHistoryPanel() {
         <span className="status-pill">流水紀錄</span>
       </div>
       <p className="auth-message">
-        即時追蹤依據「新增員工制服需求單（發貨）」與「額外補庫申請（調撥入庫）」造成的兩倉即時庫存異動，包含各品項規格、人資倉與總倉增減量及兩倉合計量。
+        即時追蹤依據「新增員工制服需求單（發貨）」與「額外補庫申請（調撥入庫）」造成的兩倉即時庫存異動，包含各品項規格、人資倉與總倉增減量及人資倉與總倉剩餘量。
       </p>
 
       <div className="inventory-toolbar hr-request-history-toolbar">
@@ -322,13 +322,25 @@ export default function InventoryMovementHistoryPanel() {
             render: (row) => formatDelta(row.generalDelta, row.unit),
           },
           {
-            id: "combined_total",
-            label: "兩倉目前合計量",
-            sortKey: "combined_total",
+            id: "hr_on_hand",
+            label: "人資倉剩餘量",
+            sortKey: "hr_on_hand",
             className: "numeric-cell",
             render: (row) => (
               <>
-                <strong>{row.currentCombinedOnHand}</strong>
+                <strong>{row.hrOnHand}</strong>
+                <small className="table-secondary" style={{ marginLeft: 4 }}>{row.unit}</small>
+              </>
+            ),
+          },
+          {
+            id: "general_on_hand",
+            label: "總倉剩餘量",
+            sortKey: "general_on_hand",
+            className: "numeric-cell",
+            render: (row) => (
+              <>
+                <strong>{row.generalOnHand}</strong>
                 <small className="table-secondary" style={{ marginLeft: 4 }}>{row.unit}</small>
               </>
             ),

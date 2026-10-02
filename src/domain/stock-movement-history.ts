@@ -16,7 +16,8 @@ export type StockMovementRow = {
   unit: string;
   hrDelta: number;
   generalDelta: number;
-  currentCombinedOnHand: number;
+  hrOnHand: number;
+  generalOnHand: number;
 };
 
 export type StockMovementFilter = {
@@ -34,7 +35,8 @@ export type StockMovementSortKey =
   | "size"
   | "hr_delta"
   | "general_delta"
-  | "combined_total";
+  | "hr_on_hand"
+  | "general_on_hand";
 
 export type StockMovementSortDirection = "asc" | "desc";
 
@@ -52,13 +54,14 @@ export function aggregateStockMovements(
   availabilityRows: Array<Record<string, unknown>>,
 ): StockMovementRow[] {
   // 建立品項規格與現有量快取 Map
-  const availabilityMap = new Map<string, { size: string; combinedTotal: number; unit: string }>();
+  const availabilityMap = new Map<string, { size: string; hrOnHand: number; generalOnHand: number; unit: string }>();
   for (const item of availabilityRows) {
     const itemId = String(item.item_id ?? "");
     if (itemId) {
       availabilityMap.set(itemId, {
         size: typeof item.size === "string" ? item.size : "",
-        combinedTotal: Number(item.combined_on_hand_quantity) || 0,
+        hrOnHand: Number(item.hr_on_hand_quantity) || 0,
+        generalOnHand: Number(item.general_on_hand_quantity) || 0,
         unit: typeof item.unit === "string" ? item.unit : "件",
       });
     }
@@ -89,7 +92,8 @@ export function aggregateStockMovements(
       const itemName = String(h.item_name ?? itemCode);
       const unit = String(h.unit ?? avail?.unit ?? "件");
       const size = avail?.size || (typeof h.size === "string" ? h.size : "—");
-      const currentCombinedOnHand = avail?.combinedTotal ?? (Number(h.current_on_hand_quantity) || 0);
+      const hrOnHand = avail?.hrOnHand ?? (warehousePurpose === "HR" ? (Number(h.current_on_hand_quantity) || 0) : 0);
+      const generalOnHand = avail?.generalOnHand ?? (warehousePurpose === "GENERAL" ? (Number(h.current_on_hand_quantity) || 0) : 0);
       const sourceNo = String(h.source_no ?? "—");
       const occurredOn = String(h.occurred_on ?? "").slice(0, 10);
       const postedAt = String(h.posted_at ?? occurredOn);
@@ -111,7 +115,8 @@ export function aggregateStockMovements(
         unit,
         hrDelta: 0,
         generalDelta: 0,
-        currentCombinedOnHand,
+        hrOnHand,
+        generalOnHand,
       };
       groupMap.set(groupKey, row);
     }
@@ -194,8 +199,10 @@ export function sortStockMovements(
         return (a.hrDelta - b.hrDelta) * factor;
       case "general_delta":
         return (a.generalDelta - b.generalDelta) * factor;
-      case "combined_total":
-        return (a.currentCombinedOnHand - b.currentCombinedOnHand) * factor;
+      case "hr_on_hand":
+        return (a.hrOnHand - b.hrOnHand) * factor;
+      case "general_on_hand":
+        return (a.generalOnHand - b.generalOnHand) * factor;
       default:
         return 0;
     }
