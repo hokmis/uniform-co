@@ -307,10 +307,14 @@ export function generatePivotXlsx(
   options: ExportExcelOptions = {},
 ): Uint8Array {
   const {
-    title = "平日制服領用統計表",
+    title = "平日制服領用表",
     dateRangeLabel = "",
     notice = "提交檔案日：每月22日中午12:00 mail提供已簽核紙本及電子檔給事務組",
   } = options;
+
+  const displayTitle = dateRangeLabel
+    ? (title.includes(dateRangeLabel) ? title : `${title} ( ${dateRangeLabel} )`)
+    : title;
 
   const { institutions, rows } = pivotData;
   const instCount = institutions.length;
@@ -364,12 +368,11 @@ export function generatePivotXlsx(
   // XML 建立
   const xmlRows: string[] = [];
 
-  // Row 1: 大標題列與區間
-  // A1: 標題, E1: 發放區間, I1: 繳交日期提示
+  // Row 1: 大標題列與區間提示
+  // A1: 標題與發放區間 (例如：平日制服領用表 ( 2026-09-21 ～ 2026-10-20 )), H1: 繳交日期提示
   xmlRows.push(`  <row r="1" ht="26" customHeight="1">
-    <c r="A1" t="inlineStr" s="1"><is><t>${escapeXml(title)}</t></is></c>
-    <c r="E1" t="inlineStr" s="2"><is><t>${escapeXml(dateRangeLabel ? `發放區間：${dateRangeLabel}` : "")}</t></is></c>
-    <c r="I1" t="inlineStr" s="2"><is><t>${escapeXml(notice)}</t></is></c>
+    <c r="A1" t="inlineStr" s="1"><is><t>${escapeXml(displayTitle)}</t></is></c>
+    <c r="H1" t="inlineStr" s="2"><is><t>${escapeXml(notice)}</t></is></c>
   </row>`);
 
   // Row 2: 表頭層 1 (分店大標題 / 統計標題)
@@ -545,9 +548,8 @@ export function generatePivotXlsx(
 
   // 合併儲存格
   const mergeCells: string[] = [
-    `A1:D1`,
-    `E1:H1`,
-    `I1:${getExcelColumnName(totalCols)}1`,
+    `A1:G1`,
+    `H1:${getExcelColumnName(totalCols)}1`,
     `${firstInstColName}2:${lastInstColName}2`,
   ];
   if (rows.length > 0) {
@@ -627,7 +629,7 @@ ${mergeCellsXml}
   const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>
-    <sheet name="制服領用統計表" sheetId="1" r:id="rId1"/>
+    <sheet name="平日制服領用表" sheetId="1" r:id="rId1"/>
   </sheets>
 </workbook>`;
 

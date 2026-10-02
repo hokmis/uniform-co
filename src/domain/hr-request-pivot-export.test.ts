@@ -89,7 +89,7 @@ describe("hr-request-pivot-export", () => {
     ];
     const pivotData = buildPivotTableData(lines);
     const xlsxBytes = generatePivotXlsx(pivotData, {
-      title: "平日制服領用統計表",
+      title: "平日制服領用表",
       dateRangeLabel: "2026-01-21 ～ 2026-02-20",
     });
 
@@ -103,8 +103,12 @@ describe("hr-request-pivot-export", () => {
     expect(unzipped["xl/worksheets/sheet1.xml"]).toBeDefined();
 
     const sheetContent = new TextDecoder().decode(unzipped["xl/worksheets/sheet1.xml"]);
-    expect(sheetContent).toContain("平日制服領用統計表");
-    expect(sheetContent).toContain("2026-01-21 ～ 2026-02-20");
+    // 驗證第一列標題格式：平日制服領用表 ( 2026-01-21 ～ 2026-02-20 )
+    expect(sheetContent).toContain("平日制服領用表 ( 2026-01-21 ～ 2026-02-20 )");
+    expect(sheetContent).toContain('<c r="A1" t="inlineStr" s="1">');
+    expect(sheetContent).toContain('<c r="H1" t="inlineStr" s="2">');
+    expect(sheetContent).not.toContain('<c r="E1"');
+    expect(sheetContent).toContain('<mergeCell ref="A1:G1"/>');
     expect(sheetContent).toContain("UNT0102");
     expect(sheetContent).toContain("精緻夏季");
     expect(sheetContent).toContain("SUM(");

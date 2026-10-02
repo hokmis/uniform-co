@@ -193,10 +193,12 @@ export default function HrRequestHistoryPanel() {
     }
 
     const pivotData = buildPivotTableData(rawLines, stockMap);
-    const titleKind = isReplenishment ? "額外補庫統計表" : "制服領用統計表";
+    const titleKind = isReplenishment ? "額外補庫表" : "平日制服領用表";
+    const selectedDate = selected.distributionDate || dateRangeLabel;
+    const itemTitle = selectedDate ? `${titleKind} ( ${selectedDate} )` : titleKind;
     const xlsxBytes = generatePivotXlsx(pivotData, {
-      title: `${selected.requestNo} ${titleKind}`,
-      dateRangeLabel: selected.distributionDate || dateRangeLabel,
+      title: itemTitle,
+      dateRangeLabel: selectedDate,
     });
 
     downloadPivotXlsx(xlsxBytes, `${selected.requestNo}-${titleKind}.xlsx`);
@@ -416,15 +418,17 @@ export default function HrRequestHistoryPanel() {
       }
 
       const pivotData = buildPivotTableData(rawLines, stockMap);
-      const rangeTitle = dateRangeLabel ? `平日制服領用與增庫統計表（${dateRangeLabel}）` : "平日制服領用與增庫統計表";
+      const rangeLabel = dateRangeLabel || (startDate && endDate ? `${startDate} ～ ${endDate}` : "");
+      const baseTitle = "平日制服領用表";
+      const rangeTitle = rangeLabel ? `${baseTitle} ( ${rangeLabel} )` : baseTitle;
       const xlsxBytes = generatePivotXlsx(pivotData, {
         title: rangeTitle,
-        dateRangeLabel: dateRangeLabel || `${startDate || "全部"} ～ ${endDate || "全部"}`,
+        dateRangeLabel: rangeLabel,
       });
 
       const fileDateStr = `${startDate || "all"}_${endDate || "all"}`;
-      downloadPivotXlsx(xlsxBytes, `平日制服領用與增庫統計表-${fileDateStr}.xlsx`);
-      setMessage(`已成功匯出 ${hrRows.length} 張需求單與 ${repRows.length} 張補庫單之彙總領用與增庫統計表 (Excel)`);
+      downloadPivotXlsx(xlsxBytes, `平日制服領用表-${fileDateStr}.xlsx`);
+      setMessage(`已成功匯出 ${hrRows.length} 張需求單與 ${repRows.length} 張補庫單之平日制服領用表 (Excel)`);
     } catch (err) {
       setMessage(`匯出發生例外錯誤：${err instanceof Error ? err.message : String(err)}`);
     } finally {
