@@ -74,7 +74,6 @@ export function summarizeHrRequest(
 ): HrRequestSummary {
   const items = new Map<string, UniformItemSnapshot>();
   const issueByItem = new Map<string, number>();
-  const seenEmployeeItems = new Set<string>();
 
   for (const line of issueLines) {
     assertRequired("employee_no", line.employee.employeeNo);
@@ -87,11 +86,6 @@ export function summarizeHrRequest(
       throw new HrRequestValidationError("issue_quantity must be greater than zero");
     }
 
-    const employeeItemKey = `${line.employee.employeeId}:${line.item.itemId}`;
-    if (seenEmployeeItems.has(employeeItemKey)) {
-      throw new HrRequestValidationError("同一員工與品號只能有一筆發放明細");
-    }
-    seenEmployeeItems.add(employeeItemKey);
     items.set(line.item.itemId, line.item);
     issueByItem.set(
       line.item.itemId,

@@ -64,9 +64,11 @@ describe("HR request line aggregation", () => {
     );
   });
 
-  it("does not allow duplicate employee and item lines", () => {
-    expect(() => summarizeHrRequest([line(2), line(3, "line-2")], [])).toThrow(
-      HrRequestValidationError,
-    );
+  it("allows duplicate employee and item lines and aggregates their quantities", () => {
+    const result = summarizeHrRequest([line(2), line(3, "line-2")], []);
+    expect(result.summaries[0]).toMatchObject({
+      issueQuantity: 5,
+      requestedTransferQuantity: 5,
+    });
   });
 });
