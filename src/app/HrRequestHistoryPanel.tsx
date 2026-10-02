@@ -154,8 +154,9 @@ export default function HrRequestHistoryPanel() {
 
   function handleExportSelected() {
     if (!selected) return;
-    if (issueLines.length === 0) {
-      setMessage("目前選取的需求單沒有發放明細可供匯出。");
+    const isReplenishment = selected.requestType === "REPLENISHMENT";
+    if (issueLines.length === 0 && items.length === 0) {
+      setMessage("目前選取的單據沒有明細可供匯出。");
       return;
     }
     const rawLines: RawIssueLineInput[] = issueLines.map((line) => {
@@ -180,22 +181,26 @@ export default function HrRequestHistoryPanel() {
 
     const stockMap = new Map<string, ItemStockInfo>();
     for (const item of items) {
-      if (item.item_code_snapshot) {
-        stockMap.set(item.item_code_snapshot, {
-          itemCode: item.item_code_snapshot,
+      const itemCode = item.item_code_snapshot || item.item_id;
+      if (itemCode) {
+        stockMap.set(itemCode, {
+          itemCode,
+          itemName: item.item_name_snapshot || itemCode,
+          unit: item.unit_snapshot || "件",
           increaseQuantity: numberValue(item.increase_quantity),
         });
       }
     }
 
     const pivotData = buildPivotTableData(rawLines, stockMap);
+    const titleKind = isReplenishment ? "額外補庫統計表" : "制服領用統計表";
     const xlsxBytes = generatePivotXlsx(pivotData, {
-      title: `${selected.requestNo} 制服領用統計表`,
+      title: `${selected.requestNo} ${titleKind}`,
       dateRangeLabel: selected.distributionDate || dateRangeLabel,
     });
 
-    downloadPivotXlsx(xlsxBytes, `${selected.requestNo}-領用統計表.xlsx`);
-    setMessage(`已成功匯出需求單 ${selected.requestNo} 的制服領用統計表 (Excel)`);
+    downloadPivotXlsx(xlsxBytes, `${selected.requestNo}-${titleKind}.xlsx`);
+    setMessage(`已成功匯出單據 ${selected.requestNo} 的${titleKind} (Excel)`);
   }
 
   async function handleExportRange() {
@@ -205,176 +210,221 @@ export default function HrRequestHistoryPanel() {
     }
     const targetRows = sortedRows.filter((r) => r.status !== "CANCELLED");
     if (targetRows.length === 0) {
-      setMessage("目前篩選條件下沒有有效（非取消）的需求單可供匯出。");
+      setMessage("目前篩選條件下沒有有效（非取消）的需求單或補庫單可供匯出。");
       return;
     }
     setRangeExporting(true);
-    setMessage(`正在讀取 ${targetRows.length} 張需求單之明細資料以產生彙總表…`);
+    const hrRows = targetRows.filter((r) => r.requestType !== "REPLENISHMENT");
+    const repRows = targetRows.filter((r) => r.requestType === "REPLENISHMENT");
+    setMessage(`正在讀取 ${hrRows.length} 張需求單與 ${repRows.length} 張補庫單之明細資料以產生彙總表…`);
 
     try {
-      const targetIds = targetRows.map((r) => r.id);
-      const [detailResult] = await retrySupabaseQueriesAfterSessionRefresh(
-        client,
-        async () => [
-          await client
-            .from("v_hr_request_history_detail")
-            .select("request_id,detail_kind,detail_id,item_id,item_code_snapshot,item_name_snapshot,unit_snapshot,issue_quantity,increase_quantity,requested_transfer_quantity,line_no,employee_no_snapshot,employee_name_snapshot,institution_code_snapshot,department_code_snapshot,size_snapshot,quantity,reservation_status,closed_at")
-            .in("request_id", targetIds)
-            .order("request_id")
-            .order("detail_kind")
-            .order("line_no"),
-        ] as const,
-      );
-
-      let detailData = detailResult.data;
-      let detailError = detailResult.error;
-
-      if (detailError || !detailData || detailData.length === 0) {
-        const [linesRes, itemsRes] = await retrySupabaseQueriesAfterSessionRefresh(
-          client,
-          () => Promise.all([
-            client.from("hr_issue_lines").select("*").in("request_id", targetIds).order("line_no"),
-            client.from("hr_request_items").select("*").in("request_id", targetIds),
-          ]),
-        );
-
-        if (!linesRes.error && linesRes.data) {
-          const fallbackLines = (linesRes.data as Array<Record<string, unknown>>).map((row) => ({
-            request_id: String(row.request_id ?? ""),
-            detail_kind: "ISSUE" as const,
-            line_no: Number(row.line_no) || 0,
-            item_code_snapshot: (row.item_code_snapshot as string) || null,
-            item_name_snapshot: (row.item_name_snapshot as string) || null,
-            size_snapshot: (row.size_snapshot as string) || null,
-            unit_snapshot: (row.unit_snapshot as string) || null,
-            quantity: Number(row.quantity) || 0,
-            increase_quantity: null,
-            institution_code_snapshot: (row.institution_code_snapshot as string) || null,
-            department_code_snapshot: (row.department_code_snapshot as string) || null,
-            institution_name_snapshot: (row.institution_name_snapshot as string) || null,
-            department_name_snapshot: (row.department_name_snapshot as string) || null,
-          }));
-
-          const fallbackItems = ((itemsRes.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
-            request_id: String(row.request_id ?? ""),
-            detail_kind: "ITEM" as const,
-            line_no: null,
-            item_code_snapshot: (row.item_code_snapshot as string) || null,
-            item_name_snapshot: (row.item_name_snapshot as string) || null,
-            size_snapshot: null,
-            unit_snapshot: (row.unit_snapshot as string) || null,
-            quantity: null,
-            increase_quantity: Number(row.increase_quantity) || 0,
-            institution_code_snapshot: null,
-            department_code_snapshot: null,
-            institution_name_snapshot: null,
-            department_name_snapshot: null,
-          }));
-
-          detailData = [...fallbackLines, ...fallbackItems] as unknown as typeof detailResult.data;
-          detailError = null;
-        }
-      }
-
-      if (detailError && (!detailData || detailData.length === 0)) {
-        setMessage(`區間明細讀取失敗：${safeSupabaseReadErrorMessage(detailError)}`);
-        setRangeExporting(false);
-        return;
-      }
-
-      type DetailRow = {
-        request_id: string;
-        detail_kind: "ITEM" | "ISSUE" | "RESERVATION";
-        line_no: number | null;
-        item_code_snapshot: string | null;
-        item_name_snapshot: string | null;
-        size_snapshot: string | null;
-        unit_snapshot: string | null;
-        quantity: number | null;
-        increase_quantity: number | null;
-        institution_code_snapshot: string | null;
-        department_code_snapshot: string | null;
-        institution_name_snapshot?: string | null;
-        department_name_snapshot?: string | null;
-      };
-
-      const details = (detailData ?? []) as DetailRow[];
-
-      const unitMapByRequestId = new Map<string, Record<string, string>>();
-      for (const req of targetRows) {
-        let map: Record<string, string> = {};
-        if (req.note) {
-          const match = req.note.match(/<!--unit_map:(.*?)-->/);
-          if (match) {
-            try {
-              map = JSON.parse(match[1]);
-            } catch {}
-          }
-        }
-        if (Object.keys(map).length === 0 && typeof window !== "undefined") {
-          try {
-            const cached = localStorage.getItem(`hr_request_units_${req.id}`)
-              || localStorage.getItem(`hr_request_units_${req.requestNo}`);
-            if (cached) map = JSON.parse(cached);
-          } catch {}
-        }
-        unitMapByRequestId.set(req.id, map);
-      }
-
       const rawLines: RawIssueLineInput[] = [];
       const stockMap = new Map<string, ItemStockInfo>();
 
-      for (const d of details) {
-        if (d.detail_kind === "ISSUE") {
-          const reqUnitMap = unitMapByRequestId.get(d.request_id) || {};
-          const lineNo = numberValue(d.line_no);
-          const selectedCode = reqUnitMap[lineNo] || reqUnitMap[String(lineNo)];
-          const unitCode = selectedCode || d.department_code_snapshot || d.institution_code_snapshot || "";
-          const unitName = (selectedCode && orgMap.get(selectedCode))
-            || (unitCode === d.department_code_snapshot ? d.department_name_snapshot : null)
-            || (unitCode === d.institution_code_snapshot ? d.institution_name_snapshot : null)
-            || orgMap.get(unitCode)
-            || d.department_name_snapshot
-            || d.institution_name_snapshot
-            || unitCode;
+      // 1. 處理一般員工需求單 (HR_ISSUE)
+      if (hrRows.length > 0) {
+        const targetIds = hrRows.map((r) => r.id);
+        const [detailResult] = await retrySupabaseQueriesAfterSessionRefresh(
+          client,
+          async () => [
+            await client
+              .from("v_hr_request_history_detail")
+              .select("request_id,detail_kind,detail_id,item_id,item_code_snapshot,item_name_snapshot,unit_snapshot,issue_quantity,increase_quantity,requested_transfer_quantity,line_no,employee_no_snapshot,employee_name_snapshot,institution_code_snapshot,department_code_snapshot,size_snapshot,quantity,reservation_status,closed_at")
+              .in("request_id", targetIds)
+              .order("request_id")
+              .order("detail_kind")
+              .order("line_no"),
+          ] as const,
+        );
 
-          rawLines.push({
-            itemCode: d.item_code_snapshot || "",
-            itemName: d.item_name_snapshot || "",
-            size: d.size_snapshot || "",
-            unit: d.unit_snapshot || "件",
-            institutionCodeOrName: unitName || unitCode,
-            quantity: numberValue(d.quantity),
-          });
-        } else if (d.detail_kind === "ITEM") {
-          const itemCode = d.item_code_snapshot;
-          if (itemCode) {
-            const existing = stockMap.get(itemCode);
-            const inc = numberValue(d.increase_quantity);
-            stockMap.set(itemCode, {
-              itemCode,
-              increaseQuantity: (existing?.increaseQuantity || 0) + inc,
-            });
+        let detailData = detailResult.data;
+        let detailError = detailResult.error;
+
+        if (detailError || !detailData || detailData.length === 0) {
+          const [linesRes, itemsRes] = await retrySupabaseQueriesAfterSessionRefresh(
+            client,
+            () => Promise.all([
+              client.from("hr_issue_lines").select("*").in("request_id", targetIds).order("line_no"),
+              client.from("hr_request_items").select("*").in("request_id", targetIds),
+            ]),
+          );
+
+          if (!linesRes.error && linesRes.data) {
+            const fallbackLines = (linesRes.data as Array<Record<string, unknown>>).map((row) => ({
+              request_id: String(row.request_id ?? ""),
+              detail_kind: "ISSUE" as const,
+              line_no: Number(row.line_no) || 0,
+              item_code_snapshot: (row.item_code_snapshot as string) || null,
+              item_name_snapshot: (row.item_name_snapshot as string) || null,
+              size_snapshot: (row.size_snapshot as string) || null,
+              unit_snapshot: (row.unit_snapshot as string) || null,
+              quantity: Number(row.quantity) || 0,
+              increase_quantity: null,
+              institution_code_snapshot: (row.institution_code_snapshot as string) || null,
+              department_code_snapshot: (row.department_code_snapshot as string) || null,
+              institution_name_snapshot: (row.institution_name_snapshot as string) || null,
+              department_name_snapshot: (row.department_name_snapshot as string) || null,
+            }));
+
+            const fallbackItems = ((itemsRes.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+              request_id: String(row.request_id ?? ""),
+              detail_kind: "ITEM" as const,
+              line_no: null,
+              item_code_snapshot: (row.item_code_snapshot as string) || null,
+              item_name_snapshot: (row.item_name_snapshot as string) || null,
+              size_snapshot: null,
+              unit_snapshot: (row.unit_snapshot as string) || null,
+              quantity: null,
+              increase_quantity: Number(row.increase_quantity) || 0,
+              institution_code_snapshot: null,
+              department_code_snapshot: null,
+              institution_name_snapshot: null,
+              department_name_snapshot: null,
+            }));
+
+            detailData = [...fallbackLines, ...fallbackItems] as unknown as typeof detailResult.data;
+            detailError = null;
+          }
+        }
+
+        if (detailData && detailData.length > 0) {
+          type DetailRow = {
+            request_id: string;
+            detail_kind: "ITEM" | "ISSUE" | "RESERVATION";
+            line_no: number | null;
+            item_code_snapshot: string | null;
+            item_name_snapshot: string | null;
+            size_snapshot: string | null;
+            unit_snapshot: string | null;
+            quantity: number | null;
+            increase_quantity: number | null;
+            institution_code_snapshot: string | null;
+            department_code_snapshot: string | null;
+            institution_name_snapshot?: string | null;
+            department_name_snapshot?: string | null;
+          };
+
+          const details = detailData as DetailRow[];
+          const unitMapByRequestId = new Map<string, Record<string, string>>();
+          for (const req of hrRows) {
+            let map: Record<string, string> = {};
+            if (req.note) {
+              const match = req.note.match(/<!--unit_map:(.*?)-->/);
+              if (match) {
+                try {
+                  map = JSON.parse(match[1]);
+                } catch {}
+              }
+            }
+            if (Object.keys(map).length === 0 && typeof window !== "undefined") {
+              try {
+                const cached = localStorage.getItem(`hr_request_units_${req.id}`)
+                  || localStorage.getItem(`hr_request_units_${req.requestNo}`);
+                if (cached) map = JSON.parse(cached);
+              } catch {}
+            }
+            unitMapByRequestId.set(req.id, map);
+          }
+
+          for (const d of details) {
+            if (d.detail_kind === "ISSUE") {
+              const reqUnitMap = unitMapByRequestId.get(d.request_id) || {};
+              const lineNo = numberValue(d.line_no);
+              const selectedCode = reqUnitMap[lineNo] || reqUnitMap[String(lineNo)];
+              const unitCode = selectedCode || d.department_code_snapshot || d.institution_code_snapshot || "";
+              const unitName = (selectedCode && orgMap.get(selectedCode))
+                || (unitCode === d.department_code_snapshot ? d.department_name_snapshot : null)
+                || (unitCode === d.institution_code_snapshot ? d.institution_name_snapshot : null)
+                || orgMap.get(unitCode)
+                || d.department_name_snapshot
+                || d.institution_name_snapshot
+                || unitCode;
+
+              rawLines.push({
+                itemCode: d.item_code_snapshot || "",
+                itemName: d.item_name_snapshot || "",
+                size: d.size_snapshot || "",
+                unit: d.unit_snapshot || "件",
+                institutionCodeOrName: unitName || unitCode,
+                quantity: numberValue(d.quantity),
+              });
+            } else if (d.detail_kind === "ITEM") {
+              const itemCode = d.item_code_snapshot;
+              if (itemCode) {
+                const existing = stockMap.get(itemCode);
+                const inc = numberValue(d.increase_quantity);
+                stockMap.set(itemCode, {
+                  itemCode,
+                  itemName: d.item_name_snapshot || existing?.itemName || itemCode,
+                  unit: d.unit_snapshot || existing?.unit || "件",
+                  increaseQuantity: (existing?.increaseQuantity || 0) + inc,
+                });
+              }
+            }
           }
         }
       }
 
-      if (rawLines.length === 0) {
-        setMessage("選取的區間需求單中沒有任何發放明細。");
+      // 2. 處理額外補庫單 (REPLENISHMENT)
+      if (repRows.length > 0) {
+        const repIds = repRows.map((r) => r.id);
+        const [repLinesRes, catalogRes] = await retrySupabaseQueriesAfterSessionRefresh(
+          client,
+          () => Promise.all([
+            client.from("replenishment_request_lines")
+              .select("id,request_id,item_id,requested_quantity,actual_transfer_quantity,item_code_snapshot,item_name_snapshot,unit_snapshot")
+              .in("request_id", repIds),
+            client.from("uniform_catalog_items")
+              .select("id,code,name,unit"),
+          ]),
+        );
+
+        if (!repLinesRes.error && repLinesRes.data) {
+          const itemMap = new Map<string, { code: string; name: string; unit: string }>();
+          for (const cat of (catalogRes?.data ?? []) as Array<{ id: string; code: string; name: string; unit: string }>) {
+            itemMap.set(cat.id, { code: cat.code, name: cat.name, unit: cat.unit });
+          }
+
+          for (const line of repLinesRes.data as Array<Record<string, unknown>>) {
+            const itemId = String(line.item_id);
+            const cat = itemMap.get(itemId);
+            const itemCode = (typeof line.item_code_snapshot === "string" && line.item_code_snapshot) || cat?.code || itemId;
+            const itemName = (typeof line.item_name_snapshot === "string" && line.item_name_snapshot) || cat?.name || "補庫品項";
+            const unit = (typeof line.unit_snapshot === "string" && line.unit_snapshot) || cat?.unit || "件";
+            const inc = numberValue(line.requested_quantity);
+
+            if (itemCode) {
+              const existing = stockMap.get(itemCode);
+              stockMap.set(itemCode, {
+                itemCode,
+                itemName: existing?.itemName || itemName,
+                unit: existing?.unit || unit,
+                increaseQuantity: (existing?.increaseQuantity || 0) + inc,
+              });
+            }
+          }
+        }
+      }
+
+      const hasAnyLines = rawLines.length > 0;
+      const hasAnyStock = Array.from(stockMap.values()).some((s) => (s.increaseQuantity || 0) > 0);
+      if (!hasAnyLines && !hasAnyStock) {
+        setMessage("選取的區間需求單與補庫單中沒有任何發放明細或增庫紀錄。");
         setRangeExporting(false);
         return;
       }
 
       const pivotData = buildPivotTableData(rawLines, stockMap);
-      const rangeTitle = dateRangeLabel ? `平日制服領用統計表（${dateRangeLabel}）` : "平日制服領用統計表";
+      const rangeTitle = dateRangeLabel ? `平日制服領用與增庫統計表（${dateRangeLabel}）` : "平日制服領用與增庫統計表";
       const xlsxBytes = generatePivotXlsx(pivotData, {
         title: rangeTitle,
         dateRangeLabel: dateRangeLabel || `${startDate || "全部"} ～ ${endDate || "全部"}`,
       });
 
       const fileDateStr = `${startDate || "all"}_${endDate || "all"}`;
-      downloadPivotXlsx(xlsxBytes, `平日制服領用統計表-${fileDateStr}.xlsx`);
-      setMessage(`已成功匯出 ${targetRows.length} 張需求單之彙總領用統計表 (Excel)`);
+      downloadPivotXlsx(xlsxBytes, `平日制服領用與增庫統計表-${fileDateStr}.xlsx`);
+      setMessage(`已成功匯出 ${hrRows.length} 張需求單與 ${repRows.length} 張補庫單之彙總領用與增庫統計表 (Excel)`);
     } catch (err) {
       setMessage(`匯出發生例外錯誤：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -851,17 +901,15 @@ export default function HrRequestHistoryPanel() {
           </h3>
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          {selected.requestType !== "REPLENISHMENT" ? (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={handleExportSelected}
-              disabled={detailLoading || issueLines.length === 0}
-              title="將此張需求單明細匯出為二維交叉領用統計表 (Excel)"
-            >
-              匯出此單領用總表 (Excel)
-            </button>
-          ) : null}
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={handleExportSelected}
+            disabled={detailLoading || (issueLines.length === 0 && items.length === 0)}
+            title="將此單明細匯出為二維交叉統計表 (Excel)"
+          >
+            {selected.requestType === "REPLENISHMENT" ? "匯出此單補庫總表 (Excel)" : "匯出此單領用總表 (Excel)"}
+          </button>
           <span className={`status-pill ${selected.status === "SHIPPED" ? "success" : selected.status === "CANCELLED" ? "danger" : ""}`}>{hrRequestStatusLabel(selected.status)}</span>
         </div>
       </div>

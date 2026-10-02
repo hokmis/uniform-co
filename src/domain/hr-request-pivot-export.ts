@@ -36,15 +36,14 @@ export const INSTITUTION_CODE_MAP: Record<string, { shortName: OrderedInstitutio
   "D3": { shortName: "景", code: "D3" },
   "3D": { shortName: "景", code: "D3" },
   // E 棟 / 其他機構
-  "I3": { shortName: "山", code: "I3" },
-  "8E": { shortName: "山", code: "I3" },
-  "E8": { shortName: "泉", code: "E8" },
-  "7E": { shortName: "泉", code: "E8" },
-  "E7": { shortName: "水", code: "E7" },
-  "6E": { shortName: "水", code: "E7" },
-  "E6": { shortName: "清", code: "E6" },
-  "5E": { shortName: "清", code: "E6" },
-  "E5": { shortName: "清", code: "E6" },
+  "E8": { shortName: "山", code: "E8" },
+  "8E": { shortName: "山", code: "E8" },
+  "E7": { shortName: "泉", code: "E7" },
+  "7E": { shortName: "泉", code: "E7" },
+  "E6": { shortName: "水", code: "E6" },
+  "6E": { shortName: "水", code: "E6" },
+  "E5": { shortName: "清", code: "E5" },
+  "5E": { shortName: "清", code: "E5" },
   "E3": { shortName: "涼", code: "E3" },
   "3E": { shortName: "涼", code: "E3" },
   "CD2": { shortName: "護家", code: "CD2" },
@@ -52,10 +51,9 @@ export const INSTITUTION_CODE_MAP: Record<string, { shortName: OrderedInstitutio
   // 法人／會館／園區
   "47091980": { shortName: "含笑", code: "47091980" },
   "L1": { shortName: "法人", code: "L1" },
-  "L8": { shortName: "一館", code: "L8" },
+  "L67": { shortName: "一館", code: "L67" },
   "L5": { shortName: "二館", code: "L5" },
-  "L3": { shortName: "三館", code: "L3" },
-  "L2B": { shortName: "三館", code: "L2B" },
+  "L2B3": { shortName: "三館", code: "L23" },
   "B2": { shortName: "幼", code: "B2" },
 };
 
@@ -76,9 +74,9 @@ export function resolveInstitutionInfo(rawCodeOrName: string | null | undefined)
   if (trimmed.includes("護家") || trimmed.includes("清護") || trimmed.includes("2CD")) return { shortName: "護家", code: "CD2" };
   if (trimmed.includes("含笑") || trimmed.includes("47091980")) return { shortName: "含笑", code: "47091980" };
   if (trimmed.includes("幼兒園") || trimmed.includes("幼") || trimmed.includes("B2")) return { shortName: "幼", code: "B2" };
-  if (trimmed.includes("一館") || trimmed.includes("L8")) return { shortName: "一館", code: "L8" };
+  if (trimmed.includes("一館") || trimmed.includes("L67")) return { shortName: "一館", code: "L67" };
   if (trimmed.includes("二館") || trimmed.includes("L5")) return { shortName: "二館", code: "L5" };
-  if (trimmed.includes("三館") || trimmed.includes("L3") || trimmed.includes("L2B")) return { shortName: "三館", code: "L3" };
+  if (trimmed.includes("三館") || trimmed.includes("L23")) return { shortName: "三館", code: "L23" };
   if (trimmed.includes("法人") || trimmed.includes("L1")) return { shortName: "法人", code: "L1" };
 
   // 3. 由 22 個簡稱之一命中（例如「8C清福」包含「福」）
@@ -173,7 +171,7 @@ export function buildPivotTableData(
         onHand: stock?.onHand ?? 0,
         quantitiesByInstitution: {},
         totalIssued: 0,
-        increaseQuantity: stock?.increaseQuantity ?? 0,
+        increaseQuantity: 0,
       };
       groups.set(key, group);
     } else if (!group.itemName && itemName) {
@@ -191,6 +189,51 @@ export function buildPivotTableData(
     if (codeCmp !== 0) return codeCmp;
     return a.size.localeCompare(b.size, "zh-TW");
   });
+
+  // 分配 stockMap 的庫增量 (increaseQuantity)
+  const assignedItemCodes = new Set<string>();
+
+  if (stockMap) {
+    // 1. 若該品號已有請領發放列，將該品號增庫量賦予給排序後的第一個規格列（避免多尺碼重複加總）
+    for (const row of rows) {
+      if (!assignedItemCodes.has(row.itemCode)) {
+        const stock = stockMap.get(row.itemCode);
+        if (stock) {
+          row.increaseQuantity = Number(stock.increaseQuantity) || 0;
+          if (stock.onHand != null) row.onHand = Number(stock.onHand) || 0;
+          assignedItemCodes.add(row.itemCode);
+        }
+      }
+    }
+
+    // 2. 對於當期只有「額外補庫」或「隨單增庫」，而無任何分店請領發放的品項，建立獨立列
+    for (const [itemCode, stock] of stockMap.entries()) {
+      if (!assignedItemCodes.has(itemCode)) {
+        const inc = Number(stock.increaseQuantity) || 0;
+        const onHand = Number(stock.onHand) || 0;
+        if (inc > 0 || onHand > 0) {
+          rows.push({
+            itemCode,
+            itemName: stock.itemName || itemCode,
+            size: stock.size || "",
+            unit: stock.unit || "件",
+            onHand,
+            quantitiesByInstitution: {},
+            totalIssued: 0,
+            increaseQuantity: inc,
+          });
+          assignedItemCodes.add(itemCode);
+        }
+      }
+    }
+
+    // 重新排序（包含補庫品項）
+    rows.sort((a, b) => {
+      const codeCmp = a.itemCode.localeCompare(b.itemCode, "zh-TW");
+      if (codeCmp !== 0) return codeCmp;
+      return a.size.localeCompare(b.size, "zh-TW");
+    });
+  }
 
   // 計算每個分店的垂直總計
   const totalByInstitution: Record<string, number> = {};
@@ -259,7 +302,7 @@ export function generatePivotXlsx(
   const {
     title = "平日制服領用統計表",
     dateRangeLabel = "",
-    notice = "繳交檔案日：每月22日中午12:00前繳交其已簽核紙本及電子檔給管理處",
+    notice = "提交檔案日：每月22日中午12:00 mail提供已簽核紙本及電子檔給事務組",
   } = options;
 
   const { institutions, rows } = pivotData;
@@ -271,21 +314,21 @@ export function generatePivotXlsx(
   // 2: 品號 (B)
   // 3: 品名 (C)
   // 4: 規格 (D)
-  // 5: 總存量 (E)
+  // 5: 期初量 (E)
   const leftColCount = 5;
   const firstInstCol = leftColCount + 1; // 6 (F)
   const lastInstCol = leftColCount + instCount; // e.g. 5 + 22 = 27 (AA)
 
   // 右側統計欄：
   // lastInstCol + 1: 請領合計 (B)
-  // lastInstCol + 2: 月結存 (C=A-B)
-  // lastInstCol + 3: 事故賠償退賠扣庫存量 (D)
-  // lastInstCol + 4: 推估庫存 (E)
+  // lastInstCol + 2: 月結量 (C=A-B)
+  // lastInstCol + 3: 事務組偶數月抽盤量 (D)
+  // lastInstCol + 4: 抽盤差異 (E)
   // lastInstCol + 5: 備註
-  // lastInstCol + 6: 增補量 (F)
+  // lastInstCol + 6: 庫增量 (F)
   // lastInstCol + 7: 本次發放量 (G=D+F)
-  // lastInstCol + 8: 變更領退量 (H)
-  // lastInstCol + 9: 總發放量 (下期請領數) (I)
+  // lastInstCol + 8: 冬夏領退量 (H)
+  // lastInstCol + 9: 期末量(下期期初) (I)
   const totalCols = lastInstCol + 9;
 
   const sumColIndex = lastInstCol + 1;
@@ -324,17 +367,17 @@ export function generatePivotXlsx(
 
   // Row 2: 表頭層 1 (分店大標題 / 統計標題)
   // A2~E2 為空白或合併，F2~lastInstCol 為「請領總數量 (當月各店請領並扣庫存數量)」
-  const instGroupHeader = `<c r="${firstInstColName}2" t="inlineStr" s="3"><is><t>請領總數量 (當月各店請領並扣庫存數量)</t></is></c>`;
+  const instGroupHeader = `<c r="${firstInstColName}2" t="inlineStr" s="3"><is><t>請領數量表(當月各品號領退淨額數量)【依員工編列所屬機構與公司】</t></is></c>`;
   const rightGroupHeader = `
     <c r="${sumColName}2" t="inlineStr" s="3"><is><t>請領合計</t></is></c>
-    <c r="${balanceColName}2" t="inlineStr" s="3"><is><t>月結存</t></is></c>
-    <c r="${damageColName}2" t="inlineStr" s="3"><is><t>事故賠償退賠扣庫存量</t></is></c>
-    <c r="${estimateColName}2" t="inlineStr" s="3"><is><t>推估庫存</t></is></c>
-    <c r="${remarkColName}2" t="inlineStr" s="3"><is><t>備註庫存量</t></is></c>
-    <c r="${replenishmentColName}2" t="inlineStr" s="3"><is><t>增補量</t></is></c>
+    <c r="${balanceColName}2" t="inlineStr" s="3"><is><t>月結量</t></is></c>
+    <c r="${damageColName}2" t="inlineStr" s="3"><is><t>事務組偶數月抽盤量</t></is></c>
+    <c r="${estimateColName}2" t="inlineStr" s="3"><is><t>抽盤差異</t></is></c>
+    <c r="${remarkColName}2" t="inlineStr" s="3"><is><t>備註</t></is></c>
+    <c r="${replenishmentColName}2" t="inlineStr" s="3"><is><t>庫增量</t></is></c>
     <c r="${issueColName}2" t="inlineStr" s="3"><is><t>本次發放量</t></is></c>
-    <c r="${returnColName}2" t="inlineStr" s="3"><is><t>變更領退量</t></is></c>
-    <c r="${finalColName}2" t="inlineStr" s="3"><is><t>總發放量(下期請領數)</t></is></c>
+    <c r="${returnColName}2" t="inlineStr" s="3"><is><t>冬夏領退量</t></is></c>
+    <c r="${finalColName}2" t="inlineStr" s="3"><is><t>期末量(下期期初)</t></is></c>
   `;
 
   xmlRows.push(`  <row r="2" ht="22" customHeight="1">
@@ -342,7 +385,7 @@ export function generatePivotXlsx(
     <c r="B2" t="inlineStr" s="3"><is><t>品號</t></is></c>
     <c r="C2" t="inlineStr" s="3"><is><t>品名</t></is></c>
     <c r="D2" t="inlineStr" s="3"><is><t>規格</t></is></c>
-    <c r="E2" t="inlineStr" s="3"><is><t>總存量</t></is></c>
+    <c r="E2" t="inlineStr" s="3"><is><t>期初量</t></is></c>
     ${instGroupHeader}
     ${rightGroupHeader}
   </row>`);
@@ -451,6 +494,10 @@ export function generatePivotXlsx(
     }).join("");
 
     const grandFormula = `SUM(${sumColName}${startDataRow}:${sumColName}${totalRowIndex - 1})`;
+    const totalIncrease = rows.reduce((sum, r) => sum + (Number(r.increaseQuantity) || 0), 0);
+    const replenishmentSumFormula = `SUM(${replenishmentColName}${startDataRow}:${replenishmentColName}${totalRowIndex - 1})`;
+    const issueSumFormula = `SUM(${issueColName}${startDataRow}:${issueColName}${totalRowIndex - 1})`;
+
     xmlRows.push(`  <row r="${totalRowIndex}" ht="22" customHeight="1">
     <c r="A${totalRowIndex}" t="inlineStr" s="8"><is><t>合計</t></is></c>
     <c r="B${totalRowIndex}" s="8"/>
@@ -463,8 +510,8 @@ export function generatePivotXlsx(
     <c r="${damageColName}${totalRowIndex}" s="8"/>
     <c r="${estimateColName}${totalRowIndex}" s="8"/>
     <c r="${remarkColName}${totalRowIndex}" s="8"/>
-    <c r="${replenishmentColName}${totalRowIndex}" s="8"/>
-    <c r="${issueColName}${totalRowIndex}" s="8"/>
+    <c r="${replenishmentColName}${totalRowIndex}" s="8"><f>${replenishmentSumFormula}</f><v>${totalIncrease}</v></c>
+    <c r="${issueColName}${totalRowIndex}" s="8"><f>${issueSumFormula}</f><v>${totalIncrease}</v></c>
     <c r="${returnColName}${totalRowIndex}" s="8"/>
     <c r="${finalColName}${totalRowIndex}" s="8"/>
   </row>`);

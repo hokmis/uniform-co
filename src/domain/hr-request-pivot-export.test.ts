@@ -109,4 +109,55 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toContain("精緻夏季");
     expect(sheetContent).toContain("SUM(");
   });
+
+  it("includes replenishment and request increase quantities in the replenishment column (F)", () => {
+    // 情境：
+    // 1. UNT0102 有請領發放（3件），且有隨單增庫（15件）
+    // 2. REP9999 只有額外補庫申請（20件），當期無人請領發放
+    const lines: RawIssueLineInput[] = [
+      { itemCode: "UNT0102", itemName: "短袖上衣", size: "L", institutionCodeOrName: "8C清福", quantity: 3 },
+    ];
+
+    const stockMap = new Map([
+      ["UNT0102", { itemCode: "UNT0102", itemName: "短袖上衣", onHand: 10, increaseQuantity: 15 }],
+      ["REP9999", { itemCode: "REP9999", itemName: "額外補庫長褲", unit: "件", onHand: 0, increaseQuantity: 20 }],
+    ]);
+
+    const pivotData = buildPivotTableData(lines, stockMap);
+
+    // 應該要有 2 列（UNT0102 與純補庫的 REP9999）
+    expect(pivotData.rows.length).toBe(2);
+
+    const untRow = pivotData.rows.find((r) => r.itemCode === "UNT0102")!;
+    expect(untRow).toBeDefined();
+    expect(untRow.totalIssued).toBe(3);
+    expect(untRow.increaseQuantity).toBe(15);
+
+    const repRow = pivotData.rows.find((r) => r.itemCode === "REP9999")!;
+    expect(repRow).toBeDefined();
+    expect(repRow.itemName).toBe("額外補庫長褲");
+    expect(repRow.totalIssued).toBe(0);
+    expect(repRow.increaseQuantity).toBe(20);
+
+    // 產生 Excel 並解開檢查
+    const xlsxBytes = generatePivotXlsx(pivotData, {
+      title: "平日制服領用與增庫統計表",
+      dateRangeLabel: "2026-08-21 ～ 2026-09-20",
+    });
+
+    const unzipped = unzipSync(xlsxBytes);
+    const sheetContent = new TextDecoder().decode(unzipped["xl/worksheets/sheet1.xml"]);
+
+    // 檢查欄位表頭包含「庫增量」與「F」
+    expect(sheetContent).toContain("庫增量");
+    expect(sheetContent).toContain("<is><t>F</t></is>");
+
+    // 檢查品項與增庫量數值 15 與 20
+    expect(sheetContent).toContain("REP9999");
+    expect(sheetContent).toContain("額外補庫長褲");
+    expect(sheetContent).toContain("<v>15</v>");
+    expect(sheetContent).toContain("<v>20</v>");
+    // 檢查合計列含有 SUM 公式
+    expect(sheetContent).toContain("<v>35</v>"); // 15 + 20
+  });
 });
