@@ -113,7 +113,9 @@ export function summarizeHrRequest(
     if (!item) {
       throw new HrRequestValidationError(`item ${itemId} is required`);
     }
-    assertNonNegativeInteger("hr_on_hand", item.hrOnHand);
+    if (!Number.isInteger(item.hrOnHand)) {
+      throw new HrRequestValidationError("hr_on_hand must be an integer");
+    }
     assertNonNegativeInteger("general_on_hand", item.generalOnHand);
     assertNonNegativeInteger("active_reserved", item.activeReserved);
 
@@ -122,13 +124,19 @@ export function summarizeHrRequest(
     const combinedOnHand = item.hrOnHand + item.generalOnHand;
     const availableToRequest = combinedOnHand - item.activeReserved;
 
-    // 當有需求量時，優先扣除人資倉的量，不足才由總倉調撥（不要扣除總倉的量）
-    const hrDeduction = Math.min(issueQuantity, item.hrOnHand);
-    const transferFromGeneral = Math.max(0, issueQuantity - item.hrOnHand);
-    const requestedTransferQuantity = transferFromGeneral + increaseQuantity;
+    // 兩階段制服計算：
+    // • 階段一：員工領取（即時發生）
+    //   • 人事單位：申請領用 +X
+    //   • 人事倉庫：發貨扣庫 -X（此時人事倉庫少 X 件，總倉庫存暫時不變）
+    // • 階段二：月底總倉補貨（月底結算）
+    //   • 總倉：調撥出庫 -X
+    //   • 人事倉庫：調撥入庫 +X（此時人事倉庫補回 X 件，總倉實際減少 X 件）
+    const hrDeduction = issueQuantity;
+    const transferFromGeneral = 0;
+    const requestedTransferQuantity = increaseQuantity;
     const totalDemand = issueQuantity + increaseQuantity;
 
-    if (item.activeReserved > combinedOnHand) {
+    if (item.activeReserved > combinedOnHand && combinedOnHand >= 0) {
       throw new HrRequestValidationError(`品號 ${item.itemCode} 的預留量超過兩倉合計`);
     }
     if (totalDemand > availableToRequest) {

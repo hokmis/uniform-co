@@ -823,7 +823,7 @@ export default function HrRequestWorkbench() {
             <div className="metric-grid">
               <Metric label="發放總量" value={result.summary?.totalIssueQuantity ?? 0} />
               <Metric label="增庫總量" value={result.summary?.totalIncreaseQuantity ?? 0} />
-              <Metric label="人資倉優先扣除" value={result.summary?.totalHrDeduction ?? 0} />
+              <Metric label="人事倉發貨扣庫" value={result.summary?.totalHrDeduction ?? 0} />
               <Metric
                 label="總倉調庫需求"
                 value={result.summary?.totalRequestedTransferQuantity ?? 0}
@@ -839,10 +839,10 @@ export default function HrRequestWorkbench() {
                     </small>
                   </span>
                   <span>
-                    發放 {summary.issueQuantity}（人資扣 {summary.hrDeduction}）＋ 增庫 {summary.increaseQuantity}
+                    發放 {summary.issueQuantity}（人事倉發貨扣庫）＋ 增庫 {summary.increaseQuantity}
                   </span>
                   <strong>
-                    調庫 {summary.requestedTransferQuantity}／可用 {summary.availableToRequest}
+                    調庫 {summary.requestedTransferQuantity}／兩倉總可用 {summary.availableToRequest}
                   </strong>
                 </div>
               ))}

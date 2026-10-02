@@ -244,7 +244,7 @@ export default function ReplenishmentPanel() {
   return (
     <section className="panel import-panel" aria-label="額外補庫申請" aria-busy={dataLoading || busy}>
       <div className="panel-heading"><div><p className="eyebrow">06 / REPLENISHMENT</p><h2>額外補庫申請</h2></div><span className={`status-pill ${submitted ? "success" : ""}`}>{submitted ? "已送出" : submissionUnresolved ? "送出結果待確認" : cancellationUnresolved ? "取消結果待確認" : itemsReadBlocked && dataLoading ? "載入中…" : dataLoading ? "同步中…" : "草稿"}</span></div>
-      <p className="auth-message">補庫單不預留庫存；倉庫收到後以總倉當下可用量確認完成，短發項目另填原因。</p>
+      <p className="auth-message">【階段二：總倉補貨】補庫單由人事單位申請；倉庫確認完成後，總倉調撥出庫、人事倉庫調撥入庫補回數量。</p>
       {dataLoading ? <p className="sr-only" role="status" aria-live="polite">正在載入可用制服品號…</p> : null}
       <label className="field"><span>備註（選填）</span><input value={note} onChange={(event) => { markDraftChanged(); setNote(event.target.value); }} disabled={busy || !canEditReplenishmentEntry(entryState)} maxLength={2000} placeholder="例如：換季前補足人資倉常用尺寸" /></label>
       <div className="summary-list">
