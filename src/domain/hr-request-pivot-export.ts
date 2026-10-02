@@ -101,6 +101,9 @@ export type RawIssueLineInput = {
 
 export type ItemStockInfo = {
   itemCode: string;
+  itemName?: string;
+  size?: string;
+  unit?: string;
   onHand?: number;
   increaseQuantity?: number;
 };
