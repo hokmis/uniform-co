@@ -1,3 +1,7 @@
+/**
+ * 人資需求單二維交叉領用與庫增量統計表 (Excel OpenXML) 匯出服務
+ * 支援分店領用數量交叉統計、隨單增庫、額外補庫 (庫增量 F) 與動態合計列
+ */
 import { zipSync, strToU8 } from "fflate";
 
 export const ORDERED_INSTITUTION_NAMES = [
