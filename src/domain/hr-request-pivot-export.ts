@@ -377,10 +377,10 @@ export function generatePivotXlsx(
   const instGroupHeader = `<c r="${firstInstColName}2" t="inlineStr" s="3"><is><t>請領數量表(當月各品號領退淨額數量)【依員工編列所屬機構與公司】</t></is></c>`;
   const rightGroupHeader = `
     <c r="${sumColName}2" t="inlineStr" s="3"><is><t>請領合計</t></is></c>
-    <c r="${balanceColName}2" t="inlineStr" s="3"><is><t>月結量</t></is></c>
-    <c r="${damageColName}2" t="inlineStr" s="3"><is><t>事務組偶數月抽盤量</t></is></c>
+    <c r="${balanceColName}2" t="inlineStr" s="3"><is><t>月結量(抽盤)</t></is></c>
+    <c r="${damageColName}2" t="inlineStr" s="3"><is><t>事務組偶數月抽盤</t></is></c>
     <c r="${estimateColName}2" t="inlineStr" s="3"><is><t>抽盤差異</t></is></c>
-    <c r="${remarkColName}2" t="inlineStr" s="3"><is><t>備註</t></is></c>
+    <c r="${remarkColName}2" t="inlineStr" s="3"><is><t>備註差異說明</t></is></c>
     <c r="${replenishmentColName}2" t="inlineStr" s="3"><is><t>庫增量</t></is></c>
     <c r="${issueColName}2" t="inlineStr" s="3"><is><t>本次發放量</t></is></c>
     <c r="${returnColName}2" t="inlineStr" s="3"><is><t>冬夏領退量</t></is></c>
@@ -410,9 +410,9 @@ export function generatePivotXlsx(
     <c r="${estimateColName}3" t="inlineStr" s="4"><is><t>E=D-C</t></is></c>
     <c r="${remarkColName}3" t="inlineStr" s="4"><is><t></t></is></c>
     <c r="${replenishmentColName}3" t="inlineStr" s="4"><is><t>F</t></is></c>
-    <c r="${issueColName}3" t="inlineStr" s="4"><is><t>G=D+F</t></is></c>
+    <c r="${issueColName}3" t="inlineStr" s="4"><is><t>G=B+F</t></is></c>
     <c r="${returnColName}3" t="inlineStr" s="4"><is><t>H</t></is></c>
-    <c r="${finalColName}3" t="inlineStr" s="4"><is><t>I=C+D+G+H</t></is></c>
+    <c r="${finalColName}3" t="inlineStr" s="4"><is><t>I=C+E+G+H</t></is></c>
   `;
 
   xmlRows.push(`  <row r="3" ht="20" customHeight="1">
@@ -465,11 +465,15 @@ export function generatePivotXlsx(
     // 公式
     const sumFormula = `SUM(${firstInstColName}${r}:${lastInstColName}${r})`;
     const balanceFormula = `E${r}-${sumColName}${r}`;
-    const issueFormula = `${damageColName}${r}+${replenishmentColName}${r}`;
+    const issueFormula = `${sumColName}${r}+${replenishmentColName}${r}`;
+    const finalFormula = `${balanceColName}${r}+${estimateColName}${r}+${issueColName}${r}+${returnColName}${r}`;
 
     const totalIssuedVal = row.totalIssued;
     const onHandVal = row.onHand;
     const increaseVal = row.increaseQuantity;
+    const balanceVal = onHandVal - totalIssuedVal;
+    const issueVal = totalIssuedVal + increaseVal;
+    const finalVal = balanceVal + issueVal;
 
     xmlRows.push(`  <row r="${r}" ht="20" customHeight="1">
     <c r="A${r}" s="6"><v>${index + 1}</v></c>
@@ -479,14 +483,14 @@ export function generatePivotXlsx(
     <c r="E${r}" s="6"><v>${onHandVal}</v></c>
     ${instQtyCells}
     <c r="${sumColName}${r}" s="6"><f>${sumFormula}</f><v>${totalIssuedVal}</v></c>
-    <c r="${balanceColName}${r}" s="6"><f>${balanceFormula}</f><v>${onHandVal - totalIssuedVal}</v></c>
+    <c r="${balanceColName}${r}" s="6"><f>${balanceFormula}</f><v>${balanceVal}</v></c>
     <c r="${damageColName}${r}" s="6"/>
     <c r="${estimateColName}${r}" s="6"/>
     <c r="${remarkColName}${r}" s="7"/>
     <c r="${replenishmentColName}${r}" s="6">${increaseVal > 0 ? `<v>${increaseVal}</v>` : ""}</c>
-    <c r="${issueColName}${r}" s="6"><f>${issueFormula}</f><v>${increaseVal}</v></c>
+    <c r="${issueColName}${r}" s="6"><f>${issueFormula}</f><v>${issueVal}</v></c>
     <c r="${returnColName}${r}" s="6"/>
-    <c r="${finalColName}${r}" s="6"/>
+    <c r="${finalColName}${r}" s="6"><f>${finalFormula}</f><v>${finalVal}</v></c>
   </row>`);
   });
 
@@ -504,6 +508,8 @@ export function generatePivotXlsx(
     const totalIncrease = rows.reduce((sum, r) => sum + (Number(r.increaseQuantity) || 0), 0);
     const replenishmentSumFormula = `SUM(${replenishmentColName}${startDataRow}:${replenishmentColName}${totalRowIndex - 1})`;
     const issueSumFormula = `SUM(${issueColName}${startDataRow}:${issueColName}${totalRowIndex - 1})`;
+    const finalSumFormula = `SUM(${finalColName}${startDataRow}:${finalColName}${totalRowIndex - 1})`;
+    const totalFinalVal = rows.reduce((sum, r) => sum + (Number(r.onHand) || 0) + (Number(r.increaseQuantity) || 0), 0);
 
     xmlRows.push(`  <row r="${totalRowIndex}" ht="22" customHeight="1">
     <c r="A${totalRowIndex}" t="inlineStr" s="8"><is><t>合計</t></is></c>
@@ -518,9 +524,9 @@ export function generatePivotXlsx(
     <c r="${estimateColName}${totalRowIndex}" s="8"/>
     <c r="${remarkColName}${totalRowIndex}" s="8"/>
     <c r="${replenishmentColName}${totalRowIndex}" s="8"><f>${replenishmentSumFormula}</f><v>${totalIncrease}</v></c>
-    <c r="${issueColName}${totalRowIndex}" s="8"><f>${issueSumFormula}</f><v>${totalIncrease}</v></c>
+    <c r="${issueColName}${totalRowIndex}" s="8"><f>${issueSumFormula}</f><v>${pivotData.grandTotal + totalIncrease}</v></c>
     <c r="${returnColName}${totalRowIndex}" s="8"/>
-    <c r="${finalColName}${totalRowIndex}" s="8"/>
+    <c r="${finalColName}${totalRowIndex}" s="8"><f>${finalSumFormula}</f><v>${totalFinalVal}</v></c>
   </row>`);
   }
 
