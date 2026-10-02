@@ -37,6 +37,8 @@ export type RequestItemSummary = {
   item: UniformItemSnapshot;
   issueQuantity: number;
   increaseQuantity: number;
+  hrDeduction: number;
+  transferFromGeneral: number;
   requestedTransferQuantity: number;
   combinedOnHand: number;
   availableToRequest: number;
@@ -46,6 +48,7 @@ export type HrRequestSummary = {
   summaries: RequestItemSummary[];
   totalIssueQuantity: number;
   totalIncreaseQuantity: number;
+  totalHrDeduction: number;
   totalRequestedTransferQuantity: number;
 };
 
@@ -118,12 +121,17 @@ export function summarizeHrRequest(
     const increaseQuantity = increaseByItem.get(itemId) ?? 0;
     const combinedOnHand = item.hrOnHand + item.generalOnHand;
     const availableToRequest = combinedOnHand - item.activeReserved;
-    const requestedTransferQuantity = issueQuantity + increaseQuantity;
+
+    // 當有需求量時，優先扣除人資倉的量，不足才由總倉調撥（不要扣除總倉的量）
+    const hrDeduction = Math.min(issueQuantity, item.hrOnHand);
+    const transferFromGeneral = Math.max(0, issueQuantity - item.hrOnHand);
+    const requestedTransferQuantity = transferFromGeneral + increaseQuantity;
+    const totalDemand = issueQuantity + increaseQuantity;
 
     if (item.activeReserved > combinedOnHand) {
       throw new HrRequestValidationError(`品號 ${item.itemCode} 的預留量超過兩倉合計`);
     }
-    if (requestedTransferQuantity > availableToRequest) {
+    if (totalDemand > availableToRequest) {
       throw new HrRequestValidationError(
         `品號 ${item.itemCode} 超過可申請量 ${availableToRequest}`,
       );
@@ -133,13 +141,15 @@ export function summarizeHrRequest(
       item,
       issueQuantity,
       increaseQuantity,
+      hrDeduction,
+      transferFromGeneral,
       requestedTransferQuantity,
       combinedOnHand,
       availableToRequest,
     };
   });
 
-  if (summaries.every((summary) => summary.requestedTransferQuantity === 0)) {
+  if (summaries.every((summary) => summary.issueQuantity === 0 && summary.increaseQuantity === 0)) {
     throw new HrRequestValidationError("需求單至少要有一筆發放或增庫數量");
   }
 
@@ -147,6 +157,7 @@ export function summarizeHrRequest(
     summaries,
     totalIssueQuantity: summaries.reduce((total, row) => total + row.issueQuantity, 0),
     totalIncreaseQuantity: summaries.reduce((total, row) => total + row.increaseQuantity, 0),
+    totalHrDeduction: summaries.reduce((total, row) => total + row.hrDeduction, 0),
     totalRequestedTransferQuantity: summaries.reduce(
       (total, row) => total + row.requestedTransferQuantity,
       0,

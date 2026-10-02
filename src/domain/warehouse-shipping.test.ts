@@ -5,7 +5,7 @@ import {
 } from "./warehouse-shipping";
 
 describe("warehouse shipment formulas", () => {
-  it("moves stock from GENERAL and issues from HR without changing increase stock", () => {
+  it("prioritizes HR stock first and transfers only for shortage and increases", () => {
     expect(
       calculateWarehouseShipment({
         hrOnHand: 10,
@@ -13,14 +13,14 @@ describe("warehouse shipment formulas", () => {
         issueQuantity: 5,
         increaseQuantity: 5,
         otherActiveReserved: 0,
-        actualTransfer: 10,
+        actualTransfer: 5,
       }),
     ).toEqual({
-      requestedTransferQuantity: 10,
-      maximumTransferQuantity: 10,
+      requestedTransferQuantity: 5,
+      maximumTransferQuantity: 5,
       transferDifference: 0,
-      hrOnHandAfter: 15,
-      generalOnHandAfter: 10,
+      hrOnHandAfter: 10,
+      generalOnHandAfter: 15,
       companyOnHandAfter: 25,
     });
   });

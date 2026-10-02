@@ -33,18 +33,24 @@ function line(quantity: number, lineId = "line-1"): IssueLineDraft {
 }
 
 describe("HR request line aggregation", () => {
-  it("keeps employee lines and item summary quantities separate", () => {
+  it("prioritizes HR warehouse stock first and only requests transfer for shortage and increases", () => {
+    // item: hrOnHand: 10, generalOnHand: 5, issueQuantity: 10, increaseQuantity: 5
+    // 優先扣除人資倉 10 件，總倉調撥發放量 0 件，增庫 5 件 -> 調庫 5 件
     const result = summarizeHrRequest([line(10)], [{ item, quantity: 5 }]);
 
     expect(result.summaries).toEqual([
       expect.objectContaining({
         issueQuantity: 10,
         increaseQuantity: 5,
-        requestedTransferQuantity: 15,
+        hrDeduction: 10,
+        transferFromGeneral: 0,
+        requestedTransferQuantity: 5,
         combinedOnHand: 15,
         availableToRequest: 15,
       }),
     ]);
+    expect(result.totalHrDeduction).toBe(10);
+    expect(result.totalRequestedTransferQuantity).toBe(5);
   });
 
   it("supports an increase-only item without an employee issue line", () => {
@@ -54,7 +60,21 @@ describe("HR request line aggregation", () => {
     expect(result.summaries[0]).toMatchObject({
       issueQuantity: 0,
       increaseQuantity: 3,
+      hrDeduction: 0,
       requestedTransferQuantity: 3,
+    });
+  });
+
+  it("requests transfer from GENERAL only when HR stock is insufficient", () => {
+    // item: hrOnHand: 10, generalOnHand: 5, 發放 12 件
+    // 優先扣人資倉 10 件，不足 2 件由總倉調撥 -> 調庫 2 件
+    const result = summarizeHrRequest([line(12)], []);
+    expect(result.summaries[0]).toMatchObject({
+      issueQuantity: 12,
+      increaseQuantity: 0,
+      hrDeduction: 10,
+      transferFromGeneral: 2,
+      requestedTransferQuantity: 2,
     });
   });
 
@@ -64,11 +84,13 @@ describe("HR request line aggregation", () => {
     );
   });
 
-  it("allows duplicate employee and item lines and aggregates their quantities", () => {
+  it("allows duplicate employee and item lines, prioritizing HR stock and aggregating quantities", () => {
+    // 2 + 3 = 5 件，人資倉有 10 件，優先扣除人資倉 5 件，調庫量為 0
     const result = summarizeHrRequest([line(2), line(3, "line-2")], []);
     expect(result.summaries[0]).toMatchObject({
       issueQuantity: 5,
-      requestedTransferQuantity: 5,
+      hrDeduction: 5,
+      requestedTransferQuantity: 0,
     });
   });
 });

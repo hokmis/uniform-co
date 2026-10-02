@@ -39,7 +39,8 @@ export function calculateWarehouseShipment(
     }
   }
 
-  const requestedTransferQuantity = input.issueQuantity + input.increaseQuantity;
+  const transferFromGeneral = Math.max(0, input.issueQuantity - input.hrOnHand);
+  const requestedTransferQuantity = transferFromGeneral + input.increaseQuantity;
   const maximumTransferQuantity = Math.min(requestedTransferQuantity, input.generalOnHand);
   const companyOnHandAfter = input.hrOnHand + input.generalOnHand - input.issueQuantity;
 
