@@ -124,16 +124,16 @@ export function summarizeHrRequest(
     const combinedOnHand = item.hrOnHand + item.generalOnHand;
     const availableToRequest = combinedOnHand - item.activeReserved;
 
-    // 兩階段制服計算：
-    // • 階段一：員工領取（即時發生）
+    // 兩階段制服計算（方式 B：即時扣發與月底調撥補回）：
+    // • 階段一：員工領用（即時發生）
     //   • 人事單位：申請領用 +X
-    //   • 人事倉庫：發貨扣庫 -X（此時人事倉庫少 X 件，總倉庫存暫時不變）
-    // • 階段二：月底總倉補貨（月底結算）
+    //   • 人事倉庫：即時扣庫 -X（此時人事倉庫實體庫存少 X 件，總倉庫存暫時不變）
+    // • 階段二：月底總倉補貨調撥（月底結算）
     //   • 總倉：調撥出庫 -X
-    //   • 人事倉庫：調撥入庫 +X（此時人事倉庫補回 X 件，總倉實際減少 X 件）
+    //   • 人事倉庫：調撥入庫 +X（此時人事倉庫補回 X 件沖平，總倉實際減少 X 件）
     const hrDeduction = issueQuantity;
-    const transferFromGeneral = 0;
-    const requestedTransferQuantity = increaseQuantity;
+    const transferFromGeneral = issueQuantity;
+    const requestedTransferQuantity = issueQuantity + increaseQuantity;
     const totalDemand = issueQuantity + increaseQuantity;
 
     if (item.activeReserved > combinedOnHand && combinedOnHand >= 0) {
