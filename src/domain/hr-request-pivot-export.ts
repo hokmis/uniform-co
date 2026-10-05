@@ -397,122 +397,31 @@ export function generatePivotXlsx(
     <c r="H1" t="inlineStr" s="2"><is><t>${escapeXml(notice)}</t></is></c>
   </row>`);
 
-  // Row 2: 表頭層 1 (分店大標題 / 統計標題)
-  const instGroupHeader = `<c r="${firstInstColName}2" t="inlineStr" s="3"><is><t>請領數量表(當月各品號領退淨額數量)【依員工編列所屬機構與公司】</t></is></c>`;
-  const rightGroupHeader = `
-    <c r="${sumColName}2" t="inlineStr" s="3"><is><t>請領合計</t></is></c>
-    <c r="${balanceColName}2" t="inlineStr" s="14"><is><t>月結量(抽盤)</t></is></c>
-    <c r="${damageColName}2" t="inlineStr" s="3"><is><t>事務組偶數月抽盤</t></is></c>
-    <c r="${estimateColName}2" t="inlineStr" s="3"><is><t>抽盤差異</t></is></c>
-    <c r="${remarkColName}2" t="inlineStr" s="3"><is><t>備註差異說明</t></is></c>
-    <c r="${replenishmentColName}2" t="inlineStr" s="3"><is><t>庫增量</t></is></c>
-    <c r="${issueColName}2" t="inlineStr" s="3"><is><t>本次發放量</t></is></c>
-    <c r="${returnColName}2" t="inlineStr" s="3"><is><t>冬夏領退量</t></is></c>
-    <c r="${finalColName}2" t="inlineStr" s="14"><is><t>期末量(下期期初)</t></is></c>
-  `;
-
-  xmlRows.push(`  <row r="2" ht="20" customHeight="1">
-    <c r="A2" t="inlineStr" s="3"><is><t>項次</t></is></c>
-    <c r="B2" t="inlineStr" s="3"><is><t>品號</t></is></c>
-    <c r="C2" t="inlineStr" s="3"><is><t>品名</t></is></c>
-    <c r="D2" t="inlineStr" s="3"><is><t>規格</t></is></c>
-    <c r="E2" t="inlineStr" s="14"><is><t>期&#10;初&#10;量</t></is></c>
-    ${instGroupHeader}
-    ${rightGroupHeader}
-  </row>`);
-
-  // Row 3: 表頭層 2 (分店簡稱，左側與右側統計欄為被合併的佔位格)
-  const instNamesCells = institutions.map((inst, idx) => {
-    const colName = getExcelColumnName(firstInstCol + idx);
-    return `<c r="${colName}3" t="inlineStr" s="4"><is><t>${escapeXml(inst.shortName)}</t></is></c>`;
-  }).join("\n    ");
-
-  const rightPlaceholderCellsRow3 = `
-    <c r="${sumColName}3" s="3"/>
-    <c r="${balanceColName}3" s="14"/>
-    <c r="${damageColName}3" s="3"/>
-    <c r="${estimateColName}3" s="3"/>
-    <c r="${remarkColName}3" s="3"/>
-    <c r="${replenishmentColName}3" s="3"/>
-    <c r="${issueColName}3" s="3"/>
-    <c r="${returnColName}3" s="3"/>
-    <c r="${finalColName}3" s="14"/>
-  `;
-
-  xmlRows.push(`  <row r="3" ht="20" customHeight="1">
-    <c r="A3" s="3"/>
-    <c r="B3" s="3"/>
-    <c r="C3" s="3"/>
-    <c r="D3" s="3"/>
-    <c r="E3" s="14"/>
-    ${instNamesCells}
-    ${rightPlaceholderCellsRow3}
-  </row>`);
-
-  // Row 4: 表頭層 3 (分店代碼，左側與右側統計欄為被合併的佔位格)
-  const instCodesCells = institutions.map((inst, idx) => {
-    const colName = getExcelColumnName(firstInstCol + idx);
-    return `<c r="${colName}4" t="inlineStr" s="5"><is><t>${escapeXml(inst.code)}</t></is></c>`;
-  }).join("\n    ");
-
-  const rightPlaceholderCellsRow4 = `
-    <c r="${sumColName}4" s="3"/>
-    <c r="${balanceColName}4" s="14"/>
-    <c r="${damageColName}4" s="3"/>
-    <c r="${estimateColName}4" s="3"/>
-    <c r="${remarkColName}4" s="3"/>
-    <c r="${replenishmentColName}4" s="3"/>
-    <c r="${issueColName}4" s="3"/>
-    <c r="${returnColName}4" s="3"/>
-    <c r="${finalColName}4" s="14"/>
-  `;
-
-  xmlRows.push(`  <row r="4" ht="18" customHeight="1">
-    <c r="A4" s="3"/>
-    <c r="B4" s="3"/>
-    <c r="C4" s="3"/>
-    <c r="D4" s="3"/>
-    <c r="E4" s="14"/>
-    ${instCodesCells}
-    ${rightPlaceholderCellsRow4}
-  </row>`);
-
-  // Row 5: 表頭層 4 (符號與計算式代號列)
-  const instBlankCellsRow5 = institutions.map((_, idx) => {
-    const colName = getExcelColumnName(firstInstCol + idx);
-    return `<c r="${colName}5" s="4"/>`;
-  }).join("");
-
-  const rightSymbolCellsRow5 = `
-    <c r="${sumColName}5" t="inlineStr" s="4"><is><t>B</t></is></c>
-    <c r="${balanceColName}5" t="inlineStr" s="15"><is><t>C=A-B</t></is></c>
-    <c r="${damageColName}5" t="inlineStr" s="4"><is><t>D</t></is></c>
-    <c r="${estimateColName}5" t="inlineStr" s="4"><is><t>E=D-C</t></is></c>
-    <c r="${remarkColName}5" s="4"/>
-    <c r="${replenishmentColName}5" t="inlineStr" s="4"><is><t>F</t></is></c>
-    <c r="${issueColName}5" t="inlineStr" s="4"><is><t>G=B+F</t></is></c>
-    <c r="${returnColName}5" t="inlineStr" s="4"><is><t>H</t></is></c>
-    <c r="${finalColName}5" t="inlineStr" s="15"><is><t>I=C+E+G+H</t></is></c>
-  `;
-
-  xmlRows.push(`  <row r="5" ht="18" customHeight="1">
-    <c r="A5" s="4"/>
-    <c r="B5" s="4"/>
-    <c r="C5" s="4"/>
-    <c r="D5" s="4"/>
-    <c r="E5" t="inlineStr" s="15"><is><t>A</t></is></c>
-    ${instBlankCellsRow5}
-    ${rightSymbolCellsRow5}
-  </row>`);
-
-  // 邊框與樣式動態註冊管理器（支援最外圍粗外框線與換品項底端雙框線）
+  // 邊框與樣式動態註冊管理器（支援全表格最外圍粗外框線、換品項底端雙框線與各色表頭）
   type BorderDef = {
     top: "thin" | "medium";
     bottom: "thin" | "double" | "medium";
     left: "thin" | "medium";
     right: "thin" | "medium";
   };
-  type CellStyleType = "dataCenter" | "dataLeft" | "dataGreen" | "totalCenter" | "totalGreen";
+  type CellStyleType =
+    | "headerGray"    // 灰底表頭 (10pt bold, center, wrapText)
+    | "headerGreen"   // 綠底表頭 #E2EFDA (10pt bold, center, wrapText)
+    | "headerYellow"  // 黃底表頭 #FFF2CC (10pt bold, center, wrapText)
+    | "headerPink"    // 粉紫底表頭 #FFCCFF (10pt bold, center, wrapText)
+    | "headerWhite"   // 白底表頭 (10pt bold, center, wrapText)
+    | "subHeaderGray" // 灰底簡稱 (10pt bold, center)
+    | "codeGray"      // 灰底代碼 (9pt, center)
+    | "symbolGray"    // 灰底符號 (10pt bold, center)
+    | "symbolGreen"   // 綠底符號 #E2EFDA (10pt bold, center)
+    | "symbolYellow"  // 黃底符號 #FFF2CC (10pt bold, center)
+    | "symbolPink"    // 粉紫底符號 #FFCCFF (10pt bold, center)
+    | "symbolWhite"   // 白底符號 (10pt bold, center)
+    | "dataCenter"    // 資料列置中數值 (11pt, center)
+    | "dataLeft"      // 資料列靠左文字 (11pt, left)
+    | "dataGreen"     // 資料列綠底 (11pt, fill 4, center)
+    | "totalCenter"   // 合計列灰底 (10pt bold, fill 2, center)
+    | "totalGreen";   // 合計列綠底 (10pt bold, fill 4, center)
 
   const customBorders = new Map<string, number>();
   const customBorderXmls: string[] = [];
@@ -544,10 +453,15 @@ export function generatePivotXlsx(
     }
 
     if (borderId === 1) {
+      if (type === "headerGray") return 3;
+      if (type === "subHeaderGray") return 4;
+      if (type === "codeGray") return 5;
       if (type === "dataCenter") return 6;
       if (type === "dataLeft") return 7;
-      if (type === "dataGreen") return 17;
       if (type === "totalCenter") return 8;
+      if (type === "headerGreen") return 14;
+      if (type === "symbolGreen") return 15;
+      if (type === "dataGreen") return 17;
       if (type === "totalGreen") return 18;
     }
 
@@ -559,14 +473,208 @@ export function generatePivotXlsx(
     const xfId = 19 + customXfXmls.length;
     customXfs.set(xfKey, xfId);
 
-    const fontId = (type === "totalCenter" || type === "totalGreen") ? 2 : 0;
-    const fillId = (type === "dataGreen" || type === "totalGreen") ? 4 : (type === "totalCenter" ? 2 : 0);
+    let fontId = 2; // 預設 10pt bold
+    if (type === "codeGray") {
+      fontId = 3; // 9pt
+    } else if (type === "dataCenter" || type === "dataLeft" || type === "dataGreen") {
+      fontId = 0; // 11pt normal
+    }
+
+    let fillId = 0;
+    if (type === "headerGray" || type === "totalCenter" || type === "codeGray") {
+      fillId = 2; // FFF2F2F2
+    } else if (type === "subHeaderGray" || type === "symbolGray") {
+      fillId = 3; // FFEAEAEA
+    } else if (type === "headerGreen" || type === "symbolGreen" || type === "dataGreen" || type === "totalGreen") {
+      fillId = 4; // FFE2EFDA
+    } else if (type === "headerYellow" || type === "symbolYellow") {
+      fillId = 5; // FFFFF2CC
+    } else if (type === "headerPink" || type === "symbolPink") {
+      fillId = 6; // FFFFCCFF
+    } else if (type === "headerWhite") {
+      fillId = 7; // FFFFFFFF
+    }
+
     const align = type === "dataLeft" ? "left" : "center";
+    const isHeaderWrap = type.startsWith("header");
+    const wrapAttr = isHeaderWrap ? ' wrapText="1"' : "";
     const applyFont = fontId > 0 ? ' applyFont="1"' : "";
     const applyFill = fillId > 0 ? ' applyFill="1"' : "";
-    customXfXmls.push(`    <xf numFmtId="0" fontId="${fontId}" fillId="${fillId}" borderId="${borderId}"${applyFont}${applyFill} applyBorder="1" applyAlignment="1"><alignment horizontal="${align}" vertical="center"/></xf>`);
+
+    customXfXmls.push(`    <xf numFmtId="0" fontId="${fontId}" fillId="${fillId}" borderId="${borderId}"${applyFont}${applyFill} applyBorder="1" applyAlignment="1"><alignment horizontal="${align}" vertical="center"${wrapAttr}/></xf>`);
     return xfId;
   }
+
+  // Row 2: 表頭層 1 (分店大標題 / 統計標題)
+  // 最外圍頂部為 medium 粗黑線，最左欄 A 欄 left 為 medium
+  const a2Style = getCellStyleId("headerGray", { top: "medium", bottom: "thin", left: "medium", right: "thin" });
+  const b2Style = getCellStyleId("headerGray", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const c2Style = getCellStyleId("headerGray", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const d2Style = getCellStyleId("headerGray", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const e2Style = getCellStyleId("headerGreen", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const instGroupStyle = getCellStyleId("headerGray", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+
+  const sumHdrStyle = getCellStyleId("headerYellow", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const balanceHdrStyle = getCellStyleId("headerGreen", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const damageHdrStyle = getCellStyleId("headerWhite", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const estimateHdrStyle = getCellStyleId("headerWhite", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const remarkHdrStyle = getCellStyleId("headerWhite", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const replenishmentHdrStyle = getCellStyleId("headerYellow", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const issueHdrStyle = getCellStyleId("headerYellow", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const returnHdrStyle = getCellStyleId("headerPink", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
+  const finalHdrStyle = getCellStyleId("headerGreen", { top: "medium", bottom: "thin", left: "thin", right: "medium" });
+
+  const instGroupHeader = `<c r="${firstInstColName}2" t="inlineStr" s="${instGroupStyle}"><is><t>請領數量表(當月各品號領退淨額數量)【依員工編列所屬機構與公司】</t></is></c>`;
+  const rightGroupHeader = `
+    <c r="${sumColName}2" t="inlineStr" s="${sumHdrStyle}"><is><t>請領&#10;合計</t></is></c>
+    <c r="${balanceColName}2" t="inlineStr" s="${balanceHdrStyle}"><is><t>月結量&#10;(抽盤)</t></is></c>
+    <c r="${damageColName}2" t="inlineStr" s="${damageHdrStyle}"><is><t>事務組&#10;偶數月&#10;抽盤</t></is></c>
+    <c r="${estimateColName}2" t="inlineStr" s="${estimateHdrStyle}"><is><t>抽盤&#10;差異</t></is></c>
+    <c r="${remarkColName}2" t="inlineStr" s="${remarkHdrStyle}"><is><t>備註&#10;差異說明</t></is></c>
+    <c r="${replenishmentColName}2" t="inlineStr" s="${replenishmentHdrStyle}"><is><t>庫增量</t></is></c>
+    <c r="${issueColName}2" t="inlineStr" s="${issueHdrStyle}"><is><t>本次&#10;發放量</t></is></c>
+    <c r="${returnColName}2" t="inlineStr" s="${returnHdrStyle}"><is><t>冬夏&#10;領退量</t></is></c>
+    <c r="${finalColName}2" t="inlineStr" s="${finalHdrStyle}"><is><t>期末量&#10;(下期期初)</t></is></c>
+  `;
+
+  xmlRows.push(`  <row r="2" ht="20" customHeight="1">
+    <c r="A2" t="inlineStr" s="${a2Style}"><is><t>項次</t></is></c>
+    <c r="B2" t="inlineStr" s="${b2Style}"><is><t>品號</t></is></c>
+    <c r="C2" t="inlineStr" s="${c2Style}"><is><t>品名</t></is></c>
+    <c r="D2" t="inlineStr" s="${d2Style}"><is><t>規格</t></is></c>
+    <c r="E2" t="inlineStr" s="${e2Style}"><is><t>期&#10;初&#10;量</t></is></c>
+    ${instGroupHeader}
+    ${rightGroupHeader}
+  </row>`);
+
+  // Row 3: 表頭層 2 (分店簡稱，左側與右側統計欄為被合併的佔位格)
+  const a3Style = getCellStyleId("headerGray", { top: "thin", bottom: "thin", left: "medium", right: "thin" });
+  const mid3Style = getCellStyleId("headerGray", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const e3Style = getCellStyleId("headerGreen", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+
+  const instNamesCells = institutions.map((inst, idx) => {
+    const colName = getExcelColumnName(firstInstCol + idx);
+    const s = getCellStyleId("subHeaderGray", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+    return `<c r="${colName}3" t="inlineStr" s="${s}"><is><t>${escapeXml(inst.shortName)}</t></is></c>`;
+  }).join("\n    ");
+
+  const sum3Style = getCellStyleId("headerYellow", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const balance3Style = getCellStyleId("headerGreen", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const damage3Style = getCellStyleId("headerWhite", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const estimate3Style = getCellStyleId("headerWhite", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const remark3Style = getCellStyleId("headerWhite", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const replenishment3Style = getCellStyleId("headerYellow", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const issue3Style = getCellStyleId("headerYellow", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const return3Style = getCellStyleId("headerPink", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const final3Style = getCellStyleId("headerGreen", { top: "thin", bottom: "thin", left: "thin", right: "medium" });
+
+  const rightPlaceholderCellsRow3 = `
+    <c r="${sumColName}3" s="${sum3Style}"/>
+    <c r="${balanceColName}3" s="${balance3Style}"/>
+    <c r="${damageColName}3" s="${damage3Style}"/>
+    <c r="${estimateColName}3" s="${estimate3Style}"/>
+    <c r="${remarkColName}3" s="${remark3Style}"/>
+    <c r="${replenishmentColName}3" s="${replenishment3Style}"/>
+    <c r="${issueColName}3" s="${issue3Style}"/>
+    <c r="${returnColName}3" s="${return3Style}"/>
+    <c r="${finalColName}3" s="${final3Style}"/>
+  `;
+
+  xmlRows.push(`  <row r="3" ht="20" customHeight="1">
+    <c r="A3" s="${a3Style}"/>
+    <c r="B3" s="${mid3Style}"/>
+    <c r="C3" s="${mid3Style}"/>
+    <c r="D3" s="${mid3Style}"/>
+    <c r="E3" s="${e3Style}"/>
+    ${instNamesCells}
+    ${rightPlaceholderCellsRow3}
+  </row>`);
+
+  // Row 4: 表頭層 3 (分店代碼，左側與右側統計欄為被合併的佔位格)
+  const a4Style = getCellStyleId("headerGray", { top: "thin", bottom: "thin", left: "medium", right: "thin" });
+  const mid4Style = getCellStyleId("headerGray", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const e4Style = getCellStyleId("headerGreen", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+
+  const instCodesCells = institutions.map((inst, idx) => {
+    const colName = getExcelColumnName(firstInstCol + idx);
+    const s = getCellStyleId("codeGray", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+    return `<c r="${colName}4" t="inlineStr" s="${s}"><is><t>${escapeXml(inst.code)}</t></is></c>`;
+  }).join("\n    ");
+
+  const sum4Style = getCellStyleId("headerYellow", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const balance4Style = getCellStyleId("headerGreen", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const damage4Style = getCellStyleId("headerWhite", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const estimate4Style = getCellStyleId("headerWhite", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const remark4Style = getCellStyleId("headerWhite", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const replenishment4Style = getCellStyleId("headerYellow", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const issue4Style = getCellStyleId("headerYellow", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const return4Style = getCellStyleId("headerPink", { top: "thin", bottom: "thin", left: "thin", right: "thin" });
+  const final4Style = getCellStyleId("headerGreen", { top: "thin", bottom: "thin", left: "thin", right: "medium" });
+
+  const rightPlaceholderCellsRow4 = `
+    <c r="${sumColName}4" s="${sum4Style}"/>
+    <c r="${balanceColName}4" s="${balance4Style}"/>
+    <c r="${damageColName}4" s="${damage4Style}"/>
+    <c r="${estimateColName}4" s="${estimate4Style}"/>
+    <c r="${remarkColName}4" s="${remark4Style}"/>
+    <c r="${replenishmentColName}4" s="${replenishment4Style}"/>
+    <c r="${issueColName}4" s="${issue4Style}"/>
+    <c r="${returnColName}4" s="${return4Style}"/>
+    <c r="${finalColName}4" s="${final4Style}"/>
+  `;
+
+  xmlRows.push(`  <row r="4" ht="18" customHeight="1">
+    <c r="A4" s="${a4Style}"/>
+    <c r="B4" s="${mid4Style}"/>
+    <c r="C4" s="${mid4Style}"/>
+    <c r="D4" s="${mid4Style}"/>
+    <c r="E4" s="${e4Style}"/>
+    ${instCodesCells}
+    ${rightPlaceholderCellsRow4}
+  </row>`);
+
+  // Row 5: 表頭層 4 (符號與計算式代號列，底部為 medium 粗黑分隔線)
+  const a5Style = getCellStyleId("symbolGray", { top: "thin", bottom: "medium", left: "medium", right: "thin" });
+  const mid5Style = getCellStyleId("symbolGray", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const e5Style = getCellStyleId("symbolGreen", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+
+  const instBlankCellsRow5 = institutions.map((_, idx) => {
+    const colName = getExcelColumnName(firstInstCol + idx);
+    const s = getCellStyleId("symbolGray", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+    return `<c r="${colName}5" s="${s}"/>`;
+  }).join("");
+
+  const sum5Style = getCellStyleId("symbolYellow", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const balance5Style = getCellStyleId("symbolGreen", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const damage5Style = getCellStyleId("symbolWhite", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const estimate5Style = getCellStyleId("symbolWhite", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const remark5Style = getCellStyleId("symbolWhite", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const replenishment5Style = getCellStyleId("symbolYellow", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const issue5Style = getCellStyleId("symbolYellow", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const return5Style = getCellStyleId("symbolPink", { top: "thin", bottom: "medium", left: "thin", right: "thin" });
+  const final5Style = getCellStyleId("symbolGreen", { top: "thin", bottom: "medium", left: "thin", right: "medium" });
+
+  const rightSymbolCellsRow5 = `
+    <c r="${sumColName}5" t="inlineStr" s="${sum5Style}"><is><t>B</t></is></c>
+    <c r="${balanceColName}5" t="inlineStr" s="${balance5Style}"><is><t>C=A-B</t></is></c>
+    <c r="${damageColName}5" t="inlineStr" s="${damage5Style}"><is><t>D</t></is></c>
+    <c r="${estimateColName}5" t="inlineStr" s="${estimate5Style}"><is><t>E=D-C</t></is></c>
+    <c r="${remarkColName}5" s="${remark5Style}"/>
+    <c r="${replenishmentColName}5" t="inlineStr" s="${replenishment5Style}"><is><t>F</t></is></c>
+    <c r="${issueColName}5" t="inlineStr" s="${issue5Style}"><is><t>G=B+F</t></is></c>
+    <c r="${returnColName}5" t="inlineStr" s="${return5Style}"><is><t>H</t></is></c>
+    <c r="${finalColName}5" t="inlineStr" s="${final5Style}"><is><t>I=C+E+G+H</t></is></c>
+  `;
+
+  xmlRows.push(`  <row r="5" ht="18" customHeight="1">
+    <c r="A5" s="${a5Style}"/>
+    <c r="B5" s="${mid5Style}"/>
+    <c r="C5" s="${mid5Style}"/>
+    <c r="D5" s="${mid5Style}"/>
+    <c r="E5" t="inlineStr" s="${e5Style}"><is><t>A</t></is></c>
+    ${instBlankCellsRow5}
+    ${rightSymbolCellsRow5}
+  </row>`);
 
   // Row 6 開始為資料列
   const startDataRow = 6;
@@ -849,12 +957,15 @@ ${mergeCellsXml}
     <font><sz val="9"/><name val="微軟正黑體"/></font>
     <font><sz val="11"/><b/><name val="微軟正黑體"/></font>
   </fonts>
-  <fills count="5">
+  <fills count="8">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFEAEAEA"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFE2EFDA"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFCCFF"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/></patternFill></fill>
   </fills>
   <borders count="${totalBordersCount}">
     <border><left/><right/><top/><bottom/><diagonal/></border>

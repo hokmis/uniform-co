@@ -266,8 +266,10 @@ describe("hr-request-pivot-export", () => {
     const stylesContent = new TextDecoder().decode(unzipped["xl/styles.xml"]);
     const sheetContent = new TextDecoder().decode(unzipped["xl/worksheets/sheet1.xml"]);
 
-    // 1. 樣式驗證：包含 FFE2EFDA
+    // 1. 樣式驗證：包含 FFE2EFDA (綠), FFFFF2CC (黃), FFFFCCFF (粉紫)
     expect(stylesContent).toContain('rgb="FFE2EFDA"');
+    expect(stylesContent).toContain('rgb="FFFFF2CC"');
+    expect(stylesContent).toContain('rgb="FFFFCCFF"');
 
     // 2. 表頭垂直合併驗證 (A2:A4 ~ E2:E4 以及右側統計欄)
     expect(sheetContent).toContain('<mergeCell ref="A2:A4"/>');
@@ -285,14 +287,23 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toContain('<mergeCell ref="AI2:AI4"/>');
     expect(sheetContent).toContain('<mergeCell ref="AJ2:AJ4"/>');
 
-    // 3. 表頭 E2 換行文字：期&#10;初&#10;量
-    expect(sheetContent).toContain('<c r="E2" t="inlineStr" s="14"><is><t>期&#10;初&#10;量</t></is></c>');
+    // 3. 表頭文字排列換行驗證
+    expect(sheetContent).toMatch(/<c r="E2" t="inlineStr" s="\d+"><is><t>期&#10;初&#10;量<\/t><\/is><\/c>/);
+    expect(sheetContent).toContain("<t>請領&#10;合計</t>");
+    expect(sheetContent).toContain("<t>月結量&#10;(抽盤)</t>");
+    expect(sheetContent).toContain("<t>事務組&#10;偶數月&#10;抽盤</t>");
+    expect(sheetContent).toContain("<t>抽盤&#10;差異</t>");
+    expect(sheetContent).toContain("<t>備註&#10;差異說明</t>");
+    expect(sheetContent).toContain("<t>庫增量</t>");
+    expect(sheetContent).toContain("<t>本次&#10;發放量</t>");
+    expect(sheetContent).toContain("<t>冬夏&#10;領退量</t>");
+    expect(sheetContent).toContain("<t>期末量&#10;(下期期初)</t>");
 
     // 4. Row 5 符號列驗證
-    expect(sheetContent).toContain('<c r="E5" t="inlineStr" s="15"><is><t>A</t></is></c>');
-    expect(sheetContent).toContain('<c r="AB5" t="inlineStr" s="4"><is><t>B</t></is></c>');
-    expect(sheetContent).toContain('<c r="AC5" t="inlineStr" s="15"><is><t>C=A-B</t></is></c>');
-    expect(sheetContent).toContain('<c r="AJ5" t="inlineStr" s="15"><is><t>I=C+E+G+H</t></is></c>');
+    expect(sheetContent).toMatch(/<c r="E5" t="inlineStr" s="\d+"><is><t>A<\/t><\/is><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AB5" t="inlineStr" s="\d+"><is><t>B<\/t><\/is><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AC5" t="inlineStr" s="\d+"><is><t>C=A-B<\/t><\/is><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AJ5" t="inlineStr" s="\d+"><is><t>I=C\+E\+G\+H<\/t><\/is><\/c>/);
 
     // 5. 資料列從 Row 6 開始
     expect(sheetContent).toMatch(/<c r="E6" s="\d+"><v>50<\/v><\/c>/);
