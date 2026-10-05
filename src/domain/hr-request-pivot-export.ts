@@ -213,24 +213,22 @@ export function buildPivotTableData(
       }
     }
 
-    // 2. 對於當期只有「額外補庫」或「隨單增庫」，而無任何分店請領發放的品項，建立獨立列
+    // 2. 對於當期只有「額外補庫」、「隨單增庫」，或無任何分店請領發放的庫存品項，建立獨立列
     for (const [itemCode, stock] of stockMap.entries()) {
       if (!assignedItemCodes.has(itemCode)) {
         const inc = Number(stock.increaseQuantity) || 0;
         const onHand = Number(stock.onHand) || 0;
-        if (inc > 0 || onHand > 0) {
-          rows.push({
-            itemCode,
-            itemName: stock.itemName || itemCode,
-            size: stock.size || "",
-            unit: stock.unit || "件",
-            onHand,
-            quantitiesByInstitution: {},
-            totalIssued: 0,
-            increaseQuantity: inc,
-          });
-          assignedItemCodes.add(itemCode);
-        }
+        rows.push({
+          itemCode,
+          itemName: stock.itemName || itemCode,
+          size: stock.size || "",
+          unit: stock.unit || "件",
+          onHand,
+          quantitiesByInstitution: {},
+          totalIssued: 0,
+          increaseQuantity: inc,
+        });
+        assignedItemCodes.add(itemCode);
       }
     }
 
@@ -533,6 +531,60 @@ export function generatePivotXlsx(
   </row>`);
   }
 
+  // 底部附註與簽核人區塊
+  const noteRowIndex = totalRowIndex + 1;
+  const blankRowIndex = totalRowIndex + 2;
+  const sigRow1 = totalRowIndex + 3;
+  const sigRow2 = totalRowIndex + 4;
+
+  // 附註列
+  xmlRows.push(`  <row r="${noteRowIndex}" ht="20" customHeight="1">
+    <c r="A${noteRowIndex}" t="inlineStr" s="9"><is><t>註：正本提供事務組簽核後，繳交財務室稽核留存。</t></is></c>
+  </row>`);
+
+  // 空白列
+  xmlRows.push(`  <row r="${blankRowIndex}" ht="12" customHeight="1"/>`);
+
+  // Helper: 產生連續欄位儲存格（維持合併區域四邊黑框）
+  function makeCellRange(r: number, startCol: number, endCol: number, styleId: number, contentText?: string): string {
+    const list: string[] = [];
+    for (let c = startCol; c <= endCol; c++) {
+      const col = getExcelColumnName(c);
+      if (c === startCol && contentText) {
+        list.push(`<c r="${col}${r}" t="inlineStr" s="${styleId}"><is><t>${contentText}</t></is></c>`);
+      } else {
+        list.push(`<c r="${col}${r}" s="${styleId}"/>`);
+      }
+    }
+    return list.join("");
+  }
+
+  // 右側簽收欄位範圍（對齊請領合計 B 到冬夏領退量 H）
+  const rSignLeftStart = sumColIndex;
+  const rSignLeftEnd = Math.min(sumColIndex + 3, totalCols - 1);
+  const rSignRightStart = rSignLeftEnd + 1;
+  const rSignRightEnd = Math.min(rSignLeftEnd + 4, totalCols);
+
+  // 簽核列 1：人資室
+  const sigRow1Cells = [
+    `<c r="A${sigRow1}" t="inlineStr" s="10"><is><t>人&#10;資&#10;室</t></is></c>`,
+    makeCellRange(sigRow1, 2, 7, 11, "主管核准："),
+    makeCellRange(sigRow1, 8, 12, 11, "覆核："),
+    makeCellRange(sigRow1, 13, 19, 11, "人資經辦：許雅婷"),
+    makeCellRange(sigRow1, rSignLeftStart, rSignLeftEnd, 10, "人資簽收&#10;(制服領貨)"),
+    makeCellRange(sigRow1, rSignRightStart, rSignRightEnd, 13),
+  ].join("");
+  xmlRows.push(`  <row r="${sigRow1}" ht="48" customHeight="1">${sigRow1Cells}</row>`);
+
+  // 簽核列 2：事務組
+  const sigRow2Cells = [
+    `<c r="A${sigRow2}" t="inlineStr" s="10"><is><t>事&#10;務&#10;組</t></is></c>`,
+    makeCellRange(sigRow2, 2, 7, 11, "主管核准："),
+    makeCellRange(sigRow2, 8, 12, 11, "覆核："),
+    makeCellRange(sigRow2, 13, 19, 11, "事務經辦："),
+  ].join("");
+  xmlRows.push(`  <row r="${sigRow2}" ht="48" customHeight="1">${sigRow2Cells}</row>`);
+
   // 欄寬定義
   const colsXml = `  <cols>
     <col min="1" max="1" width="6" customWidth="1"/>
@@ -555,6 +607,16 @@ export function generatePivotXlsx(
   if (rows.length > 0) {
     mergeCells.push(`A${totalRowIndex}:D${totalRowIndex}`);
   }
+  // 簽核人合併
+  mergeCells.push(`B${sigRow1}:G${sigRow1}`);
+  mergeCells.push(`H${sigRow1}:L${sigRow1}`);
+  mergeCells.push(`M${sigRow1}:S${sigRow1}`);
+  mergeCells.push(`${getExcelColumnName(rSignLeftStart)}${sigRow1}:${getExcelColumnName(rSignLeftEnd)}${sigRow1}`);
+  mergeCells.push(`${getExcelColumnName(rSignRightStart)}${sigRow1}:${getExcelColumnName(rSignRightEnd)}${sigRow1}`);
+
+  mergeCells.push(`B${sigRow2}:G${sigRow2}`);
+  mergeCells.push(`H${sigRow2}:L${sigRow2}`);
+  mergeCells.push(`M${sigRow2}:S${sigRow2}`);
 
   const mergeCellsXml = `  <mergeCells count="${mergeCells.length}">
     ${mergeCells.map((m) => `<mergeCell ref="${m}"/>`).join("\n    ")}
@@ -572,11 +634,12 @@ ${mergeCellsXml}
   // 樣式表 styles.xml
   const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="4">
+  <fonts count="5">
     <font><sz val="11"/><name val="微軟正黑體"/></font>
     <font><sz val="14"/><b/><name val="微軟正黑體"/></font>
     <font><sz val="10"/><b/><name val="微軟正黑體"/></font>
     <font><sz val="9"/><name val="微軟正黑體"/></font>
+    <font><sz val="11"/><b/><name val="微軟正黑體"/></font>
   </fonts>
   <fills count="4">
     <fill><patternFill patternType="none"/></fill>
@@ -584,7 +647,7 @@ ${mergeCellsXml}
     <fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFEAEAEA"/></patternFill></fill>
   </fills>
-  <borders count="2">
+  <borders count="3">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border>
       <left style="thin"><color rgb="FFD4D4D4"/></left>
@@ -592,8 +655,14 @@ ${mergeCellsXml}
       <top style="thin"><color rgb="FFD4D4D4"/></top>
       <bottom style="thin"><color rgb="FFD4D4D4"/></bottom>
     </border>
+    <border>
+      <left style="thin"><color rgb="FF000000"/></left>
+      <right style="thin"><color rgb="FF000000"/></right>
+      <top style="thin"><color rgb="FF000000"/></top>
+      <bottom style="thin"><color rgb="FF000000"/></bottom>
+    </border>
   </borders>
-  <cellXfs count="9">
+  <cellXfs count="14">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyAlignment="1"><alignment vertical="center"/></xf>
@@ -603,6 +672,11 @@ ${mergeCellsXml}
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="0" borderId="0" applyFont="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="4" fillId="0" borderId="2" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="4" fillId="0" borderId="2" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="4" fillId="0" borderId="2" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="2" applyBorder="1"/>
   </cellXfs>
 </styleSheet>`;
 

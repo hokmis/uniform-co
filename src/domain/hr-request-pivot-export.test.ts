@@ -199,4 +199,50 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toContain("<f>AB5+AG5</f>");
     expect(sheetContent).toContain("<v>25</v>");
   });
+
+  it("exports all catalog items even when stock and issued quantities are zero", () => {
+    // 即使沒有任何領用明細，且庫存為 0，只要在 stockMap 中，皆會完整輸出
+    const lines: RawIssueLineInput[] = [];
+    const stockMap = new Map([
+      ["UKS01S", { itemCode: "UKS01S", itemName: "幼兒園夏季上衣-S", size: "S", onHand: 0, increaseQuantity: 0 }],
+      ["UKS01M", { itemCode: "UKS01M", itemName: "幼兒園夏季上衣-M", size: "M", onHand: 2, increaseQuantity: 0 }],
+    ]);
+
+    const pivotData = buildPivotTableData(lines, stockMap);
+    expect(pivotData.rows.length).toBe(2);
+    expect(pivotData.rows[0].itemCode).toBe("UKS01M");
+    expect(pivotData.rows[1].itemCode).toBe("UKS01S");
+    expect(pivotData.rows[1].onHand).toBe(0);
+    expect(pivotData.rows[1].totalIssued).toBe(0);
+  });
+
+  it("renders bottom signature boxes and notice note in OpenXML", () => {
+    const lines: RawIssueLineInput[] = [
+      { itemCode: "UKS01M", itemName: "幼兒園夏季上衣-M", size: "M", institutionCodeOrName: "8C清福", quantity: 2 },
+    ];
+    const pivotData = buildPivotTableData(lines);
+    const xlsxBytes = generatePivotXlsx(pivotData, {
+      title: "平日制服領用表",
+    });
+
+    const unzipped = unzipSync(xlsxBytes);
+    const sheetContent = new TextDecoder().decode(unzipped["xl/worksheets/sheet1.xml"]);
+
+    // 驗證附註
+    expect(sheetContent).toContain("註：正本提供事務組簽核後，繳交財務室稽核留存。");
+    // 驗證人資室簽核項目
+    expect(sheetContent).toContain("人&#10;資&#10;室");
+    expect(sheetContent).toContain("主管核准：");
+    expect(sheetContent).toContain("覆核：");
+    expect(sheetContent).toContain("人資經辦：許雅婷");
+    // 驗證事務組簽核項目
+    expect(sheetContent).toContain("事&#10;務&#10;組");
+    expect(sheetContent).toContain("事務經辦：");
+    // 驗證右側人資簽收
+    expect(sheetContent).toContain("人資簽收&#10;(制服領貨)");
+    // 驗證簽核合併儲存格
+    expect(sheetContent).toMatch(/<mergeCell ref="B\d+:G\d+"\/>/);
+    expect(sheetContent).toMatch(/<mergeCell ref="H\d+:L\d+"\/>/);
+    expect(sheetContent).toMatch(/<mergeCell ref="M\d+:S\d+"\/>/);
+  });
 });

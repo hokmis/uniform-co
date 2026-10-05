@@ -203,6 +203,29 @@ export default function HrRequestHistoryPanel() {
       }
     }
 
+    if (client) {
+      const availRes = await client
+        .from("v_item_availability")
+        .select("item_code, item_name, size, unit, hr_on_hand_quantity")
+        .order("item_code");
+      if (availRes.data) {
+        for (const it of availRes.data as Array<Record<string, unknown>>) {
+          const code = (typeof it.item_code === "string" && it.item_code.trim()) || "";
+          if (!code) continue;
+          const existing = stockMap.get(code);
+          const onHand = numberValue(it.hr_on_hand_quantity);
+          stockMap.set(code, {
+            itemCode: code,
+            itemName: existing?.itemName || (typeof it.item_name === "string" ? it.item_name : code),
+            size: existing?.size || (typeof it.size === "string" ? it.size : ""),
+            unit: existing?.unit || (typeof it.unit === "string" ? it.unit : "件"),
+            onHand: existing?.onHand != null ? existing.onHand : onHand,
+            increaseQuantity: existing?.increaseQuantity || 0,
+          });
+        }
+      }
+    }
+
     const pivotData = buildPivotTableData(rawLines, stockMap);
     const titleKind = isReplenishment ? "額外補庫表" : "平日制服領用表";
     const selectedDate = selected.distributionDate || dateRangeLabel;
@@ -420,10 +443,34 @@ export default function HrRequestHistoryPanel() {
         }
       }
 
-      const hasAnyLines = rawLines.length > 0;
-      const hasAnyStock = Array.from(stockMap.values()).some((s) => (s.increaseQuantity || 0) > 0);
-      if (!hasAnyLines && !hasAnyStock) {
-        setMessage("選取的區間需求單與補庫單中沒有任何發放明細或增庫紀錄。");
+      // 3. 查詢全量制服品項與當前現有庫存（確保所有庫存制服品項均完整列出）
+      const availabilityRes = await client
+        .from("v_item_availability")
+        .select("item_code, item_name, size, unit, hr_on_hand_quantity")
+        .order("item_code");
+
+      if (availabilityRes.data && availabilityRes.data.length > 0) {
+        for (const item of availabilityRes.data as Array<Record<string, unknown>>) {
+          const itemCode = (typeof item.item_code === "string" && item.item_code.trim()) || "";
+          if (!itemCode) continue;
+          const itemName = typeof item.item_name === "string" ? item.item_name : itemCode;
+          const size = typeof item.size === "string" ? item.size : "";
+          const unit = typeof item.unit === "string" ? item.unit : "件";
+          const onHand = numberValue(item.hr_on_hand_quantity);
+          const existing = stockMap.get(itemCode);
+          stockMap.set(itemCode, {
+            itemCode,
+            itemName: existing?.itemName || itemName,
+            size: existing?.size || size,
+            unit: existing?.unit || unit,
+            onHand: existing?.onHand != null ? existing.onHand : onHand,
+            increaseQuantity: existing?.increaseQuantity || 0,
+          });
+        }
+      }
+
+      if (hrRows.length === 0 && repRows.length === 0 && rawLines.length === 0 && stockMap.size === 0) {
+        setMessage("選取的區間需求單與補庫單中沒有任何明細資料可供匯出。");
         setRangeExporting(false);
         return;
       }
