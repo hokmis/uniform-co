@@ -366,8 +366,10 @@ export default function WarehouseShipmentPanel() {
             p_request_fingerprint: requestFingerprint,
           },
         );
-        if (combinedAttempt.status === "called") {
-          postResult = { data: combinedAttempt.data as WarehousePostPayload | null, error: combinedAttempt.error };
+        if (combinedAttempt.status === "called" && !combinedAttempt.error) {
+          postResult = { data: combinedAttempt.data as WarehousePostPayload | null, error: null };
+        } else if (combinedAttempt.status === "called" && combinedAttempt.error) {
+          console.warn("post_warehouse_shipment_with_lines encountered error, falling back to draft save and post_warehouse_shipment:", combinedAttempt.error);
         }
       }
 
