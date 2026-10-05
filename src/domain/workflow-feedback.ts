@@ -15,3 +15,5 @@ export function isConfirmedInventoryFeedback({
   if (status === "POSTED" && message.startsWith(completedPrefix)) return true;
   return Boolean(nextItemPrefix && message.startsWith(nextItemPrefix));
 }
+
+export { safeSupabaseMutationErrorMessage } from "@/src/lib/supabase-session";

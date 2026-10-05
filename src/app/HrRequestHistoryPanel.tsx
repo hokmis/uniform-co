@@ -15,12 +15,15 @@ import {
 } from "@/src/domain/hr-request-history";
 import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
 import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
-import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
+import {
+  retrySupabaseQueriesAfterSessionRefresh,
+  retrySupabaseRpcAfterSessionRefresh,
+  safeSupabaseMutationErrorMessage,
+  safeSupabaseReadErrorMessage,
+} from "@/src/lib/supabase-session";
 import { loadHrRequestHistoryFallback, loadHrRequestHistoryDetailFallback } from "@/src/lib/hr-request-history-fallback";
 import { loadOrganizationMasterData } from "@/src/lib/master-data-cache";
 import { canCancelHrRequest } from "@/src/domain/hr-request-cancellation";
-import { retrySupabaseRpcAfterSessionRefresh } from "@/src/lib/supabase-session";
-import { safeSupabaseMutationErrorMessage } from "@/src/domain/workflow-feedback";
 import {
   buildPivotTableData,
   generatePivotXlsx,
