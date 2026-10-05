@@ -374,7 +374,6 @@ export function generatePivotXlsx(
   </row>`);
 
   // Row 2: 表頭層 1 (分店大標題 / 統計標題)
-  // A2~E2 為空白或合併，F2~lastInstCol 為「請領總數量 (當月各店請領並扣庫存數量)」
   const instGroupHeader = `<c r="${firstInstColName}2" t="inlineStr" s="3"><is><t>請領數量表(當月各品號領退淨額數量)【依員工編列所屬機構與公司】</t></is></c>`;
   const rightGroupHeader = `
     <c r="${sumColName}2" t="inlineStr" s="3"><is><t>請領合計</t></is></c>
@@ -388,7 +387,7 @@ export function generatePivotXlsx(
     <c r="${finalColName}2" t="inlineStr" s="14"><is><t>期末量(下期期初)</t></is></c>
   `;
 
-  xmlRows.push(`  <row r="2" ht="22" customHeight="1">
+  xmlRows.push(`  <row r="2" ht="20" customHeight="1">
     <c r="A2" t="inlineStr" s="3"><is><t>項次</t></is></c>
     <c r="B2" t="inlineStr" s="3"><is><t>品號</t></is></c>
     <c r="C2" t="inlineStr" s="3"><is><t>品名</t></is></c>
@@ -398,60 +397,92 @@ export function generatePivotXlsx(
     ${rightGroupHeader}
   </row>`);
 
-  // Row 3: 表頭層 2 (分店簡稱)
+  // Row 3: 表頭層 2 (分店簡稱，左側與右側統計欄為被合併的佔位格)
   const instNamesCells = institutions.map((inst, idx) => {
     const colName = getExcelColumnName(firstInstCol + idx);
     return `<c r="${colName}3" t="inlineStr" s="4"><is><t>${escapeXml(inst.shortName)}</t></is></c>`;
   }).join("\n    ");
 
-  const rightSymbolCells = `
-    <c r="${sumColName}3" t="inlineStr" s="4"><is><t>B</t></is></c>
-    <c r="${balanceColName}3" t="inlineStr" s="15"><is><t>C=A-B</t></is></c>
-    <c r="${damageColName}3" t="inlineStr" s="4"><is><t>D</t></is></c>
-    <c r="${estimateColName}3" t="inlineStr" s="4"><is><t>E=D-C</t></is></c>
-    <c r="${remarkColName}3" t="inlineStr" s="4"><is><t></t></is></c>
-    <c r="${replenishmentColName}3" t="inlineStr" s="4"><is><t>F</t></is></c>
-    <c r="${issueColName}3" t="inlineStr" s="4"><is><t>G=B+F</t></is></c>
-    <c r="${returnColName}3" t="inlineStr" s="4"><is><t>H</t></is></c>
-    <c r="${finalColName}3" t="inlineStr" s="15"><is><t>I=C+E+G+H</t></is></c>
+  const rightPlaceholderCellsRow3 = `
+    <c r="${sumColName}3" s="3"/>
+    <c r="${balanceColName}3" s="14"/>
+    <c r="${damageColName}3" s="3"/>
+    <c r="${estimateColName}3" s="3"/>
+    <c r="${remarkColName}3" s="3"/>
+    <c r="${replenishmentColName}3" s="3"/>
+    <c r="${issueColName}3" s="3"/>
+    <c r="${returnColName}3" s="3"/>
+    <c r="${finalColName}3" s="14"/>
   `;
 
   xmlRows.push(`  <row r="3" ht="20" customHeight="1">
-    <c r="A3" s="4"/>
-    <c r="B3" s="4"/>
-    <c r="C3" s="4"/>
-    <c r="D3" s="4"/>
-    <c r="E3" t="inlineStr" s="15"><is><t>A</t></is></c>
+    <c r="A3" s="3"/>
+    <c r="B3" s="3"/>
+    <c r="C3" s="3"/>
+    <c r="D3" s="3"/>
+    <c r="E3" s="14"/>
     ${instNamesCells}
-    ${rightSymbolCells}
+    ${rightPlaceholderCellsRow3}
   </row>`);
 
-  // Row 4: 表頭層 3 (分店代碼)
+  // Row 4: 表頭層 3 (分店代碼，左側與右側統計欄為被合併的佔位格)
   const instCodesCells = institutions.map((inst, idx) => {
     const colName = getExcelColumnName(firstInstCol + idx);
     return `<c r="${colName}4" t="inlineStr" s="5"><is><t>${escapeXml(inst.code)}</t></is></c>`;
   }).join("\n    ");
 
+  const rightPlaceholderCellsRow4 = `
+    <c r="${sumColName}4" s="3"/>
+    <c r="${balanceColName}4" s="14"/>
+    <c r="${damageColName}4" s="3"/>
+    <c r="${estimateColName}4" s="3"/>
+    <c r="${remarkColName}4" s="3"/>
+    <c r="${replenishmentColName}4" s="3"/>
+    <c r="${issueColName}4" s="3"/>
+    <c r="${returnColName}4" s="3"/>
+    <c r="${finalColName}4" s="14"/>
+  `;
+
   xmlRows.push(`  <row r="4" ht="18" customHeight="1">
-    <c r="A4" s="5"/>
-    <c r="B4" s="5"/>
-    <c r="C4" s="5"/>
-    <c r="D4" s="5"/>
-    <c r="E4" s="16"/>
+    <c r="A4" s="3"/>
+    <c r="B4" s="3"/>
+    <c r="C4" s="3"/>
+    <c r="D4" s="3"/>
+    <c r="E4" s="14"/>
     ${instCodesCells}
-    <c r="${sumColName}4" s="5"/>
-    <c r="${balanceColName}4" s="16"/>
-    <c r="${damageColName}4" s="5"/>
-    <c r="${estimateColName}4" s="5"/>
-    <c r="${remarkColName}4" s="5"/>
-    <c r="${replenishmentColName}4" s="5"/>
-    <c r="${issueColName}4" s="5"/>
-    <c r="${returnColName}4" s="5"/>
-    <c r="${finalColName}4" s="16"/>
+    ${rightPlaceholderCellsRow4}
   </row>`);
 
-  // Row 5 開始為資料列
-  const startDataRow = 5;
+  // Row 5: 表頭層 4 (符號與計算式代號列)
+  const instBlankCellsRow5 = institutions.map((_, idx) => {
+    const colName = getExcelColumnName(firstInstCol + idx);
+    return `<c r="${colName}5" s="4"/>`;
+  }).join("");
+
+  const rightSymbolCellsRow5 = `
+    <c r="${sumColName}5" t="inlineStr" s="4"><is><t>B</t></is></c>
+    <c r="${balanceColName}5" t="inlineStr" s="15"><is><t>C=A-B</t></is></c>
+    <c r="${damageColName}5" t="inlineStr" s="4"><is><t>D</t></is></c>
+    <c r="${estimateColName}5" t="inlineStr" s="4"><is><t>E=D-C</t></is></c>
+    <c r="${remarkColName}5" s="4"/>
+    <c r="${replenishmentColName}5" t="inlineStr" s="4"><is><t>F</t></is></c>
+    <c r="${issueColName}5" t="inlineStr" s="4"><is><t>G=B+F</t></is></c>
+    <c r="${returnColName}5" t="inlineStr" s="4"><is><t>H</t></is></c>
+    <c r="${finalColName}5" t="inlineStr" s="15"><is><t>I=C+E+G+H</t></is></c>
+  `;
+
+  xmlRows.push(`  <row r="5" ht="18" customHeight="1">
+    <c r="A5" s="4"/>
+    <c r="B5" s="4"/>
+    <c r="C5" s="4"/>
+    <c r="D5" s="4"/>
+    <c r="E5" t="inlineStr" s="15"><is><t>A</t></is></c>
+    ${instBlankCellsRow5}
+    ${rightSymbolCellsRow5}
+  </row>`);
+
+  // Row 6 開始為資料列
+  const startDataRow = 6;
   rows.forEach((row, index) => {
     const r = startDataRow + index;
     const instQtyCells = institutions.map((inst, idx) => {
@@ -610,7 +641,24 @@ export function generatePivotXlsx(
   const mergeCells: string[] = [
     `A1:G1`,
     `H1:${getExcelColumnName(totalCols)}1`,
+    // 表頭項次、品號、品名、規格、期初量 垂直合併 2~4 列
+    `A2:A4`,
+    `B2:B4`,
+    `C2:C4`,
+    `D2:D4`,
+    `E2:E4`,
+    // 分店大表頭 水平合併
     `${firstInstColName}2:${lastInstColName}2`,
+    // 右側統計欄 垂直合併 2~4 列
+    `${sumColName}2:${sumColName}4`,
+    `${balanceColName}2:${balanceColName}4`,
+    `${damageColName}2:${damageColName}4`,
+    `${estimateColName}2:${estimateColName}4`,
+    `${remarkColName}2:${remarkColName}4`,
+    `${replenishmentColName}2:${replenishmentColName}4`,
+    `${issueColName}2:${issueColName}4`,
+    `${returnColName}2:${returnColName}4`,
+    `${finalColName}2:${finalColName}4`,
   ];
   if (rows.length > 0) {
     mergeCells.push(`A${totalRowIndex}:D${totalRowIndex}`);

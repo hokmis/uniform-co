@@ -185,18 +185,18 @@ describe("hr-request-pivot-export", () => {
     const unzipped = unzipSync(xlsxBytes);
     const sheetContent = new TextDecoder().decode(unzipped["xl/worksheets/sheet1.xml"]);
 
-    // 驗證期末量表頭
+    // 驗證期末量表頭（已移至 Row 5 符號列）
     expect(sheetContent).toContain("<is><t>I=C+E+G+H</t></is>");
     expect(sheetContent).toContain("<is><t>G=B+F</t></is>");
 
-    // 驗證期末量實際公式包含 C + E + G + H 欄位相加
+    // 驗證期末量實際公式包含 C + E + G + H 欄位相加 (Row 6)
     // 22 個機構 + 5 個左側欄位 = 第 27 欄 (AA) 為最後一個機構
     // sumCol (B) = AB, balanceCol (C) = AC, damageCol (D) = AD, estimateCol (E) = AE, remark = AF, replenishmentCol (F) = AG, issueCol (G) = AH, returnCol (H) = AI, finalCol (I) = AJ
-    expect(sheetContent).toContain("<f>AC5+AE5+AH5+AI5</f>");
+    expect(sheetContent).toContain("<f>AC6+AE6+AH6+AI6</f>");
     // 驗證期末量計算值 (100 - 5) + (5 + 20) = 120
     expect(sheetContent).toContain("<v>120</v>");
-    // 驗證本次發放量公式 G=B+F (AB5+AG5)
-    expect(sheetContent).toContain("<f>AB5+AG5</f>");
+    // 驗證本次發放量公式 G=B+F (AB6+AG6)
+    expect(sheetContent).toContain("<f>AB6+AG6</f>");
     expect(sheetContent).toContain("<v>25</v>");
   });
 
@@ -246,7 +246,7 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toMatch(/<mergeCell ref="M\d+:S\d+"\/>/);
   });
 
-  it("applies light green fill (#E2EFDA) to initial, balance and final quantity columns, wraps E2 header, and sums all quantity columns in total row", () => {
+  it("merges rows 2-4 for fixed & summary headers, shifts symbols to row 5, and sums correctly in total row", () => {
     const lines: RawIssueLineInput[] = [
       { itemCode: "UNT01", itemName: "上衣", size: "L", institutionCodeOrName: "8C清福", quantity: 3 },
       { itemCode: "UNT02", itemName: "短褲", size: "M", institutionCodeOrName: "7C清氣", quantity: 2 },
@@ -268,28 +268,45 @@ describe("hr-request-pivot-export", () => {
     // 1. 樣式驗證：包含 FFE2EFDA
     expect(stylesContent).toContain('rgb="FFE2EFDA"');
 
-    // 2. 表頭 E2 換行文字：期&#10;初&#10;量，並套用樣式 14
+    // 2. 表頭垂直合併驗證 (A2:A4 ~ E2:E4 以及右側統計欄)
+    expect(sheetContent).toContain('<mergeCell ref="A2:A4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="B2:B4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="C2:C4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="D2:D4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="E2:E4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AB2:AB4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AC2:AC4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AD2:AD4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AE2:AE4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AF2:AF4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AG2:AG4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AH2:AH4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AI2:AI4"/>');
+    expect(sheetContent).toContain('<mergeCell ref="AJ2:AJ4"/>');
+
+    // 3. 表頭 E2 換行文字：期&#10;初&#10;量
     expect(sheetContent).toContain('<c r="E2" t="inlineStr" s="14"><is><t>期&#10;初&#10;量</t></is></c>');
 
-    // 3. 月結量與期末量表頭套用樣式 14
-    // 22 分店：E (5), F~AA (6~27), AB (28=sum), AC (29=balance), AD (30), AE (31), AF (32), AG (33), AH (34), AI (35), AJ (36=final)
-    expect(sheetContent).toContain('<c r="AC2" t="inlineStr" s="14"><is><t>月結量(抽盤)</t></is></c>');
-    expect(sheetContent).toContain('<c r="AJ2" t="inlineStr" s="14"><is><t>期末量(下期期初)</t></is></c>');
+    // 4. Row 5 符號列驗證
+    expect(sheetContent).toContain('<c r="E5" t="inlineStr" s="15"><is><t>A</t></is></c>');
+    expect(sheetContent).toContain('<c r="AB5" t="inlineStr" s="4"><is><t>B</t></is></c>');
+    expect(sheetContent).toContain('<c r="AC5" t="inlineStr" s="15"><is><t>C=A-B</t></is></c>');
+    expect(sheetContent).toContain('<c r="AJ5" t="inlineStr" s="15"><is><t>I=C+E+G+H</t></is></c>');
 
-    // 4. 資料列套用綠底樣式 17
-    expect(sheetContent).toContain('<c r="E5" s="17"><v>50</v></c>');
-    expect(sheetContent).toContain('<c r="AC5" s="17">');
-    expect(sheetContent).toContain('<c r="AJ5" s="17">');
+    // 5. 資料列從 Row 6 開始
+    expect(sheetContent).toContain('<c r="E6" s="17"><v>50</v></c>');
+    expect(sheetContent).toContain('<c r="AC6" s="17">');
+    expect(sheetContent).toContain('<c r="AJ6" s="17">');
 
-    // 5. 合計列（Row 7）從期初量至期末量全數計算合計量與 SUM 公式
-    expect(sheetContent).toContain('<c r="E7" s="18"><f>SUM(E5:E6)</f><v>80</v></c>');
-    expect(sheetContent).toContain('<c r="AB7" s="8"><f>SUM(AB5:AB6)</f><v>5</v></c>');
-    expect(sheetContent).toContain('<c r="AC7" s="18"><f>SUM(AC5:AC6)</f><v>75</v></c>'); // 80 - 5 = 75
-    expect(sheetContent).toContain('<c r="AD7" s="8"><f>SUM(AD5:AD6)</f></c>');
-    expect(sheetContent).toContain('<c r="AE7" s="8"><f>SUM(AE5:AE6)</f></c>');
-    expect(sheetContent).toContain('<c r="AG7" s="8"><f>SUM(AG5:AG6)</f><v>5</v></c>');
-    expect(sheetContent).toContain('<c r="AH7" s="8"><f>SUM(AH5:AH6)</f><v>10</v></c>'); // 5 + 5
-    expect(sheetContent).toContain('<c r="AI7" s="8"><f>SUM(AI5:AI6)</f></c>');
-    expect(sheetContent).toContain('<c r="AJ7" s="18"><f>SUM(AJ5:AJ6)</f><v>85</v></c>'); // 80 + 5 = 85
+    // 6. 合計列（Row 8）從期初量至期末量全數計算合計量與 SUM 公式 (E6:E7)
+    expect(sheetContent).toContain('<c r="E8" s="18"><f>SUM(E6:E7)</f><v>80</v></c>');
+    expect(sheetContent).toContain('<c r="AB8" s="8"><f>SUM(AB6:AB7)</f><v>5</v></c>');
+    expect(sheetContent).toContain('<c r="AC8" s="18"><f>SUM(AC6:AC7)</f><v>75</v></c>'); // 80 - 5 = 75
+    expect(sheetContent).toContain('<c r="AD8" s="8"><f>SUM(AD6:AD7)</f></c>');
+    expect(sheetContent).toContain('<c r="AE8" s="8"><f>SUM(AE6:AE7)</f></c>');
+    expect(sheetContent).toContain('<c r="AG8" s="8"><f>SUM(AG6:AG7)</f><v>5</v></c>');
+    expect(sheetContent).toContain('<c r="AH8" s="8"><f>SUM(AH6:AH7)</f><v>10</v></c>'); // 5 + 5
+    expect(sheetContent).toContain('<c r="AI8" s="8"><f>SUM(AI6:AI7)</f></c>');
+    expect(sheetContent).toContain('<c r="AJ8" s="18"><f>SUM(AJ6:AJ7)</f><v>85</v></c>'); // 80 + 5 = 85
   });
 });
