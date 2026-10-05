@@ -78,6 +78,7 @@ export type HrRequestMasterData = {
 };
 
 export type ActiveItemOption = Pick<MasterDataItem, "id" | "item_code" | "item_name" | "unit" | "size">;
+export type InventoryHistoryItemOption = ActiveItemOption & Pick<MasterDataItem, "is_active">;
 export type ActiveInstitutionOption = Pick<MasterDataInstitution, "id" | "code" | "name">;
 export type ActiveWarehouseOption = Pick<MasterDataWarehouse, "id" | "code" | "name" | "purpose">;
 export type MasterDataWarehouse = {
@@ -91,7 +92,7 @@ export type ActiveItemMasterData = { items: ActiveItemOption[]; errors: MasterDa
 export type ActiveInstitutionMasterData = { institutions: ActiveInstitutionOption[]; errors: MasterDataReadError[] };
 export type ActiveWarehouseMasterData = { warehouses: ActiveWarehouseOption[]; errors: MasterDataReadError[] };
 
-type CacheKey = "organization" | "product" | "procurement" | "employee" | "active-employees" | "hr-request" | "active-items" | "active-institutions" | "active-warehouses";
+type CacheKey = "organization" | "product" | "procurement" | "employee" | "active-employees" | "hr-request" | "active-items" | "history-items" | "active-institutions" | "active-warehouses";
 type CacheEntry = { loadedAt: number; promise: Promise<unknown> };
 
 // Projection entries are derived from their full source snapshots. Keep that
@@ -99,12 +100,13 @@ type CacheEntry = { loadedAt: number; promise: Promise<unknown> };
 // instead of having to remember which sibling keys to clear after a mutation.
 const INVALIDATION_KEYS: Record<CacheKey, readonly CacheKey[]> = {
   organization: ["organization", "active-institutions", "hr-request"],
-  product: ["product", "procurement", "active-items", "hr-request"],
+  product: ["product", "procurement", "active-items", "history-items", "hr-request"],
   procurement: ["procurement"],
   employee: ["employee", "active-employees", "hr-request"],
   "active-employees": ["active-employees"],
   "hr-request": ["hr-request"],
   "active-items": ["active-items"],
+  "history-items": ["history-items"],
   "active-institutions": ["active-institutions"],
   "active-warehouses": ["active-warehouses"],
 };
@@ -434,6 +436,24 @@ export function loadActiveItemOptions(client: SupabaseClient): Promise<ActiveIte
       value: { items: (itemResult.data ?? []) as ActiveItemOption[], errors },
       cacheable: errors.length === 0,
     };
+  });
+}
+
+export function loadInventoryHistoryItemOptions(client: SupabaseClient): Promise<{ items: InventoryHistoryItemOption[]; errors: MasterDataReadError[] }> {
+  return cached(client, "history-items", async () => {
+    const productSnapshot = freshCached<ProductMasterData>(client, "product");
+    if (productSnapshot) {
+      const source = await productSnapshot;
+      const errors = errorsForResources(source.errors, ["uniform_items"]);
+      return {
+        value: { items: source.items.map(({ id, item_code, item_name, unit, size, is_active }) => ({ id, item_code, item_name, unit, size, is_active })), errors },
+        cacheable: errors.length === 0,
+      };
+    }
+    const [result] = await retrySupabaseQueriesAfterSessionRefresh(client,
+      async () => [await client.from("uniform_items").select("id,item_code,item_name,unit,size,is_active").order("item_code").limit(10000)] as const);
+    const errors = [readError("uniform_items", result.error)].filter((error): error is MasterDataReadError => Boolean(error));
+    return { value: { items: (result.data ?? []) as InventoryHistoryItemOption[], errors }, cacheable: errors.length === 0 };
   });
 }
 

@@ -8,6 +8,7 @@ import type { WorkspaceId } from "./workspace-config";
 
 const WarehouseShipmentPanel = dynamic(() => import("../WarehouseShipmentPanel"), { loading: () => <WorkspacePanelLoading label="正在載入發貨作業" /> });
 const StocktakePanel = dynamic(() => import("../StocktakePanel"), { loading: () => <WorkspacePanelLoading label="正在載入庫存盤點" /> });
+const InventoryAdjustmentPanel = dynamic(() => import("../InventoryAdjustmentPanel"), { loading: () => <WorkspacePanelLoading label="正在載入庫存調整作業" /> });
 const WarehouseTransferCorrectionPanel = dynamic(() => import("../WarehouseTransferCorrectionPanel"), { loading: () => <WorkspacePanelLoading label="正在載入調庫更正" /> });
 const StocktakeCorrectionPanel = dynamic(() => import("../StocktakeCorrectionPanel"), { loading: () => <WorkspacePanelLoading label="正在載入盤點更正" /> });
 
@@ -38,6 +39,7 @@ export default function WarehouseWorkspace({ activeModule, onNavigate }: Props) 
         { id: "stocktake-correction", label: "盤點更正", content: <StocktakeCorrectionPanel /> },
       ]}
     /> },
+    { id: "warehouse-adjustment-title", content: <InventoryAdjustmentPanel /> },
   ], [onNavigate]);
 
   return (

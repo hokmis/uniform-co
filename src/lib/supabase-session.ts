@@ -55,6 +55,31 @@ export async function retrySupabaseQueriesAfterSessionRefresh<
   return result;
 }
 
+/** Retry one idempotent database mutation after a refreshable JWT synchronization error only. */
+export async function retrySupabaseMutationAfterSessionRefresh<
+  T extends SupabaseQueryResult,
+>(
+  client: SupabaseClient,
+  mutation: () => Promise<T>,
+): Promise<T> {
+  const result = await mutation();
+  if (!isSupabaseSessionSyncError(result.error)) return result;
+
+  if (!await refreshSessionOnce(client)) return result;
+
+  return mutation();
+}
+
+/** Retry one idempotent RPC after a refreshable JWT synchronization error only. */
+export async function retrySupabaseRpcAfterSessionRefresh<
+  T extends SupabaseQueryResult,
+>(
+  client: SupabaseClient,
+  rpc: () => Promise<T>,
+): Promise<T> {
+  return retrySupabaseMutationAfterSessionRefresh(client, rpc);
+}
+
 export function safeSupabaseReadErrorMessage(
   error: SupabaseSessionError | null | undefined,
 ): string {

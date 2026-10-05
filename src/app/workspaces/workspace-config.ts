@@ -44,6 +44,7 @@ export const workspaceDefinitions = [
       { anchor: "warehouse-inventory-title", label: "庫存管理", keywords: "庫存 人資倉 總倉 預留 可申請量 品號 庫存清單 期初 入庫 發貨 盤點 更正 匯出" },
       { anchor: "warehouse-control-title", label: "發貨作業", keywords: "發貨 調庫 人資倉 總倉 POST 實際調庫量" },
       { anchor: "warehouse-stocktake-title", label: "盤點與倉庫更正", keywords: "盤點 fencing 調庫 更正 理由" },
+      { anchor: "warehouse-adjustment-title", label: "庫存調整作業", keywords: "庫存調整 正數 負數 增加 減少 CSV 匯入 範例" },
     ],
   },
   {

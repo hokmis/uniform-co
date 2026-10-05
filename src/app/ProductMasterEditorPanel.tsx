@@ -13,6 +13,7 @@ import { invalidateMasterDataCache, loadProductMasterData } from "@/src/lib/mast
 import { createReadRequestController, shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
 import { safeSupabaseMutationErrorMessage } from "@/src/lib/supabase-session";
 import type { ProductItemEditRequest } from "./ProductCatalogPanel";
+import SearchableItemPicker from "./SearchableItemPicker";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 
@@ -190,9 +191,32 @@ export default function ProductMasterEditorPanel({
   }, [client, identityReady, panelActive, reloadToken]);
 
   const existingOptions = useMemo(() => {
-    if (entityType === "UNIFORM_ITEMS") return sources.items.map((item) => ({ value: item.item_code, label: `${item.item_code}｜${item.item_name}` }));
     if (entityType === "SUPPLIERS") return sources.suppliers.map((supplier) => ({ value: supplier.supplier_code, label: `${supplier.supplier_code}｜${supplier.name}` }));
-    return sources.supplierItems.map((relation) => ({ value: `${relation.supplier_code}:${relation.item_code}`, label: `${relation.supplier_code}｜${relation.item_code}` }));
+    return [];
+  }, [entityType, sources.suppliers]);
+
+  const existingItemOptions = useMemo(() => {
+    if (entityType === "UNIFORM_ITEMS") return sources.items.map((item) => ({
+      id: item.item_code,
+      code: item.item_code,
+      name: item.item_name,
+      size: item.size,
+      detail: item.is_active ? "啟用中" : "已停用",
+    }));
+    if (entityType === "SUPPLIER_ITEMS") {
+      const itemByCode = new Map(sources.items.map((item) => [item.item_code, item]));
+      return sources.supplierItems.map((relation) => {
+        const item = itemByCode.get(relation.item_code);
+        return {
+          id: `${relation.supplier_code}:${relation.item_code}`,
+          code: relation.item_code,
+          name: item?.item_name ?? "制服品號",
+          size: item?.size,
+          detail: `${relation.supplier_code}｜${relation.is_active ? "啟用中" : "已停用"}｜MOQ ${relation.minimum_order_quantity ?? "未設定"}`,
+        };
+      });
+    }
+    return [];
   }, [entityType, sources]);
 
   function resetEditor(nextEntityType: ProductEntityType = entityType) {
@@ -370,7 +394,9 @@ export default function ProductMasterEditorPanel({
       {deleting ? <div className="product-deactivate-warning"><strong>刪除後無法復原</strong><span>只有沒有庫存餘額與庫存流水的商品才可刪除；若仍有供應商、需求、採購或其他業務關聯，資料庫也會拒絕刪除。若只是暫時不用，請返回選擇「停用」。</span></div> : null}
       {!catalogItemEditor ? <div className="form-grid product-editor-toolbar">
         <label className="field"><span>資料類型</span><select value={entityType} onChange={(event) => selectEntity(event.target.value as ProductEntityType)} disabled={busy || (dataLoading && !sourceSnapshotReady)}>{visibleEntityOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        <label className="field"><span>載入既有資料（修改／停用）</span><select value={editingKey} onChange={(event) => selectExisting(event.target.value)} disabled={busy || (dataLoading && !sourceSnapshotReady)}><option value="">新增一筆 {entityLabel}</option>{existingOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+        {entityType === "SUPPLIERS"
+          ? <label className="field"><span>載入既有資料（修改／停用）</span><select value={editingKey} onChange={(event) => selectExisting(event.target.value)} disabled={busy || (dataLoading && !sourceSnapshotReady)}><option value="">新增一筆 {entityLabel}</option>{existingOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          : <div className="field"><span>載入既有資料（修改／停用）</span><SearchableItemPicker label="既有制服品號／供應商品號" placeholder="搜尋品號、品名、尺寸、供應商或狀態" options={existingItemOptions} value={editingKey} onChange={(value) => { if (typeof value === "string") selectExisting(value); }} disabled={busy || (dataLoading && !sourceSnapshotReady)} emptyMessage={`沒有符合的${entityLabel}`} /></div>}
       </div> : null}
       {entityType === "UNIFORM_ITEMS" ? <div className="form-grid">
         <label className="field"><span>品號</span><input value={form.itemCode} onChange={(event) => updateField("itemCode", event.target.value)} disabled={busy || keyLocked || confirmationOnly} maxLength={100} /></label>
@@ -387,7 +413,7 @@ export default function ProductMasterEditorPanel({
       </div> : null}
       {entityType === "SUPPLIER_ITEMS" ? <div className="form-grid">
         <label className="field"><span>供應商</span><select value={form.supplierCode} onChange={(event) => updateField("supplierCode", event.target.value)} disabled={busy || (!sourceSnapshotReady && dataLoading) || keyLocked}><option value="">請選擇</option>{sources.suppliers.filter((supplier) => supplier.is_active).map((supplier) => <option key={supplier.id} value={supplier.supplier_code}>{supplier.supplier_code}｜{supplier.name}</option>)}</select></label>
-        <label className="field"><span>制服品號</span><select value={form.itemCode} onChange={(event) => updateField("itemCode", event.target.value)} disabled={busy || (!sourceSnapshotReady && dataLoading) || keyLocked}><option value="">請選擇</option>{sources.items.filter((item) => item.is_active).map((item) => <option key={item.id} value={item.item_code}>{item.item_code}｜{item.item_name}</option>)}</select></label>
+        <div className="field"><span>制服品號</span><SearchableItemPicker label="供應商品號" placeholder="搜尋品號、品名或尺寸" options={sources.items.filter((item) => item.is_active).map((item) => ({ id: item.item_code, code: item.item_code, name: item.item_name, size: item.size }))} value={form.itemCode} onChange={(value) => { if (typeof value === "string") updateField("itemCode", value); }} disabled={busy || (!sourceSnapshotReady && dataLoading) || keyLocked} /></div>
         <label className="field"><span>MOQ</span><input type="number" min={0} step={1} value={form.minimumOrderQuantity} onChange={(event) => updateField("minimumOrderQuantity", event.target.value)} disabled={busy} /></label>
         <label className="field"><span>供應商品號（選填）</span><input value={form.supplierItemCode} onChange={(event) => updateField("supplierItemCode", event.target.value)} disabled={busy} maxLength={100} /></label>
       </div> : null}

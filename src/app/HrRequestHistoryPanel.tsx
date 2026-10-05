@@ -18,6 +18,9 @@ import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/doma
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { loadHrRequestHistoryFallback, loadHrRequestHistoryDetailFallback } from "@/src/lib/hr-request-history-fallback";
 import { loadOrganizationMasterData } from "@/src/lib/master-data-cache";
+import { canCancelHrRequest } from "@/src/domain/hr-request-cancellation";
+import { retrySupabaseRpcAfterSessionRefresh } from "@/src/lib/supabase-session";
+import { safeSupabaseMutationErrorMessage } from "@/src/domain/workflow-feedback";
 import {
   buildPivotTableData,
   generatePivotXlsx,
@@ -79,7 +82,7 @@ function numberValue(value: unknown): number {
 }
 
 export default function HrRequestHistoryPanel() {
-  const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
+  const { client, isAuthenticated, accountId, roles, identityError, identityLoading } = useWorkspaceSession();
   const panelActive = usePanelActivity();
   const [rows, setRows] = useState<HrRequestHistoryRow[]>([]);
   const [query, setQuery] = useState("");
@@ -99,6 +102,11 @@ export default function HrRequestHistoryPanel() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [rangeExporting, setRangeExporting] = useState(false);
   const [message, setMessage] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelMessage, setCancelMessage] = useState("");
+  const cancelOperationsRef = useRef<Map<string, { requestId: string; reason: string; key: string }>>(new Map());
+  const cancelFlightRef = useRef(false);
   const hasSession = isAuthenticated;
   const rowsRef = useRef<HrRequestHistoryRow[]>([]);
   const selectedIdRef = useRef("");
@@ -433,6 +441,44 @@ export default function HrRequestHistoryPanel() {
       setMessage(`匯出發生例外錯誤：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setRangeExporting(false);
+    }
+  }
+
+  async function cancelSelectedRequest() {
+    if (!client || !identityReady || !selected || !accountId || cancelFlightRef.current
+      || !canCancelHrRequest(selected.status, roles)) return;
+    const requestId = selected.id;
+    const actorAccountId = accountId;
+    const operationId = `${actorAccountId}:${requestId}`;
+    const previous = cancelOperationsRef.current.get(operationId);
+    const reason = previous?.reason ?? cancelReason.trim();
+    if (!reason) { setCancelMessage("請填寫取消原因。"); return; }
+    const operation = previous ?? { requestId, reason, key: `CANCEL-HR-${crypto.randomUUID()}` };
+    cancelOperationsRef.current.set(operationId, operation);
+    cancelFlightRef.current = true;
+    setCancelling(true);
+    setCancelMessage("");
+    try {
+      const { data, error } = await retrySupabaseRpcAfterSessionRefresh(client, async () => await client.rpc("cancel_hr_request", {
+        p_request_id: operation.requestId,
+        p_reason: operation.reason,
+        p_idempotency_key: operation.key,
+        p_request_fingerprint: JSON.stringify({ requestId: operation.requestId, reason: operation.reason }),
+      }));
+      if (dataSnapshotAccountIdRef.current !== actorAccountId) return;
+      if (error || data?.id !== requestId || data?.status !== "CANCELLED") {
+        setCancelMessage(safeSupabaseMutationErrorMessage(error, "取消結果尚未確認；請使用相同資料重試。"));
+        return;
+      }
+      cancelOperationsRef.current.delete(operationId);
+      setCancelReason("");
+      setCancelMessage("需求已取消，預留已釋放；歷史資料保留。");
+      window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
+    } catch {
+      setCancelMessage("取消結果尚未確認；請使用相同資料重試。");
+    } finally {
+      cancelFlightRef.current = false;
+      setCancelling(false);
     }
   }
 
@@ -943,6 +989,30 @@ export default function HrRequestHistoryPanel() {
         const cleanNote = selected.note.replace(/<!--unit_map:.*?-->/g, "").trim();
         return cleanNote ? <p className="auth-message">備註：{cleanNote}</p> : null;
       })() : null}
+      {canCancelHrRequest(selected.status, roles) ? (
+        <div className="workflow-secondary-form" style={{ marginTop: 12, marginBottom: 12 }}>
+          <label className="field">
+            <span>取消需求原因</span>
+            <input
+              value={cancelOperationsRef.current.get(`${accountId}:${selected.id}`)?.reason ?? cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+              disabled={cancelling || cancelOperationsRef.current.has(`${accountId}:${selected.id}`)}
+              maxLength={2000}
+              placeholder="請輸入取消原因…"
+            />
+          </label>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void cancelSelectedRequest()}
+            disabled={cancelling || !identityReady}
+          >
+            {cancelling ? "取消中…" : cancelOperationsRef.current.has(`${accountId}:${selected.id}`) ? "以相同資料重試取消" : "取消所選需求並釋放預留"}
+          </button>
+          <p className="muted">只能取消尚未完成發貨的需求，資料庫會再次確認狀態。</p>
+        </div>
+      ) : null}
+      {cancelMessage ? <p className={cancelMessage.includes("已取消") ? "success-note" : "auth-message"} role="status">{cancelMessage}</p> : null}
       {detailLoading ? <p className="muted">明細讀取中…</p> : detailLoadedForRequestId !== selectedId ? <p className="auth-message">目前需求的明細尚未載入，請重新整理後再試。</p> : (
         selected.requestType === "REPLENISHMENT" ? (
           <>
