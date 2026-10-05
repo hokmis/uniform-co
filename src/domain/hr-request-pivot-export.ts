@@ -392,7 +392,7 @@ export function generatePivotXlsx(
 
   // Row 1: 大標題列與區間提示
   // A1: 標題與發放區間 (例如：平日制服領用表 ( 2026-09-21 ～ 2026-10-20 )), H1: 繳交日期提示
-  xmlRows.push(`  <row r="1" ht="26" customHeight="1">
+  xmlRows.push(`  <row r="1" ht="28" customHeight="1">
     <c r="A1" t="inlineStr" s="1"><is><t>${escapeXml(displayTitle)}</t></is></c>
     <c r="H1" t="inlineStr" s="2"><is><t>${escapeXml(notice)}</t></is></c>
   </row>`);
@@ -524,7 +524,13 @@ export function generatePivotXlsx(
   const returnHdrStyle = getCellStyleId("headerPink", { top: "medium", bottom: "thin", left: "thin", right: "thin" });
   const finalHdrStyle = getCellStyleId("headerGreen", { top: "medium", bottom: "thin", left: "thin", right: "medium" });
 
-  const instGroupHeader = `<c r="${firstInstColName}2" t="inlineStr" s="${instGroupStyle}"><is><t>請領數量表(當月各品號領退淨額數量)【依員工編列所屬機構與公司】</t></is></c>`;
+  const instGroupCellsRow2 = institutions.map((_, idx) => {
+    const colName = getExcelColumnName(firstInstCol + idx);
+    if (idx === 0) {
+      return `<c r="${colName}2" t="inlineStr" s="${instGroupStyle}"><is><t>請領數量表(當月各品號領退淨額數量)【依員工編列所屬機構與公司】</t></is></c>`;
+    }
+    return `<c r="${colName}2" s="${instGroupStyle}"/>`;
+  }).join("\n    ");
   const rightGroupHeader = `
     <c r="${sumColName}2" t="inlineStr" s="${sumHdrStyle}"><is><t>請領&#10;合計</t></is></c>
     <c r="${balanceColName}2" t="inlineStr" s="${balanceHdrStyle}"><is><t>月結量&#10;(抽盤)</t></is></c>
@@ -537,13 +543,13 @@ export function generatePivotXlsx(
     <c r="${finalColName}2" t="inlineStr" s="${finalHdrStyle}"><is><t>期末量&#10;(下期期初)</t></is></c>
   `;
 
-  xmlRows.push(`  <row r="2" ht="20" customHeight="1">
+  xmlRows.push(`  <row r="2" ht="22" customHeight="1">
     <c r="A2" t="inlineStr" s="${a2Style}"><is><t>項次</t></is></c>
     <c r="B2" t="inlineStr" s="${b2Style}"><is><t>品號</t></is></c>
     <c r="C2" t="inlineStr" s="${c2Style}"><is><t>品名</t></is></c>
     <c r="D2" t="inlineStr" s="${d2Style}"><is><t>規格</t></is></c>
     <c r="E2" t="inlineStr" s="${e2Style}"><is><t>期&#10;初&#10;量</t></is></c>
-    ${instGroupHeader}
+    ${instGroupCellsRow2}
     ${rightGroupHeader}
   </row>`);
 
@@ -580,7 +586,7 @@ export function generatePivotXlsx(
     <c r="${finalColName}3" s="${final3Style}"/>
   `;
 
-  xmlRows.push(`  <row r="3" ht="20" customHeight="1">
+  xmlRows.push(`  <row r="3" ht="22" customHeight="1">
     <c r="A3" s="${a3Style}"/>
     <c r="B3" s="${mid3Style}"/>
     <c r="C3" s="${mid3Style}"/>
@@ -623,7 +629,7 @@ export function generatePivotXlsx(
     <c r="${finalColName}4" s="${final4Style}"/>
   `;
 
-  xmlRows.push(`  <row r="4" ht="18" customHeight="1">
+  xmlRows.push(`  <row r="4" ht="20" customHeight="1">
     <c r="A4" s="${a4Style}"/>
     <c r="B4" s="${mid4Style}"/>
     <c r="C4" s="${mid4Style}"/>
@@ -666,7 +672,7 @@ export function generatePivotXlsx(
     <c r="${finalColName}5" t="inlineStr" s="${final5Style}"><is><t>I=C+E+G+H</t></is></c>
   `;
 
-  xmlRows.push(`  <row r="5" ht="18" customHeight="1">
+  xmlRows.push(`  <row r="5" ht="20" customHeight="1">
     <c r="A5" s="${a5Style}"/>
     <c r="B5" s="${mid5Style}"/>
     <c r="C5" s="${mid5Style}"/>
@@ -736,7 +742,7 @@ export function generatePivotXlsx(
     const issueVal = totalIssuedVal + increaseVal;
     const finalVal = balanceVal + issueVal;
 
-    xmlRows.push(`  <row r="${r}" ht="20" customHeight="1">
+    xmlRows.push(`  <row r="${r}" ht="22" customHeight="1">
     <c r="A${r}" s="${aStyle}"><v>${index + 1}</v></c>
     <c r="B${r}" t="inlineStr" s="${bStyle}"><is><t>${escapeXml(row.itemCode)}</t></is></c>
     <c r="C${r}" t="inlineStr" s="${cStyle}"><is><t>${escapeXml(row.itemName)}</t></is></c>
@@ -806,7 +812,7 @@ export function generatePivotXlsx(
     const totReturnStyle = getCellStyleId("totalCenter", totalCellBorder(returnColIndex));
     const totFinalStyle = getCellStyleId("totalGreen", totalCellBorder(finalColIndex));
 
-    xmlRows.push(`  <row r="${totalRowIndex}" ht="22" customHeight="1">
+    xmlRows.push(`  <row r="${totalRowIndex}" ht="24" customHeight="1">
     <c r="A${totalRowIndex}" t="inlineStr" s="${totAStyle}"><is><t>合計</t></is></c>
     <c r="B${totalRowIndex}" s="${totBStyle}"/>
     <c r="C${totalRowIndex}" s="${totCStyle}"/>
@@ -832,7 +838,7 @@ export function generatePivotXlsx(
   const sigRow2 = totalRowIndex + 4;
 
   // 附註列
-  xmlRows.push(`  <row r="${noteRowIndex}" ht="20" customHeight="1">
+  xmlRows.push(`  <row r="${noteRowIndex}" ht="22" customHeight="1">
     <c r="A${noteRowIndex}" t="inlineStr" s="9"><is><t>註：正本提供事務組簽核後，繳交財務室稽核留存。</t></is></c>
   </row>`);
 
@@ -868,7 +874,7 @@ export function generatePivotXlsx(
     makeCellRange(sigRow1, rSignLeftStart, rSignLeftEnd, 10, "人資簽收&#10;(制服領貨)"),
     makeCellRange(sigRow1, rSignRightStart, rSignRightEnd, 13),
   ].join("");
-  xmlRows.push(`  <row r="${sigRow1}" ht="48" customHeight="1">${sigRow1Cells}</row>`);
+  xmlRows.push(`  <row r="${sigRow1}" ht="52" customHeight="1">${sigRow1Cells}</row>`);
 
   // 簽核列 2：事務組
   const sigRow2Cells = [
@@ -877,19 +883,19 @@ export function generatePivotXlsx(
     makeCellRange(sigRow2, 8, 12, 11, "覆核："),
     makeCellRange(sigRow2, 13, 19, 11, "事務經辦："),
   ].join("");
-  xmlRows.push(`  <row r="${sigRow2}" ht="48" customHeight="1">${sigRow2Cells}</row>`);
+  xmlRows.push(`  <row r="${sigRow2}" ht="52" customHeight="1">${sigRow2Cells}</row>`);
 
   // 欄寬定義
   const colsXml = `  <cols>
-    <col min="1" max="1" width="6" customWidth="1"/>
-    <col min="2" max="2" width="14" customWidth="1"/>
-    <col min="3" max="3" width="18" customWidth="1"/>
-    <col min="4" max="4" width="8" customWidth="1"/>
-    <col min="5" max="5" width="8" customWidth="1"/>
-    <col min="${firstInstCol}" max="${lastInstCol}" width="5" customWidth="1"/>
-    <col min="${sumColIndex}" max="${sumColIndex}" width="10" customWidth="1"/>
-    <col min="${balanceColIndex}" max="${balanceColIndex}" width="10" customWidth="1"/>
-    <col min="${damageColIndex}" max="${totalCols}" width="11" customWidth="1"/>
+    <col min="1" max="1" width="7" customWidth="1"/>
+    <col min="2" max="2" width="16" customWidth="1"/>
+    <col min="3" max="3" width="22" customWidth="1"/>
+    <col min="4" max="4" width="9" customWidth="1"/>
+    <col min="5" max="5" width="9" customWidth="1"/>
+    <col min="${firstInstCol}" max="${lastInstCol}" width="6" customWidth="1"/>
+    <col min="${sumColIndex}" max="${sumColIndex}" width="11" customWidth="1"/>
+    <col min="${balanceColIndex}" max="${balanceColIndex}" width="11" customWidth="1"/>
+    <col min="${damageColIndex}" max="${totalCols}" width="12" customWidth="1"/>
   </cols>`;
 
   // 合併儲存格
@@ -951,11 +957,11 @@ ${mergeCellsXml}
   const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="5">
+    <font><sz val="13"/><name val="微軟正黑體"/></font>
+    <font><sz val="16"/><b/><name val="微軟正黑體"/></font>
+    <font><sz val="12"/><b/><name val="微軟正黑體"/></font>
     <font><sz val="11"/><name val="微軟正黑體"/></font>
-    <font><sz val="14"/><b/><name val="微軟正黑體"/></font>
-    <font><sz val="10"/><b/><name val="微軟正黑體"/></font>
-    <font><sz val="9"/><name val="微軟正黑體"/></font>
-    <font><sz val="11"/><b/><name val="微軟正黑體"/></font>
+    <font><sz val="13"/><b/><name val="微軟正黑體"/></font>
   </fonts>
   <fills count="8">
     <fill><patternFill patternType="none"/></fill>

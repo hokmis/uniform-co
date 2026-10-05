@@ -324,6 +324,18 @@ describe("hr-request-pivot-export", () => {
     // 7. 驗證樣式表中包含 medium (粗外框線) 與 double (底端雙框線)
     expect(stylesContent).toContain('style="medium"');
     expect(stylesContent).toContain('style="double"');
+
+    // 8. 驗證全域字體放大 2pt (13pt, 16pt, 12pt, 11pt)
+    expect(stylesContent).toContain('<font><sz val="13"/><name val="微軟正黑體"/></font>');
+    expect(stylesContent).toContain('<font><sz val="16"/><b/><name val="微軟正黑體"/></font>');
+    expect(stylesContent).toContain('<font><sz val="12"/><b/><name val="微軟正黑體"/></font>');
+    expect(stylesContent).toContain('<font><sz val="11"/><name val="微軟正黑體"/></font>');
+    expect(stylesContent).toContain('<font><sz val="13"/><b/><name val="微軟正黑體"/></font>');
+
+    // 9. 驗證 Row 2 分店區間 (F2 ~ AA2) 完整產生帶頂部粗框線樣式的儲存格
+    expect(sheetContent).toMatch(/<c r="F2" t="inlineStr" s="\d+"><is><t>請領數量表/);
+    expect(sheetContent).toMatch(/<c r="G2" s="\d+"\/>/);
+    expect(sheetContent).toMatch(/<c r="AA2" s="\d+"\/>/);
   });
 
   it("accurately detects category transitions as requested by the user", () => {
