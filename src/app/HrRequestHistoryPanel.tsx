@@ -163,80 +163,84 @@ export default function HrRequestHistoryPanel() {
   }, [selected]);
   const activeReserved = reservations.filter((row) => row.status === "ACTIVE").reduce((sum, row) => sum + numberValue(row.quantity), 0);
 
-  function handleExportSelected() {
+  async function handleExportSelected() {
     if (!selected) return;
     const isReplenishment = selected.requestType === "REPLENISHMENT";
     if (issueLines.length === 0 && items.length === 0) {
       setMessage("目前選取的單據沒有明細可供匯出。");
       return;
     }
-    const rawLines: RawIssueLineInput[] = issueLines.map((line) => {
-      const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
-      const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
-      const unitName = (selectedCode && orgMap.get(selectedCode))
-        || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
-        || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
-        || orgMap.get(unitCode)
-        || line.department_name_snapshot
-        || line.institution_name_snapshot
-        || unitCode;
-      return {
-        itemCode: line.item_code_snapshot || "",
-        itemName: line.item_name_snapshot || "",
-        size: line.size_snapshot || "",
-        unit: line.unit_snapshot || "件",
-        institutionCodeOrName: unitName || unitCode,
-        quantity: numberValue(line.quantity),
-      };
-    });
+    try {
+      const rawLines: RawIssueLineInput[] = issueLines.map((line) => {
+        const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
+        const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
+        const unitName = (selectedCode && orgMap.get(selectedCode))
+          || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
+          || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
+          || orgMap.get(unitCode)
+          || line.department_name_snapshot
+          || line.institution_name_snapshot
+          || unitCode;
+        return {
+          itemCode: line.item_code_snapshot || "",
+          itemName: line.item_name_snapshot || "",
+          size: line.size_snapshot || "",
+          unit: line.unit_snapshot || "件",
+          institutionCodeOrName: unitName || unitCode,
+          quantity: numberValue(line.quantity),
+        };
+      });
 
-    const stockMap = new Map<string, ItemStockInfo>();
-    for (const item of items) {
-      const itemCode = item.item_code_snapshot || item.item_id;
-      if (itemCode) {
-        stockMap.set(itemCode, {
-          itemCode,
-          itemName: item.item_name_snapshot || itemCode,
-          unit: item.unit_snapshot || "件",
-          increaseQuantity: numberValue(item.increase_quantity),
-        });
-      }
-    }
-
-    if (client) {
-      const availRes = await client
-        .from("v_item_availability")
-        .select("item_code, item_name, size, unit, hr_on_hand_quantity")
-        .order("item_code");
-      if (availRes.data) {
-        for (const it of availRes.data as Array<Record<string, unknown>>) {
-          const code = (typeof it.item_code === "string" && it.item_code.trim()) || "";
-          if (!code) continue;
-          const existing = stockMap.get(code);
-          const onHand = numberValue(it.hr_on_hand_quantity);
-          stockMap.set(code, {
-            itemCode: code,
-            itemName: existing?.itemName || (typeof it.item_name === "string" ? it.item_name : code),
-            size: existing?.size || (typeof it.size === "string" ? it.size : ""),
-            unit: existing?.unit || (typeof it.unit === "string" ? it.unit : "件"),
-            onHand: existing?.onHand != null ? existing.onHand : onHand,
-            increaseQuantity: existing?.increaseQuantity || 0,
+      const stockMap = new Map<string, ItemStockInfo>();
+      for (const item of items) {
+        const itemCode = item.item_code_snapshot || item.item_id;
+        if (itemCode) {
+          stockMap.set(itemCode, {
+            itemCode,
+            itemName: item.item_name_snapshot || itemCode,
+            unit: item.unit_snapshot || "件",
+            increaseQuantity: numberValue(item.increase_quantity),
           });
         }
       }
+
+      if (client) {
+        const availRes = await client
+          .from("v_item_availability")
+          .select("item_code, item_name, size, unit, hr_on_hand_quantity")
+          .order("item_code");
+        if (availRes.data) {
+          for (const it of availRes.data as Array<Record<string, unknown>>) {
+            const code = (typeof it.item_code === "string" && it.item_code.trim()) || "";
+            if (!code) continue;
+            const existing = stockMap.get(code);
+            const onHand = numberValue(it.hr_on_hand_quantity);
+            stockMap.set(code, {
+              itemCode: code,
+              itemName: existing?.itemName || (typeof it.item_name === "string" ? it.item_name : code),
+              size: existing?.size || (typeof it.size === "string" ? it.size : ""),
+              unit: existing?.unit || (typeof it.unit === "string" ? it.unit : "件"),
+              onHand: existing?.onHand != null ? existing.onHand : onHand,
+              increaseQuantity: existing?.increaseQuantity || 0,
+            });
+          }
+        }
+      }
+
+      const pivotData = buildPivotTableData(rawLines, stockMap);
+      const titleKind = isReplenishment ? "額外補庫表" : "平日制服領用表";
+      const selectedDate = selected.distributionDate || dateRangeLabel;
+      const itemTitle = selectedDate ? `${titleKind} ( ${selectedDate} )` : titleKind;
+      const xlsxBytes = generatePivotXlsx(pivotData, {
+        title: itemTitle,
+        dateRangeLabel: selectedDate,
+      });
+
+      downloadPivotXlsx(xlsxBytes, `${selected.requestNo}-${titleKind}.xlsx`);
+      setMessage(`已成功匯出單據 ${selected.requestNo} 的${titleKind} (Excel)`);
+    } catch (err) {
+      setMessage(`匯出發生錯誤：${err instanceof Error ? err.message : String(err)}`);
     }
-
-    const pivotData = buildPivotTableData(rawLines, stockMap);
-    const titleKind = isReplenishment ? "額外補庫表" : "平日制服領用表";
-    const selectedDate = selected.distributionDate || dateRangeLabel;
-    const itemTitle = selectedDate ? `${titleKind} ( ${selectedDate} )` : titleKind;
-    const xlsxBytes = generatePivotXlsx(pivotData, {
-      title: itemTitle,
-      dateRangeLabel: selectedDate,
-    });
-
-    downloadPivotXlsx(xlsxBytes, `${selected.requestNo}-${titleKind}.xlsx`);
-    setMessage(`已成功匯出單據 ${selected.requestNo} 的${titleKind} (Excel)`);
   }
 
   async function handleExportRange() {
@@ -1004,7 +1008,7 @@ export default function HrRequestHistoryPanel() {
           <button
             className="secondary-button"
             type="button"
-            onClick={handleExportSelected}
+            onClick={() => void handleExportSelected()}
             disabled={detailLoading || (issueLines.length === 0 && items.length === 0)}
             title="將此單明細匯出為二維交叉統計表 (Excel)"
           >
