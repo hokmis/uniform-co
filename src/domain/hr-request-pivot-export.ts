@@ -378,14 +378,14 @@ export function generatePivotXlsx(
   const instGroupHeader = `<c r="${firstInstColName}2" t="inlineStr" s="3"><is><t>請領數量表(當月各品號領退淨額數量)【依員工編列所屬機構與公司】</t></is></c>`;
   const rightGroupHeader = `
     <c r="${sumColName}2" t="inlineStr" s="3"><is><t>請領合計</t></is></c>
-    <c r="${balanceColName}2" t="inlineStr" s="3"><is><t>月結量(抽盤)</t></is></c>
+    <c r="${balanceColName}2" t="inlineStr" s="14"><is><t>月結量(抽盤)</t></is></c>
     <c r="${damageColName}2" t="inlineStr" s="3"><is><t>事務組偶數月抽盤</t></is></c>
     <c r="${estimateColName}2" t="inlineStr" s="3"><is><t>抽盤差異</t></is></c>
     <c r="${remarkColName}2" t="inlineStr" s="3"><is><t>備註差異說明</t></is></c>
     <c r="${replenishmentColName}2" t="inlineStr" s="3"><is><t>庫增量</t></is></c>
     <c r="${issueColName}2" t="inlineStr" s="3"><is><t>本次發放量</t></is></c>
     <c r="${returnColName}2" t="inlineStr" s="3"><is><t>冬夏領退量</t></is></c>
-    <c r="${finalColName}2" t="inlineStr" s="3"><is><t>期末量(下期期初)</t></is></c>
+    <c r="${finalColName}2" t="inlineStr" s="14"><is><t>期末量(下期期初)</t></is></c>
   `;
 
   xmlRows.push(`  <row r="2" ht="22" customHeight="1">
@@ -393,7 +393,7 @@ export function generatePivotXlsx(
     <c r="B2" t="inlineStr" s="3"><is><t>品號</t></is></c>
     <c r="C2" t="inlineStr" s="3"><is><t>品名</t></is></c>
     <c r="D2" t="inlineStr" s="3"><is><t>規格</t></is></c>
-    <c r="E2" t="inlineStr" s="3"><is><t>期初量</t></is></c>
+    <c r="E2" t="inlineStr" s="14"><is><t>期&#10;初&#10;量</t></is></c>
     ${instGroupHeader}
     ${rightGroupHeader}
   </row>`);
@@ -406,14 +406,14 @@ export function generatePivotXlsx(
 
   const rightSymbolCells = `
     <c r="${sumColName}3" t="inlineStr" s="4"><is><t>B</t></is></c>
-    <c r="${balanceColName}3" t="inlineStr" s="4"><is><t>C=A-B</t></is></c>
+    <c r="${balanceColName}3" t="inlineStr" s="15"><is><t>C=A-B</t></is></c>
     <c r="${damageColName}3" t="inlineStr" s="4"><is><t>D</t></is></c>
     <c r="${estimateColName}3" t="inlineStr" s="4"><is><t>E=D-C</t></is></c>
     <c r="${remarkColName}3" t="inlineStr" s="4"><is><t></t></is></c>
     <c r="${replenishmentColName}3" t="inlineStr" s="4"><is><t>F</t></is></c>
     <c r="${issueColName}3" t="inlineStr" s="4"><is><t>G=B+F</t></is></c>
     <c r="${returnColName}3" t="inlineStr" s="4"><is><t>H</t></is></c>
-    <c r="${finalColName}3" t="inlineStr" s="4"><is><t>I=C+E+G+H</t></is></c>
+    <c r="${finalColName}3" t="inlineStr" s="15"><is><t>I=C+E+G+H</t></is></c>
   `;
 
   xmlRows.push(`  <row r="3" ht="20" customHeight="1">
@@ -421,7 +421,7 @@ export function generatePivotXlsx(
     <c r="B3" s="4"/>
     <c r="C3" s="4"/>
     <c r="D3" s="4"/>
-    <c r="E3" t="inlineStr" s="4"><is><t>A</t></is></c>
+    <c r="E3" t="inlineStr" s="15"><is><t>A</t></is></c>
     ${instNamesCells}
     ${rightSymbolCells}
   </row>`);
@@ -437,17 +437,17 @@ export function generatePivotXlsx(
     <c r="B4" s="5"/>
     <c r="C4" s="5"/>
     <c r="D4" s="5"/>
-    <c r="E4" s="5"/>
+    <c r="E4" s="16"/>
     ${instCodesCells}
     <c r="${sumColName}4" s="5"/>
-    <c r="${balanceColName}4" s="5"/>
+    <c r="${balanceColName}4" s="16"/>
     <c r="${damageColName}4" s="5"/>
     <c r="${estimateColName}4" s="5"/>
     <c r="${remarkColName}4" s="5"/>
     <c r="${replenishmentColName}4" s="5"/>
     <c r="${issueColName}4" s="5"/>
     <c r="${returnColName}4" s="5"/>
-    <c r="${finalColName}4" s="5"/>
+    <c r="${finalColName}4" s="16"/>
   </row>`);
 
   // Row 5 開始為資料列
@@ -481,23 +481,26 @@ export function generatePivotXlsx(
     <c r="B${r}" t="inlineStr" s="7"><is><t>${escapeXml(row.itemCode)}</t></is></c>
     <c r="C${r}" t="inlineStr" s="7"><is><t>${escapeXml(row.itemName)}</t></is></c>
     <c r="D${r}" t="inlineStr" s="6"><is><t>${escapeXml(row.size)}</t></is></c>
-    <c r="E${r}" s="6"><v>${onHandVal}</v></c>
+    <c r="E${r}" s="17"><v>${onHandVal}</v></c>
     ${instQtyCells}
     <c r="${sumColName}${r}" s="6"><f>${sumFormula}</f><v>${totalIssuedVal}</v></c>
-    <c r="${balanceColName}${r}" s="6"><f>${balanceFormula}</f><v>${balanceVal}</v></c>
+    <c r="${balanceColName}${r}" s="17"><f>${balanceFormula}</f><v>${balanceVal}</v></c>
     <c r="${damageColName}${r}" s="6"/>
     <c r="${estimateColName}${r}" s="6"/>
     <c r="${remarkColName}${r}" s="7"/>
     <c r="${replenishmentColName}${r}" s="6">${increaseVal > 0 ? `<v>${increaseVal}</v>` : ""}</c>
     <c r="${issueColName}${r}" s="6"><f>${issueFormula}</f><v>${issueVal}</v></c>
     <c r="${returnColName}${r}" s="6"/>
-    <c r="${finalColName}${r}" s="6"><f>${finalFormula}</f><v>${finalVal}</v></c>
+    <c r="${finalColName}${r}" s="17"><f>${finalFormula}</f><v>${finalVal}</v></c>
   </row>`);
   });
 
   // 合計列 (Total Row)
   const totalRowIndex = startDataRow + rows.length;
   if (rows.length > 0) {
+    const totalOnHand = rows.reduce((sum, r) => sum + (Number(r.onHand) || 0), 0);
+    const onHandSumFormula = `SUM(E${startDataRow}:E${totalRowIndex - 1})`;
+
     const instSumCells = institutions.map((inst, idx) => {
       const colName = getExcelColumnName(firstInstCol + idx);
       const formula = `SUM(${colName}${startDataRow}:${colName}${totalRowIndex - 1})`;
@@ -506,9 +509,14 @@ export function generatePivotXlsx(
     }).join("");
 
     const grandFormula = `SUM(${sumColName}${startDataRow}:${sumColName}${totalRowIndex - 1})`;
+    const balanceSumFormula = `SUM(${balanceColName}${startDataRow}:${balanceColName}${totalRowIndex - 1})`;
+    const totalBalanceVal = totalOnHand - pivotData.grandTotal;
+    const damageSumFormula = `SUM(${damageColName}${startDataRow}:${damageColName}${totalRowIndex - 1})`;
+    const estimateSumFormula = `SUM(${estimateColName}${startDataRow}:${estimateColName}${totalRowIndex - 1})`;
     const totalIncrease = rows.reduce((sum, r) => sum + (Number(r.increaseQuantity) || 0), 0);
     const replenishmentSumFormula = `SUM(${replenishmentColName}${startDataRow}:${replenishmentColName}${totalRowIndex - 1})`;
     const issueSumFormula = `SUM(${issueColName}${startDataRow}:${issueColName}${totalRowIndex - 1})`;
+    const returnSumFormula = `SUM(${returnColName}${startDataRow}:${returnColName}${totalRowIndex - 1})`;
     const finalSumFormula = `SUM(${finalColName}${startDataRow}:${finalColName}${totalRowIndex - 1})`;
     const totalFinalVal = rows.reduce((sum, r) => sum + (Number(r.onHand) || 0) + (Number(r.increaseQuantity) || 0), 0);
 
@@ -517,17 +525,17 @@ export function generatePivotXlsx(
     <c r="B${totalRowIndex}" s="8"/>
     <c r="C${totalRowIndex}" s="8"/>
     <c r="D${totalRowIndex}" s="8"/>
-    <c r="E${totalRowIndex}" s="8"/>
+    <c r="E${totalRowIndex}" s="18"><f>${onHandSumFormula}</f><v>${totalOnHand}</v></c>
     ${instSumCells}
     <c r="${sumColName}${totalRowIndex}" s="8"><f>${grandFormula}</f><v>${pivotData.grandTotal}</v></c>
-    <c r="${balanceColName}${totalRowIndex}" s="8"/>
-    <c r="${damageColName}${totalRowIndex}" s="8"/>
-    <c r="${estimateColName}${totalRowIndex}" s="8"/>
+    <c r="${balanceColName}${totalRowIndex}" s="18"><f>${balanceSumFormula}</f><v>${totalBalanceVal}</v></c>
+    <c r="${damageColName}${totalRowIndex}" s="8"><f>${damageSumFormula}</f></c>
+    <c r="${estimateColName}${totalRowIndex}" s="8"><f>${estimateSumFormula}</f></c>
     <c r="${remarkColName}${totalRowIndex}" s="8"/>
     <c r="${replenishmentColName}${totalRowIndex}" s="8"><f>${replenishmentSumFormula}</f><v>${totalIncrease}</v></c>
     <c r="${issueColName}${totalRowIndex}" s="8"><f>${issueSumFormula}</f><v>${pivotData.grandTotal + totalIncrease}</v></c>
-    <c r="${returnColName}${totalRowIndex}" s="8"/>
-    <c r="${finalColName}${totalRowIndex}" s="8"><f>${finalSumFormula}</f><v>${totalFinalVal}</v></c>
+    <c r="${returnColName}${totalRowIndex}" s="8"><f>${returnSumFormula}</f></c>
+    <c r="${finalColName}${totalRowIndex}" s="18"><f>${finalSumFormula}</f><v>${totalFinalVal}</v></c>
   </row>`);
   }
 
@@ -641,11 +649,12 @@ ${mergeCellsXml}
     <font><sz val="9"/><name val="微軟正黑體"/></font>
     <font><sz val="11"/><b/><name val="微軟正黑體"/></font>
   </fonts>
-  <fills count="4">
+  <fills count="5">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFF2F2F2"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFEAEAEA"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE2EFDA"/></patternFill></fill>
   </fills>
   <borders count="3">
     <border><left/><right/><top/><bottom/><diagonal/></border>
@@ -662,7 +671,7 @@ ${mergeCellsXml}
       <bottom style="thin"><color rgb="FF000000"/></bottom>
     </border>
   </borders>
-  <cellXfs count="14">
+  <cellXfs count="19">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyAlignment="1"><alignment vertical="center"/></xf>
@@ -677,6 +686,12 @@ ${mergeCellsXml}
     <xf numFmtId="0" fontId="4" fillId="0" borderId="2" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="4" fillId="0" borderId="2" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="2" applyBorder="1"/>
+    <!-- 綠底樣式 (FFE2EFDA) -->
+    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="4" borderId="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
   </cellXfs>
 </styleSheet>`;
 

@@ -245,4 +245,51 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toMatch(/<mergeCell ref="H\d+:L\d+"\/>/);
     expect(sheetContent).toMatch(/<mergeCell ref="M\d+:S\d+"\/>/);
   });
+
+  it("applies light green fill (#E2EFDA) to initial, balance and final quantity columns, wraps E2 header, and sums all quantity columns in total row", () => {
+    const lines: RawIssueLineInput[] = [
+      { itemCode: "UNT01", itemName: "上衣", size: "L", institutionCodeOrName: "8C清福", quantity: 3 },
+      { itemCode: "UNT02", itemName: "短褲", size: "M", institutionCodeOrName: "7C清氣", quantity: 2 },
+    ];
+    const stockMap = new Map([
+      ["UNT01", { itemCode: "UNT01", onHand: 50, increaseQuantity: 5 }],
+      ["UNT02", { itemCode: "UNT02", onHand: 30, increaseQuantity: 0 }],
+    ]);
+
+    const pivotData = buildPivotTableData(lines, stockMap);
+    const xlsxBytes = generatePivotXlsx(pivotData, {
+      title: "平日制服領用表",
+    });
+
+    const unzipped = unzipSync(xlsxBytes);
+    const stylesContent = new TextDecoder().decode(unzipped["xl/styles.xml"]);
+    const sheetContent = new TextDecoder().decode(unzipped["xl/worksheets/sheet1.xml"]);
+
+    // 1. 樣式驗證：包含 FFE2EFDA
+    expect(stylesContent).toContain('rgb="FFE2EFDA"');
+
+    // 2. 表頭 E2 換行文字：期&#10;初&#10;量，並套用樣式 14
+    expect(sheetContent).toContain('<c r="E2" t="inlineStr" s="14"><is><t>期&#10;初&#10;量</t></is></c>');
+
+    // 3. 月結量與期末量表頭套用樣式 14
+    // 22 分店：E (5), F~AA (6~27), AB (28=sum), AC (29=balance), AD (30), AE (31), AF (32), AG (33), AH (34), AI (35), AJ (36=final)
+    expect(sheetContent).toContain('<c r="AC2" t="inlineStr" s="14"><is><t>月結量(抽盤)</t></is></c>');
+    expect(sheetContent).toContain('<c r="AJ2" t="inlineStr" s="14"><is><t>期末量(下期期初)</t></is></c>');
+
+    // 4. 資料列套用綠底樣式 17
+    expect(sheetContent).toContain('<c r="E5" s="17"><v>50</v></c>');
+    expect(sheetContent).toContain('<c r="AC5" s="17">');
+    expect(sheetContent).toContain('<c r="AJ5" s="17">');
+
+    // 5. 合計列（Row 7）從期初量至期末量全數計算合計量與 SUM 公式
+    expect(sheetContent).toContain('<c r="E7" s="18"><f>SUM(E5:E6)</f><v>80</v></c>');
+    expect(sheetContent).toContain('<c r="AB7" s="8"><f>SUM(AB5:AB6)</f><v>5</v></c>');
+    expect(sheetContent).toContain('<c r="AC7" s="18"><f>SUM(AC5:AC6)</f><v>75</v></c>'); // 80 - 5 = 75
+    expect(sheetContent).toContain('<c r="AD7" s="8"><f>SUM(AD5:AD6)</f></c>');
+    expect(sheetContent).toContain('<c r="AE7" s="8"><f>SUM(AE5:AE6)</f></c>');
+    expect(sheetContent).toContain('<c r="AG7" s="8"><f>SUM(AG5:AG6)</f><v>5</v></c>');
+    expect(sheetContent).toContain('<c r="AH7" s="8"><f>SUM(AH5:AH6)</f><v>10</v></c>'); // 5 + 5
+    expect(sheetContent).toContain('<c r="AI7" s="8"><f>SUM(AI5:AI6)</f></c>');
+    expect(sheetContent).toContain('<c r="AJ7" s="18"><f>SUM(AJ5:AJ6)</f><v>85</v></c>'); // 80 + 5 = 85
+  });
 });
