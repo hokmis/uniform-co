@@ -850,7 +850,7 @@ export default function HrRequestWorkbench() {
             <p className="success-note">
               {previewMode
                 ? "這是本機測試資料的送出前預覽；設定 Supabase env 並登入後才可建立正式需求。"
-                : "正式送單時，人事倉將立即扣除領用發放量（採方式 B：允許預支，月底由總倉調撥補回沖平）；兩倉可申請量即時反映扣除。"}
+                : "正式送單會優先以單次 RPC 完成草稿與送出；資料庫仍會鎖定品號、重算兩倉合計並建立預留。"}
             </p>
           </>
         )}
