@@ -113,9 +113,7 @@ export function summarizeHrRequest(
     if (!item) {
       throw new HrRequestValidationError(`item ${itemId} is required`);
     }
-    if (!Number.isInteger(item.hrOnHand)) {
-      throw new HrRequestValidationError("hr_on_hand must be an integer");
-    }
+    assertNonNegativeInteger("hr_on_hand", item.hrOnHand);
     assertNonNegativeInteger("general_on_hand", item.generalOnHand);
     assertNonNegativeInteger("active_reserved", item.activeReserved);
 
@@ -124,16 +122,13 @@ export function summarizeHrRequest(
     const combinedOnHand = item.hrOnHand + item.generalOnHand;
     const availableToRequest = combinedOnHand - item.activeReserved;
 
-    // 兩階段制服計算：
-    // • 階段一：員工領取（即時發生）
-    //   • 人事單位：申請領用 +X
-    //   • 人事倉庫：發貨扣庫 -X（此時人事倉庫少 X 件，總倉庫存暫時不變）
-    // • 階段二：月底總倉補貨（月底結算）
-    //   • 總倉：調撥出庫 -X
-    //   • 人事倉庫：調撥入庫 +X（此時人事倉庫補回 X 件，總倉實際減少 X 件）
-    const hrDeduction = issueQuantity;
-    const transferFromGeneral = 0;
-    const requestedTransferQuantity = increaseQuantity;
+    // 標準調撥扣庫模式：
+    // • 員工領用需求（issueQuantity）與隨單增庫（increaseQuantity）統一向總倉申請調撥
+    // • 總倉調庫需求 = 員工領用 + 增庫量（由總倉實際出庫扣除）
+    // • 人事倉庫維持常備可用量，不扣成負數
+    const hrDeduction = 0;
+    const transferFromGeneral = issueQuantity;
+    const requestedTransferQuantity = issueQuantity + increaseQuantity;
     const totalDemand = issueQuantity + increaseQuantity;
 
     if (item.activeReserved > combinedOnHand && combinedOnHand >= 0) {
