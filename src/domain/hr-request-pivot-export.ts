@@ -189,18 +189,126 @@ export type PivotTableData = {
 };
 
 /**
- * 依據品名連帶品號排序資料列，將相同類似的品名排列在一起
- * 優先依品名排序，品名相同或無品名時依品號排序，再依規格排序
+ * 解析尺碼大小權重，實現標準尺碼由小到大排序：
+ * XXS < XS < S < M < L < XL < 2L < 3L < 4L < 5L < 6L < 7L < 8L < ... < F
+ * 數字尺碼（如長褲腰圍 28, 30, 32...）亦按數字大小排序
+ */
+export function getSizeRank(sizeStr: string): number {
+  if (!sizeStr) return 999;
+  let s = sizeStr.trim().toUpperCase();
+  s = s.replace(/^[男女\-\s]+/, "").trim();
+
+  const standardSizeMap: Record<string, number> = {
+    "4XS": 1,
+    "3XS": 2,
+    "XXXS": 2,
+    "2XS": 3,
+    "XXS": 3,
+    "XS": 4,
+    "S": 10,
+    "M": 20,
+    "L": 30,
+    "XL": 40,
+    "1L": 40,
+    "2L": 50,
+    "XXL": 50,
+    "2XL": 50,
+    "3L": 60,
+    "XXXL": 60,
+    "3XL": 60,
+    "4L": 70,
+    "4XL": 70,
+    "5L": 80,
+    "5XL": 80,
+    "6L": 90,
+    "6XL": 90,
+    "7L": 100,
+    "7XL": 100,
+    "8L": 110,
+    "8XL": 110,
+    "9L": 120,
+    "9XL": 120,
+    "10L": 130,
+    "10XL": 130,
+    "F": 200,
+    "FREE": 200,
+  };
+
+  if (standardSizeMap[s] !== undefined) {
+    return standardSizeMap[s];
+  }
+
+  // 嘗試解析像 "2L"、"3L" 但未在 map 中命中的特殊數字L
+  const lMatch = s.match(/^(\d+)L$/);
+  if (lMatch) {
+    const n = parseInt(lMatch[1], 10);
+    return n * 10 + 30; // 2L -> 50, 3L -> 60, 4L -> 70, etc.
+  }
+
+  // 嘗試解析純數字尺碼（如長褲腰圍 26, 28, 30, 32...）
+  const numMatch = s.match(/^(\d+)$/);
+  if (numMatch) {
+    return 300 + parseInt(numMatch[1], 10);
+  }
+
+  return 500;
+}
+
+/**
+ * 依據品名與規格解析基礎品名（不含性別與尺碼後綴）
+ * 範例：
+ * "工務冬季上衣-2L" -> "工務冬季上衣"
+ * "行政冬季上衣-女2L" -> "行政冬季上衣"
+ * "照服中高階夏上衣-女M" -> "照服中高階夏上衣"
+ * "幼兒園夏季上衣-XS" -> "幼兒園夏季上衣"
+ */
+export function getBaseItemName(itemName: string, size?: string): string {
+  if (!itemName) return "";
+  let trimmed = itemName.trim();
+
+  // 1. 若規格明確匹配結尾
+  if (size && size.trim()) {
+    const s = size.trim();
+    if (trimmed.endsWith(`-${s}`)) {
+      trimmed = trimmed.slice(0, -(s.length + 1)).trim();
+    }
+  }
+
+  // 2. 移除結尾的 "-[男女]?尺碼" (例如 -女2L, -男XL, -2L, -XS, -女M, -6L)
+  trimmed = trimmed.replace(/-[男女]?[A-Za-z0-9\u4e00-\u9fa5]+$/, "").trim();
+
+  return trimmed;
+}
+
+/**
+ * 依據品名連帶品號排序資料列，將相同類似的品名排列在一起，
+ * 並依尺碼由小至大（S, M, L, XL, 2L, 3L, 4L, 5L, 6L...）順序排列
  */
 export function comparePivotRows(a: PivotRow, b: PivotRow): number {
-  const nameA = (a.itemName || a.itemCode || "").trim();
-  const nameB = (b.itemName || b.itemCode || "").trim();
-  const nameCmp = nameA.localeCompare(nameB, "zh-TW", { numeric: true });
-  if (nameCmp !== 0) return nameCmp;
+  // 1. 基礎品名排序（例如：工務冬季上衣、幼兒園夏季上衣、行政冬季上衣）
+  const baseA = getBaseItemName(a.itemName || a.itemCode, a.size);
+  const baseB = getBaseItemName(b.itemName || b.itemCode, b.size);
+  const baseCmp = baseA.localeCompare(baseB, "zh-TW", { numeric: true });
+  if (baseCmp !== 0) return baseCmp;
 
+  // 2. 性別排序：女款先於男款（例如：行政冬季上衣-女 在 行政冬季上衣-男 之前）
+  const genderA = getItemGender(a.itemName, a.size);
+  const genderB = getItemGender(b.itemName, b.size);
+  const genderCmp = genderA.localeCompare(genderB, "zh-TW");
+  if (genderCmp !== 0) return genderCmp;
+
+  // 3. 尺碼順序排序：由小至大（S < M < L < XL < 2L < 3L < 4L < 5L < 6L）
+  const sizeStrA = a.size || (a.itemName.match(/-([男女]?[A-Za-z0-9]+)$/)?.[1] ?? "");
+  const sizeStrB = b.size || (b.itemName.match(/-([男女]?[A-Za-z0-9]+)$/)?.[1] ?? "");
+  const rankA = getSizeRank(sizeStrA);
+  const rankB = getSizeRank(sizeStrB);
+  if (rankA !== rankB) return rankA - rankB;
+
+  // 4. 品號排序
   const codeCmp = (a.itemCode || "").trim().localeCompare((b.itemCode || "").trim(), "zh-TW", { numeric: true });
   if (codeCmp !== 0) return codeCmp;
 
+  // 5. 原始規格備用排序
   return (a.size || "").trim().localeCompare((b.size || "").trim(), "zh-TW", { numeric: true });
 }
 

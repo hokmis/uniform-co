@@ -7,6 +7,8 @@ import {
   getExcelColumnName,
   getItemCategory,
   comparePivotRows,
+  getSizeRank,
+  getBaseItemName,
   type RawIssueLineInput,
 } from "./hr-request-pivot-export";
 import { unzipSync } from "fflate";
@@ -385,13 +387,50 @@ describe("hr-request-pivot-export", () => {
       { itemCode: "BBB555", itemName: "廚師夏季圍裙-F", size: "F", institutionCodeOrName: "8C清福", quantity: 1 },
     ];
     const data = buildPivotTableData(lines);
-    // 廚師夏季上衣聚集在一起，廚師夏季圍裙在其旁，照服夏季上衣聚集在一起
+    // 廚師夏季上衣聚集在一起（M 先於 L），廚師夏季圍裙在其旁，照服夏季上衣聚集在一起（M 先於 L）
     expect(data.rows.map((r) => r.itemName)).toEqual([
-      "廚師夏季上衣-L",
       "廚師夏季上衣-M",
+      "廚師夏季上衣-L",
       "廚師夏季圍裙-F",
-      "照服夏季上衣-L",
       "照服夏季上衣-M",
+      "照服夏季上衣-L",
+    ]);
+  });
+
+  it("assigns correct size ranks for S, M, L, XL, 2L, 3L, 4L, 5L, 6L", () => {
+    expect(getSizeRank("XS")).toBeLessThan(getSizeRank("S"));
+    expect(getSizeRank("S")).toBeLessThan(getSizeRank("M"));
+    expect(getSizeRank("M")).toBeLessThan(getSizeRank("L"));
+    expect(getSizeRank("L")).toBeLessThan(getSizeRank("XL"));
+    expect(getSizeRank("XL")).toBeLessThan(getSizeRank("2L"));
+    expect(getSizeRank("2L")).toBeLessThan(getSizeRank("3L"));
+    expect(getSizeRank("3L")).toBeLessThan(getSizeRank("4L"));
+    expect(getSizeRank("4L")).toBeLessThan(getSizeRank("5L"));
+    expect(getSizeRank("5L")).toBeLessThan(getSizeRank("6L"));
+  });
+
+  it("sorts mixed sizes (2L, 3L, 5L, L, M, S, XL) into (S, M, L, XL, 2L, 3L, 5L)", () => {
+    const inputSizes = ["2L", "3L", "5L", "L", "M", "S", "XL"];
+    const lines: RawIssueLineInput[] = inputSizes.map((size, idx) => ({
+      itemCode: `ITEM_${idx}`,
+      itemName: `工務冬季上衣-${size}`,
+      size,
+      institutionCodeOrName: "8C清福",
+      quantity: 1,
+    }));
+
+    const data = buildPivotTableData(lines);
+    expect(data.rows.map((r) => r.size)).toEqual([
+      "S", "M", "L", "XL", "2L", "3L", "5L"
+    ]);
+    expect(data.rows.map((r) => r.itemName)).toEqual([
+      "工務冬季上衣-S",
+      "工務冬季上衣-M",
+      "工務冬季上衣-L",
+      "工務冬季上衣-XL",
+      "工務冬季上衣-2L",
+      "工務冬季上衣-3L",
+      "工務冬季上衣-5L",
     ]);
   });
 });
