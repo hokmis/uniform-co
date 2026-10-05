@@ -189,6 +189,22 @@ export type PivotTableData = {
 };
 
 /**
+ * 依據品名連帶品號排序資料列，將相同類似的品名排列在一起
+ * 優先依品名排序，品名相同或無品名時依品號排序，再依規格排序
+ */
+export function comparePivotRows(a: PivotRow, b: PivotRow): number {
+  const nameA = (a.itemName || a.itemCode || "").trim();
+  const nameB = (b.itemName || b.itemCode || "").trim();
+  const nameCmp = nameA.localeCompare(nameB, "zh-TW", { numeric: true });
+  if (nameCmp !== 0) return nameCmp;
+
+  const codeCmp = (a.itemCode || "").trim().localeCompare((b.itemCode || "").trim(), "zh-TW", { numeric: true });
+  if (codeCmp !== 0) return codeCmp;
+
+  return (a.size || "").trim().localeCompare((b.size || "").trim(), "zh-TW", { numeric: true });
+}
+
+/**
  * 依據發放明細計算二維交叉彙總表
  */
 export function buildPivotTableData(
@@ -247,22 +263,6 @@ export function buildPivotTableData(
     group.quantitiesByInstitution[shortName] = (group.quantitiesByInstitution[shortName] || 0) + qty;
     group.totalIssued += qty;
   }
-
-/**
- * 依據品名連帶品號排序資料列，將相同類似的品名排列在一起
- * 優先依品名排序，品名相同或無品名時依品號排序，再依規格排序
- */
-export function comparePivotRows(a: PivotRow, b: PivotRow): number {
-  const nameA = (a.itemName || a.itemCode || "").trim();
-  const nameB = (b.itemName || b.itemCode || "").trim();
-  const nameCmp = nameA.localeCompare(nameB, "zh-TW", { numeric: true });
-  if (nameCmp !== 0) return nameCmp;
-
-  const codeCmp = (a.itemCode || "").trim().localeCompare((b.itemCode || "").trim(), "zh-TW", { numeric: true });
-  if (codeCmp !== 0) return codeCmp;
-
-  return (a.size || "").trim().localeCompare((b.size || "").trim(), "zh-TW", { numeric: true });
-}
 
   // 依品名連帶品號排序資料列，將相同類似的品名排列在一起
   const rows = Array.from(groups.values()).sort(comparePivotRows);
