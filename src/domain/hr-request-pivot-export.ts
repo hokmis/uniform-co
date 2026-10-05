@@ -94,6 +94,30 @@ export function resolveInstitutionInfo(rawCodeOrName: string | null | undefined)
   return { shortName: trimmed, code: trimmed };
 }
 
+/**
+ * 依據品名與規格解析基礎品項名稱，用於判斷是否更換品項
+ * 範例：
+ * "照服夏季上衣-6L" -> "照服夏季上衣"
+ * "照服冬季上衣-XS" -> "照服冬季上衣"
+ * "照服行政冬夏褲-6L" -> "照服行政冬夏褲"
+ * "照服中高階夏上衣-女M" -> "照服中高階夏上衣"
+ */
+export function getItemCategory(itemName: string, size?: string): string {
+  if (!itemName) return "";
+  const trimmed = itemName.trim();
+
+  if (size && size.trim() && trimmed.endsWith(`-${size.trim()}`)) {
+    return trimmed.slice(0, -(size.trim().length + 1)).trim();
+  }
+
+  const match = trimmed.match(/^(.*?)(?:-[A-Za-z0-9\u4e00-\u9fa5]+)$/);
+  if (match && match[1]) {
+    return match[1].trim();
+  }
+
+  return trimmed;
+}
+
 export type RawIssueLineInput = {
   itemCode: string;
   itemName: string;
@@ -481,18 +505,115 @@ export function generatePivotXlsx(
     ${rightSymbolCellsRow5}
   </row>`);
 
+  // 邊框與樣式動態註冊管理器（支援最外圍粗外框線與換品項底端雙框線）
+  type BorderDef = {
+    top: "thin" | "medium";
+    bottom: "thin" | "double" | "medium";
+    left: "thin" | "medium";
+    right: "thin" | "medium";
+  };
+  type CellStyleType = "dataCenter" | "dataLeft" | "dataGreen" | "totalCenter" | "totalGreen";
+
+  const customBorders = new Map<string, number>();
+  const customBorderXmls: string[] = [];
+  const customXfs = new Map<string, number>();
+  const customXfXmls: string[] = [];
+
+  function getCellStyleId(type: CellStyleType, border: BorderDef): number {
+    let borderId = 1;
+    const isDefaultBorder = border.top === "thin" && border.bottom === "thin" && border.left === "thin" && border.right === "thin";
+    if (!isDefaultBorder) {
+      const bKey = `${border.top}_${border.bottom}_${border.left}_${border.right}`;
+      if (customBorders.has(bKey)) {
+        borderId = customBorders.get(bKey)!;
+      } else {
+        borderId = 3 + customBorderXmls.length;
+        customBorders.set(bKey, borderId);
+        const topColor = border.top === "medium" ? "FF000000" : "FFD4D4D4";
+        const bottomColor = border.bottom === "thin" ? "FFD4D4D4" : "FF000000";
+        const leftColor = border.left === "medium" ? "FF000000" : "FFD4D4D4";
+        const rightColor = border.right === "medium" ? "FF000000" : "FFD4D4D4";
+        customBorderXmls.push(`    <border>
+      <left style="${border.left}"><color rgb="${leftColor}"/></left>
+      <right style="${border.right}"><color rgb="${rightColor}"/></right>
+      <top style="${border.top}"><color rgb="${topColor}"/></top>
+      <bottom style="${border.bottom}"><color rgb="${bottomColor}"/></bottom>
+      <diagonal/>
+    </border>`);
+      }
+    }
+
+    if (borderId === 1) {
+      if (type === "dataCenter") return 6;
+      if (type === "dataLeft") return 7;
+      if (type === "dataGreen") return 17;
+      if (type === "totalCenter") return 8;
+      if (type === "totalGreen") return 18;
+    }
+
+    const xfKey = `${type}_${borderId}`;
+    if (customXfs.has(xfKey)) {
+      return customXfs.get(xfKey)!;
+    }
+
+    const xfId = 19 + customXfXmls.length;
+    customXfs.set(xfKey, xfId);
+
+    const fontId = (type === "totalCenter" || type === "totalGreen") ? 2 : 0;
+    const fillId = (type === "dataGreen" || type === "totalGreen") ? 4 : (type === "totalCenter" ? 2 : 0);
+    const align = type === "dataLeft" ? "left" : "center";
+    const applyFont = fontId > 0 ? ' applyFont="1"' : "";
+    const applyFill = fillId > 0 ? ' applyFill="1"' : "";
+    customXfXmls.push(`    <xf numFmtId="0" fontId="${fontId}" fillId="${fillId}" borderId="${borderId}"${applyFont}${applyFill} applyBorder="1" applyAlignment="1"><alignment horizontal="${align}" vertical="center"/></xf>`);
+    return xfId;
+  }
+
   // Row 6 開始為資料列
   const startDataRow = 6;
   rows.forEach((row, index) => {
     const r = startDataRow + index;
+    const isFirstDataRow = (index === 0);
+    const isCategoryEnd = index < rows.length - 1 &&
+      getItemCategory(row.itemName, row.size) !== getItemCategory(rows[index + 1].itemName, rows[index + 1].size);
+
+    const rowTop: "thin" | "medium" = isFirstDataRow ? "medium" : "thin";
+    const rowBottom: "thin" | "double" = isCategoryEnd ? "double" : "thin";
+
+    function cellBorder(colIdx: number): BorderDef {
+      return {
+        top: rowTop,
+        bottom: rowBottom,
+        left: colIdx === 1 ? "medium" : "thin",
+        right: colIdx === totalCols ? "medium" : "thin",
+      };
+    }
+
+    const aStyle = getCellStyleId("dataCenter", cellBorder(1));
+    const bStyle = getCellStyleId("dataLeft", cellBorder(2));
+    const cStyle = getCellStyleId("dataLeft", cellBorder(3));
+    const dStyle = getCellStyleId("dataCenter", cellBorder(4));
+    const eStyle = getCellStyleId("dataGreen", cellBorder(5));
+
     const instQtyCells = institutions.map((inst, idx) => {
-      const colName = getExcelColumnName(firstInstCol + idx);
+      const colIdx = firstInstCol + idx;
+      const colName = getExcelColumnName(colIdx);
+      const style = getCellStyleId("dataCenter", cellBorder(colIdx));
       const qty = row.quantitiesByInstitution[inst.shortName];
       if (qty && qty > 0) {
-        return `<c r="${colName}${r}" s="6"><v>${qty}</v></c>`;
+        return `<c r="${colName}${r}" s="${style}"><v>${qty}</v></c>`;
       }
-      return `<c r="${colName}${r}" s="6"/>`;
+      return `<c r="${colName}${r}" s="${style}"/>`;
     }).join("");
+
+    const sumStyle = getCellStyleId("dataCenter", cellBorder(sumColIndex));
+    const balanceStyle = getCellStyleId("dataGreen", cellBorder(balanceColIndex));
+    const damageStyle = getCellStyleId("dataCenter", cellBorder(damageColIndex));
+    const estimateStyle = getCellStyleId("dataCenter", cellBorder(estimateColIndex));
+    const remarkStyle = getCellStyleId("dataLeft", cellBorder(remarkColIndex));
+    const replenishmentStyle = getCellStyleId("dataCenter", cellBorder(replenishmentColIndex));
+    const issueStyle = getCellStyleId("dataCenter", cellBorder(issueColIndex));
+    const returnStyle = getCellStyleId("dataCenter", cellBorder(returnColIndex));
+    const finalStyle = getCellStyleId("dataGreen", cellBorder(finalColIndex));
 
     // 公式
     const sumFormula = `SUM(${firstInstColName}${r}:${lastInstColName}${r})`;
@@ -508,35 +629,46 @@ export function generatePivotXlsx(
     const finalVal = balanceVal + issueVal;
 
     xmlRows.push(`  <row r="${r}" ht="20" customHeight="1">
-    <c r="A${r}" s="6"><v>${index + 1}</v></c>
-    <c r="B${r}" t="inlineStr" s="7"><is><t>${escapeXml(row.itemCode)}</t></is></c>
-    <c r="C${r}" t="inlineStr" s="7"><is><t>${escapeXml(row.itemName)}</t></is></c>
-    <c r="D${r}" t="inlineStr" s="6"><is><t>${escapeXml(row.size)}</t></is></c>
-    <c r="E${r}" s="17"><v>${onHandVal}</v></c>
+    <c r="A${r}" s="${aStyle}"><v>${index + 1}</v></c>
+    <c r="B${r}" t="inlineStr" s="${bStyle}"><is><t>${escapeXml(row.itemCode)}</t></is></c>
+    <c r="C${r}" t="inlineStr" s="${cStyle}"><is><t>${escapeXml(row.itemName)}</t></is></c>
+    <c r="D${r}" t="inlineStr" s="${dStyle}"><is><t>${escapeXml(row.size)}</t></is></c>
+    <c r="E${r}" s="${eStyle}"><v>${onHandVal}</v></c>
     ${instQtyCells}
-    <c r="${sumColName}${r}" s="6"><f>${sumFormula}</f><v>${totalIssuedVal}</v></c>
-    <c r="${balanceColName}${r}" s="17"><f>${balanceFormula}</f><v>${balanceVal}</v></c>
-    <c r="${damageColName}${r}" s="6"/>
-    <c r="${estimateColName}${r}" s="6"/>
-    <c r="${remarkColName}${r}" s="7"/>
-    <c r="${replenishmentColName}${r}" s="6">${increaseVal > 0 ? `<v>${increaseVal}</v>` : ""}</c>
-    <c r="${issueColName}${r}" s="6"><f>${issueFormula}</f><v>${issueVal}</v></c>
-    <c r="${returnColName}${r}" s="6"/>
-    <c r="${finalColName}${r}" s="17"><f>${finalFormula}</f><v>${finalVal}</v></c>
+    <c r="${sumColName}${r}" s="${sumStyle}"><f>${sumFormula}</f><v>${totalIssuedVal}</v></c>
+    <c r="${balanceColName}${r}" s="${balanceStyle}"><f>${balanceFormula}</f><v>${balanceVal}</v></c>
+    <c r="${damageColName}${r}" s="${damageStyle}"/>
+    <c r="${estimateColName}${r}" s="${estimateStyle}"/>
+    <c r="${remarkColName}${r}" s="${remarkStyle}"/>
+    <c r="${replenishmentColName}${r}" s="${replenishmentStyle}">${increaseVal > 0 ? `<v>${increaseVal}</v>` : ""}</c>
+    <c r="${issueColName}${r}" s="${issueStyle}"><f>${issueFormula}</f><v>${issueVal}</v></c>
+    <c r="${returnColName}${r}" s="${returnStyle}"/>
+    <c r="${finalColName}${r}" s="${finalStyle}"><f>${finalFormula}</f><v>${finalVal}</v></c>
   </row>`);
   });
 
   // 合計列 (Total Row)
   const totalRowIndex = startDataRow + rows.length;
   if (rows.length > 0) {
+    function totalCellBorder(colIdx: number): BorderDef {
+      return {
+        top: "thin",
+        bottom: "medium", // 表格最外圍粗邊框底邊
+        left: colIdx === 1 ? "medium" : "thin",
+        right: colIdx === totalCols ? "medium" : "thin",
+      };
+    }
+
     const totalOnHand = rows.reduce((sum, r) => sum + (Number(r.onHand) || 0), 0);
     const onHandSumFormula = `SUM(E${startDataRow}:E${totalRowIndex - 1})`;
 
     const instSumCells = institutions.map((inst, idx) => {
-      const colName = getExcelColumnName(firstInstCol + idx);
+      const colIdx = firstInstCol + idx;
+      const colName = getExcelColumnName(colIdx);
+      const style = getCellStyleId("totalCenter", totalCellBorder(colIdx));
       const formula = `SUM(${colName}${startDataRow}:${colName}${totalRowIndex - 1})`;
       const val = pivotData.totalByInstitution[inst.shortName] || 0;
-      return `<c r="${colName}${totalRowIndex}" s="8"><f>${formula}</f><v>${val}</v></c>`;
+      return `<c r="${colName}${totalRowIndex}" s="${style}"><f>${formula}</f><v>${val}</v></c>`;
     }).join("");
 
     const grandFormula = `SUM(${sumColName}${startDataRow}:${sumColName}${totalRowIndex - 1})`;
@@ -551,22 +683,37 @@ export function generatePivotXlsx(
     const finalSumFormula = `SUM(${finalColName}${startDataRow}:${finalColName}${totalRowIndex - 1})`;
     const totalFinalVal = rows.reduce((sum, r) => sum + (Number(r.onHand) || 0) + (Number(r.increaseQuantity) || 0), 0);
 
+    const totAStyle = getCellStyleId("totalCenter", totalCellBorder(1));
+    const totBStyle = getCellStyleId("totalCenter", totalCellBorder(2));
+    const totCStyle = getCellStyleId("totalCenter", totalCellBorder(3));
+    const totDStyle = getCellStyleId("totalCenter", totalCellBorder(4));
+    const totEStyle = getCellStyleId("totalGreen", totalCellBorder(5));
+    const totSumStyle = getCellStyleId("totalCenter", totalCellBorder(sumColIndex));
+    const totBalanceStyle = getCellStyleId("totalGreen", totalCellBorder(balanceColIndex));
+    const totDamageStyle = getCellStyleId("totalCenter", totalCellBorder(damageColIndex));
+    const totEstimateStyle = getCellStyleId("totalCenter", totalCellBorder(estimateColIndex));
+    const totRemarkStyle = getCellStyleId("totalCenter", totalCellBorder(remarkColIndex));
+    const totReplenishmentStyle = getCellStyleId("totalCenter", totalCellBorder(replenishmentColIndex));
+    const totIssueStyle = getCellStyleId("totalCenter", totalCellBorder(issueColIndex));
+    const totReturnStyle = getCellStyleId("totalCenter", totalCellBorder(returnColIndex));
+    const totFinalStyle = getCellStyleId("totalGreen", totalCellBorder(finalColIndex));
+
     xmlRows.push(`  <row r="${totalRowIndex}" ht="22" customHeight="1">
-    <c r="A${totalRowIndex}" t="inlineStr" s="8"><is><t>合計</t></is></c>
-    <c r="B${totalRowIndex}" s="8"/>
-    <c r="C${totalRowIndex}" s="8"/>
-    <c r="D${totalRowIndex}" s="8"/>
-    <c r="E${totalRowIndex}" s="18"><f>${onHandSumFormula}</f><v>${totalOnHand}</v></c>
+    <c r="A${totalRowIndex}" t="inlineStr" s="${totAStyle}"><is><t>合計</t></is></c>
+    <c r="B${totalRowIndex}" s="${totBStyle}"/>
+    <c r="C${totalRowIndex}" s="${totCStyle}"/>
+    <c r="D${totalRowIndex}" s="${totDStyle}"/>
+    <c r="E${totalRowIndex}" s="${totEStyle}"><f>${onHandSumFormula}</f><v>${totalOnHand}</v></c>
     ${instSumCells}
-    <c r="${sumColName}${totalRowIndex}" s="8"><f>${grandFormula}</f><v>${pivotData.grandTotal}</v></c>
-    <c r="${balanceColName}${totalRowIndex}" s="18"><f>${balanceSumFormula}</f><v>${totalBalanceVal}</v></c>
-    <c r="${damageColName}${totalRowIndex}" s="8"><f>${damageSumFormula}</f></c>
-    <c r="${estimateColName}${totalRowIndex}" s="8"><f>${estimateSumFormula}</f></c>
-    <c r="${remarkColName}${totalRowIndex}" s="8"/>
-    <c r="${replenishmentColName}${totalRowIndex}" s="8"><f>${replenishmentSumFormula}</f><v>${totalIncrease}</v></c>
-    <c r="${issueColName}${totalRowIndex}" s="8"><f>${issueSumFormula}</f><v>${pivotData.grandTotal + totalIncrease}</v></c>
-    <c r="${returnColName}${totalRowIndex}" s="8"><f>${returnSumFormula}</f></c>
-    <c r="${finalColName}${totalRowIndex}" s="18"><f>${finalSumFormula}</f><v>${totalFinalVal}</v></c>
+    <c r="${sumColName}${totalRowIndex}" s="${totSumStyle}"><f>${grandFormula}</f><v>${pivotData.grandTotal}</v></c>
+    <c r="${balanceColName}${totalRowIndex}" s="${totBalanceStyle}"><f>${balanceSumFormula}</f><v>${totalBalanceVal}</v></c>
+    <c r="${damageColName}${totalRowIndex}" s="${totDamageStyle}"><f>${damageSumFormula}</f></c>
+    <c r="${estimateColName}${totalRowIndex}" s="${totEstimateStyle}"><f>${estimateSumFormula}</f></c>
+    <c r="${remarkColName}${totalRowIndex}" s="${totRemarkStyle}"/>
+    <c r="${replenishmentColName}${totalRowIndex}" s="${totReplenishmentStyle}"><f>${replenishmentSumFormula}</f><v>${totalIncrease}</v></c>
+    <c r="${issueColName}${totalRowIndex}" s="${totIssueStyle}"><f>${issueSumFormula}</f><v>${pivotData.grandTotal + totalIncrease}</v></c>
+    <c r="${returnColName}${totalRowIndex}" s="${totReturnStyle}"><f>${returnSumFormula}</f></c>
+    <c r="${finalColName}${totalRowIndex}" s="${totFinalStyle}"><f>${finalSumFormula}</f><v>${totalFinalVal}</v></c>
   </row>`);
   }
 
@@ -687,6 +834,11 @@ ${xmlRows.join("\n")}
 ${mergeCellsXml}
 </worksheet>`;
 
+  const totalBordersCount = 3 + customBorderXmls.length;
+  const totalXfsCount = 19 + customXfXmls.length;
+  const extraBordersXml = customBorderXmls.length > 0 ? `\n${customBorderXmls.join("\n")}` : "";
+  const extraXfsXml = customXfXmls.length > 0 ? `\n${customXfXmls.join("\n")}` : "";
+
   // 樣式表 styles.xml
   const stylesXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -704,7 +856,7 @@ ${mergeCellsXml}
     <fill><patternFill patternType="solid"><fgColor rgb="FFEAEAEA"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFE2EFDA"/></patternFill></fill>
   </fills>
-  <borders count="3">
+  <borders count="${totalBordersCount}">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border>
       <left style="thin"><color rgb="FFD4D4D4"/></left>
@@ -717,9 +869,9 @@ ${mergeCellsXml}
       <right style="thin"><color rgb="FF000000"/></right>
       <top style="thin"><color rgb="FF000000"/></top>
       <bottom style="thin"><color rgb="FF000000"/></bottom>
-    </border>
+    </border>${extraBordersXml}
   </borders>
-  <cellXfs count="19">
+  <cellXfs count="${totalXfsCount}">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyAlignment="1"><alignment vertical="center"/></xf>
@@ -739,7 +891,7 @@ ${mergeCellsXml}
     <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="3" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="4" borderId="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>${extraXfsXml}
   </cellXfs>
 </styleSheet>`;
 

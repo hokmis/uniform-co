@@ -5,6 +5,7 @@ import {
   buildPivotTableData,
   generatePivotXlsx,
   getExcelColumnName,
+  getItemCategory,
   type RawIssueLineInput,
 } from "./hr-request-pivot-export";
 import { unzipSync } from "fflate";
@@ -294,19 +295,45 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toContain('<c r="AJ5" t="inlineStr" s="15"><is><t>I=C+E+G+H</t></is></c>');
 
     // 5. 資料列從 Row 6 開始
-    expect(sheetContent).toContain('<c r="E6" s="17"><v>50</v></c>');
-    expect(sheetContent).toContain('<c r="AC6" s="17">');
-    expect(sheetContent).toContain('<c r="AJ6" s="17">');
+    expect(sheetContent).toMatch(/<c r="E6" s="\d+"><v>50<\/v><\/c>/);
+    expect(sheetContent).toContain('<c r="AC6" s="');
+    expect(sheetContent).toContain('<c r="AJ6" s="');
 
     // 6. 合計列（Row 8）從期初量至期末量全數計算合計量與 SUM 公式 (E6:E7)
-    expect(sheetContent).toContain('<c r="E8" s="18"><f>SUM(E6:E7)</f><v>80</v></c>');
-    expect(sheetContent).toContain('<c r="AB8" s="8"><f>SUM(AB6:AB7)</f><v>5</v></c>');
-    expect(sheetContent).toContain('<c r="AC8" s="18"><f>SUM(AC6:AC7)</f><v>75</v></c>'); // 80 - 5 = 75
-    expect(sheetContent).toContain('<c r="AD8" s="8"><f>SUM(AD6:AD7)</f></c>');
-    expect(sheetContent).toContain('<c r="AE8" s="8"><f>SUM(AE6:AE7)</f></c>');
-    expect(sheetContent).toContain('<c r="AG8" s="8"><f>SUM(AG6:AG7)</f><v>5</v></c>');
-    expect(sheetContent).toContain('<c r="AH8" s="8"><f>SUM(AH6:AH7)</f><v>10</v></c>'); // 5 + 5
-    expect(sheetContent).toContain('<c r="AI8" s="8"><f>SUM(AI6:AI7)</f></c>');
-    expect(sheetContent).toContain('<c r="AJ8" s="18"><f>SUM(AJ6:AJ7)</f><v>85</v></c>'); // 80 + 5 = 85
+    expect(sheetContent).toMatch(/<c r="E8" s="\d+"><f>SUM\(E6:E7\)<\/f><v>80<\/v><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AB8" s="\d+"><f>SUM\(AB6:AB7\)<\/f><v>5<\/v><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AC8" s="\d+"><f>SUM\(AC6:AC7\)<\/f><v>75<\/v><\/c>/); // 80 - 5 = 75
+    expect(sheetContent).toMatch(/<c r="AD8" s="\d+"><f>SUM\(AD6:AD7\)<\/f><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AE8" s="\d+"><f>SUM\(AE6:AE7\)<\/f><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AG8" s="\d+"><f>SUM\(AG6:AG7\)<\/f><v>5<\/v><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AH8" s="\d+"><f>SUM\(AH6:AH7\)<\/f><v>10<\/v><\/c>/); // 5 + 5
+    expect(sheetContent).toMatch(/<c r="AI8" s="\d+"><f>SUM\(AI6:AI7\)<\/f><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AJ8" s="\d+"><f>SUM\(AJ6:AJ7\)<\/f><v>85<\/v><\/c>/); // 80 + 5 = 85
+
+    // 7. 驗證樣式表中包含 medium (粗外框線) 與 double (底端雙框線)
+    expect(stylesContent).toContain('style="medium"');
+    expect(stylesContent).toContain('style="double"');
+  });
+
+  it("accurately detects category transitions as requested by the user", () => {
+    // 使用者指定範例驗證：
+    // "照服夏季上衣-6L" 到 "照服冬季上衣-XS" 算換品項
+    expect(getItemCategory("照服夏季上衣-6L", "6L")).toBe("照服夏季上衣");
+    expect(getItemCategory("照服冬季上衣-XS", "XS")).toBe("照服冬季上衣");
+    expect(getItemCategory("照服夏季上衣-6L", "6L")).not.toBe(getItemCategory("照服冬季上衣-XS", "XS"));
+
+    // "照服冬季上衣-6L" 到 "照服行政冬夏褲-XS" 算換品項
+    expect(getItemCategory("照服冬季上衣-6L", "6L")).toBe("照服冬季上衣");
+    expect(getItemCategory("照服行政冬夏褲-XS", "XS")).toBe("照服行政冬夏褲");
+    expect(getItemCategory("照服冬季上衣-6L", "6L")).not.toBe(getItemCategory("照服行政冬夏褲-XS", "XS"));
+
+    // "照服行政冬夏褲-6L" 到 "照服中高階夏上衣-女M" 算換品項
+    expect(getItemCategory("照服行政冬夏褲-6L", "6L")).toBe("照服行政冬夏褲");
+    expect(getItemCategory("照服中高階夏上衣-女M", "女M")).toBe("照服中高階夏上衣");
+    expect(getItemCategory("照服行政冬夏褲-6L", "6L")).not.toBe(getItemCategory("照服中高階夏上衣-女M", "女M"));
+
+    // 同一品項不同尺碼算相同品項
+    expect(getItemCategory("照服冬季上衣-XS", "XS")).toBe(getItemCategory("照服冬季上衣-S", "S"));
+    expect(getItemCategory("照服冬季上衣-S", "S")).toBe(getItemCategory("照服冬季上衣-6L", "6L"));
   });
 });
