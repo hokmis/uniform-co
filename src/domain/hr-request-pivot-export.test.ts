@@ -336,9 +336,12 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toMatch(/<c r="F2" t="inlineStr" s="\d+"><is><t>請領數量表/);
     expect(sheetContent).toMatch(/<c r="G2" s="\d+"\/>/);
     expect(sheetContent).toMatch(/<c r="AA2" s="\d+"\/>/);
+
+    // 10. 驗證開啟預設縮放 70% (zoomScale="70")
+    expect(sheetContent).toContain('<sheetView tabSelected="1" workbookViewId="0" zoomScale="70" zoomScaleNormal="70"/>');
   });
 
-  it("accurately detects category transitions as requested by the user", () => {
+  it("accurately detects category and gender transitions as requested by the user", () => {
     // 使用者指定範例驗證：
     // "照服夏季上衣-6L" 到 "照服冬季上衣-XS" 算換品項
     expect(getItemCategory("照服夏季上衣-6L", "6L")).toBe("照服夏季上衣");
@@ -352,11 +355,22 @@ describe("hr-request-pivot-export", () => {
 
     // "照服行政冬夏褲-6L" 到 "照服中高階夏上衣-女M" 算換品項
     expect(getItemCategory("照服行政冬夏褲-6L", "6L")).toBe("照服行政冬夏褲");
-    expect(getItemCategory("照服中高階夏上衣-女M", "女M")).toBe("照服中高階夏上衣");
+    expect(getItemCategory("照服中高階夏上衣-女M", "女M")).toBe("照服中高階夏上衣-女");
     expect(getItemCategory("照服行政冬夏褲-6L", "6L")).not.toBe(getItemCategory("照服中高階夏上衣-女M", "女M"));
 
-    // 同一品項不同尺碼算相同品項
+    // 同一品項區分出 "男" 和 "女" 並算換品項（加上底端雙框線）
+    expect(getItemCategory("照服中高階夏上衣-男L", "男L")).toBe("照服中高階夏上衣-男");
+    expect(getItemCategory("照服中高階夏上衣-女M", "女M")).not.toBe(getItemCategory("照服中高階夏上衣-男L", "男L"));
+
+    // 同品項且同性別不同尺碼算相同品項
+    expect(getItemCategory("照服中高階夏上衣-女M", "女M")).toBe(getItemCategory("照服中高階夏上衣-女L", "女L"));
+    expect(getItemCategory("照服中高階夏上衣-男M", "男M")).toBe(getItemCategory("照服中高階夏上衣-男2L", "男2L"));
     expect(getItemCategory("照服冬季上衣-XS", "XS")).toBe(getItemCategory("照服冬季上衣-S", "S"));
     expect(getItemCategory("照服冬季上衣-S", "S")).toBe(getItemCategory("照服冬季上衣-6L", "6L"));
+
+    // 括號形式男女品名
+    expect(getItemCategory("照服中高階夏上衣(男)-M", "M")).toBe("照服中高階夏上衣(男)");
+    expect(getItemCategory("照服中高階夏上衣(女)-M", "M")).toBe("照服中高階夏上衣(女)");
+    expect(getItemCategory("照服中高階夏上衣(男)-M", "M")).not.toBe(getItemCategory("照服中高階夏上衣(女)-M", "M"));
   });
 });

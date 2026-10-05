@@ -95,27 +95,61 @@ export function resolveInstitutionInfo(rawCodeOrName: string | null | undefined)
 }
 
 /**
+ * 依據品名與規格解析性別標記 ("男" | "女" | "")
+ */
+export function getItemGender(itemName: string, size?: string): "男" | "女" | "" {
+  const s = size ? size.trim() : "";
+  const name = itemName ? itemName.trim() : "";
+
+  // 1. 優先從規格判斷 (例如 "女M", "男L", "男", "女")
+  const sHasMale = s.includes("男");
+  const sHasFemale = s.includes("女");
+  if (sHasMale && !sHasFemale) return "男";
+  if (sHasFemale && !sHasMale) return "女";
+
+  // 2. 從品名判斷 (例如 "照服中高階夏上衣(男)", "照服中高階夏上衣-女M", "司機冬季男長褲")
+  const nameHasMale = name.includes("男");
+  const nameHasFemale = name.includes("女");
+  if (nameHasMale && !nameHasFemale) return "男";
+  if (nameHasFemale && !nameHasMale) return "女";
+
+  return "";
+}
+
+/**
  * 依據品名與規格解析基礎品項名稱，用於判斷是否更換品項
+ * 包含：品項名稱不同算換品項、同一品項中男女款切換亦算換品項並加入底端雙框線
  * 範例：
  * "照服夏季上衣-6L" -> "照服夏季上衣"
  * "照服冬季上衣-XS" -> "照服冬季上衣"
  * "照服行政冬夏褲-6L" -> "照服行政冬夏褲"
- * "照服中高階夏上衣-女M" -> "照服中高階夏上衣"
+ * "照服中高階夏上衣-女M" -> "照服中高階夏上衣-女"
+ * "照服中高階夏上衣-男L" -> "照服中高階夏上衣-男"
  */
 export function getItemCategory(itemName: string, size?: string): string {
   if (!itemName) return "";
   const trimmed = itemName.trim();
+  const gender = getItemGender(trimmed, size);
 
+  let base = trimmed;
   if (size && size.trim() && trimmed.endsWith(`-${size.trim()}`)) {
-    return trimmed.slice(0, -(size.trim().length + 1)).trim();
+    base = trimmed.slice(0, -(size.trim().length + 1)).trim();
+  } else {
+    const match = trimmed.match(/^(.*?)(?:-[A-Za-z0-9\u4e00-\u9fa5]+)$/);
+    if (match && match[1]) {
+      base = match[1].trim();
+    }
   }
 
-  const match = trimmed.match(/^(.*?)(?:-[A-Za-z0-9\u4e00-\u9fa5]+)$/);
-  if (match && match[1]) {
-    return match[1].trim();
+  // 若具有男女區分，確保分類名稱中包含性別（若原基礎品名未包含，則附加性別）
+  if (gender) {
+    if (!base.includes("男") && !base.includes("女")) {
+      return `${base}-${gender}`;
+    }
+    return base;
   }
 
-  return trimmed;
+  return base;
 }
 
 export type RawIssueLineInput = {
@@ -941,6 +975,9 @@ export function generatePivotXlsx(
 
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetViews>
+    <sheetView tabSelected="1" workbookViewId="0" zoomScale="70" zoomScaleNormal="70"/>
+  </sheetViews>
 ${colsXml}
   <sheetData>
 ${xmlRows.join("\n")}
