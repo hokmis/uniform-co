@@ -248,12 +248,24 @@ export function buildPivotTableData(
     group.totalIssued += qty;
   }
 
-  // 穩定排序資料列：先依品號排序，再依規格排序
-  const rows = Array.from(groups.values()).sort((a, b) => {
-    const codeCmp = a.itemCode.localeCompare(b.itemCode, "zh-TW");
-    if (codeCmp !== 0) return codeCmp;
-    return a.size.localeCompare(b.size, "zh-TW");
-  });
+/**
+ * 依據品名連帶品號排序資料列，將相同類似的品名排列在一起
+ * 優先依品名排序，品名相同或無品名時依品號排序，再依規格排序
+ */
+export function comparePivotRows(a: PivotRow, b: PivotRow): number {
+  const nameA = (a.itemName || a.itemCode || "").trim();
+  const nameB = (b.itemName || b.itemCode || "").trim();
+  const nameCmp = nameA.localeCompare(nameB, "zh-TW", { numeric: true });
+  if (nameCmp !== 0) return nameCmp;
+
+  const codeCmp = (a.itemCode || "").trim().localeCompare((b.itemCode || "").trim(), "zh-TW", { numeric: true });
+  if (codeCmp !== 0) return codeCmp;
+
+  return (a.size || "").trim().localeCompare((b.size || "").trim(), "zh-TW", { numeric: true });
+}
+
+  // 依品名連帶品號排序資料列，將相同類似的品名排列在一起
+  const rows = Array.from(groups.values()).sort(comparePivotRows);
 
   // 分配 stockMap 的庫增量 (increaseQuantity)
   const assignedItemCodes = new Set<string>();
@@ -291,11 +303,7 @@ export function buildPivotTableData(
     }
 
     // 重新排序（包含補庫品項）
-    rows.sort((a, b) => {
-      const codeCmp = a.itemCode.localeCompare(b.itemCode, "zh-TW");
-      if (codeCmp !== 0) return codeCmp;
-      return a.size.localeCompare(b.size, "zh-TW");
-    });
+    rows.sort(comparePivotRows);
   }
 
   // 計算每個分店的垂直總計
@@ -581,7 +589,7 @@ export function generatePivotXlsx(
     <c r="A2" t="inlineStr" s="${a2Style}"><is><t>項次</t></is></c>
     <c r="B2" t="inlineStr" s="${b2Style}"><is><t>品號</t></is></c>
     <c r="C2" t="inlineStr" s="${c2Style}"><is><t>品名</t></is></c>
-    <c r="D2" t="inlineStr" s="${d2Style}"><is><t>規格</t></is></c>
+    <c r="D2" t="inlineStr" s="${d2Style}"><is><t>規&#10;格</t></is></c>
     <c r="E2" t="inlineStr" s="${e2Style}"><is><t>期&#10;初&#10;量</t></is></c>
     ${instGroupCellsRow2}
     ${rightGroupHeader}

@@ -6,6 +6,7 @@ import {
   generatePivotXlsx,
   getExcelColumnName,
   getItemCategory,
+  comparePivotRows,
   type RawIssueLineInput,
 } from "./hr-request-pivot-export";
 import { unzipSync } from "fflate";
@@ -288,6 +289,7 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toContain('<mergeCell ref="AJ2:AJ4"/>');
 
     // 3. 表頭文字排列換行驗證
+    expect(sheetContent).toMatch(/<c r="D2" t="inlineStr" s="\d+"><is><t>規&#10;格<\/t><\/is><\/c>/);
     expect(sheetContent).toMatch(/<c r="E2" t="inlineStr" s="\d+"><is><t>期&#10;初&#10;量<\/t><\/is><\/c>/);
     expect(sheetContent).toContain("<t>請領&#10;合計</t>");
     expect(sheetContent).toContain("<t>月結量&#10;(抽盤)</t>");
@@ -372,5 +374,24 @@ describe("hr-request-pivot-export", () => {
     expect(getItemCategory("照服中高階夏上衣(男)-M", "M")).toBe("照服中高階夏上衣(男)");
     expect(getItemCategory("照服中高階夏上衣(女)-M", "M")).toBe("照服中高階夏上衣(女)");
     expect(getItemCategory("照服中高階夏上衣(男)-M", "M")).not.toBe(getItemCategory("照服中高階夏上衣(女)-M", "M"));
+  });
+
+  it("sorts rows by itemName first, then itemCode, then size, grouping identical and similar items together", () => {
+    const lines: RawIssueLineInput[] = [
+      { itemCode: "ZZZ999", itemName: "照服夏季上衣-L", size: "L", institutionCodeOrName: "8C清福", quantity: 1 },
+      { itemCode: "AAA001", itemName: "廚師夏季上衣-M", size: "M", institutionCodeOrName: "8C清福", quantity: 1 },
+      { itemCode: "ZZZ111", itemName: "照服夏季上衣-M", size: "M", institutionCodeOrName: "8C清福", quantity: 1 },
+      { itemCode: "AAA002", itemName: "廚師夏季上衣-L", size: "L", institutionCodeOrName: "8C清福", quantity: 1 },
+      { itemCode: "BBB555", itemName: "廚師夏季圍裙-F", size: "F", institutionCodeOrName: "8C清福", quantity: 1 },
+    ];
+    const data = buildPivotTableData(lines);
+    // 廚師夏季上衣聚集在一起，廚師夏季圍裙在其旁，照服夏季上衣聚集在一起
+    expect(data.rows.map((r) => r.itemName)).toEqual([
+      "廚師夏季上衣-L",
+      "廚師夏季上衣-M",
+      "廚師夏季圍裙-F",
+      "照服夏季上衣-L",
+      "照服夏季上衣-M",
+    ]);
   });
 });
