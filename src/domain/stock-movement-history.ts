@@ -1,4 +1,4 @@
-export type StockMovementPostingKind = "WAREHOUSE_SHIPMENT" | "REPLENISHMENT";
+export type StockMovementPostingKind = "WAREHOUSE_SHIPMENT" | "REPLENISHMENT" | "HR_REQUEST_RESERVATION";
 
 export type StockMovementRow = {
   id: string; // posting_id + "_" + item_id
@@ -43,15 +43,18 @@ export type StockMovementSortDirection = "asc" | "desc";
 export function postingKindToLabel(kind: string): string {
   if (kind === "WAREHOUSE_SHIPMENT") return "員工需求發貨";
   if (kind === "REPLENISHMENT") return "額外補庫調撥";
+  if (kind === "HR_REQUEST_RESERVATION") return "需求預留(待發貨)";
   return kind;
 }
 
 /**
- * 將 v_inventory_history 中的發貨與補庫流水，與 v_item_availability 的品項規格及兩倉現有量聚合為單一條列式進出貨紀錄
+ * 將 v_inventory_history 中的發貨與補庫流水，連同待發貨需求預留（v_hr_request_item_totals 中 status='SUBMITTED'），
+ * 與 v_item_availability 的品項規格及兩倉現有量聚合為單一條列式進出貨紀錄
  */
 export function aggregateStockMovements(
   historyRows: Array<Record<string, unknown>>,
   availabilityRows: Array<Record<string, unknown>>,
+  pendingRequestRows: Array<Record<string, unknown>> = [],
 ): StockMovementRow[] {
   // 建立品項規格與現有量快取 Map
   const availabilityMap = new Map<string, { size: string; hrOnHand: number; generalOnHand: number; unit: string }>();
@@ -70,6 +73,52 @@ export function aggregateStockMovements(
   // 以 posting_id + "_" + item_id 聚合
   const groupMap = new Map<string, StockMovementRow>();
 
+  // 1. 處理待發貨需求（需求預留）：人資倉增減量 -issue_quantity
+  for (const req of pendingRequestRows) {
+    const status = String(req.status ?? "");
+    if (status !== "SUBMITTED") continue;
+
+    const requestId = String(req.request_id ?? "");
+    const itemId = String(req.item_id ?? "");
+    if (!requestId || !itemId) continue;
+
+    const issueQty = Number(req.issue_quantity) || 0;
+    if (issueQty <= 0) continue;
+
+    const groupKey = `REQ_${requestId}_${itemId}`;
+    const avail = availabilityMap.get(itemId);
+    const itemCode = String(req.item_code ?? "");
+    const itemName = String(req.item_name ?? itemCode);
+    const unit = String(req.unit ?? avail?.unit ?? "件");
+    const size = avail?.size || "—";
+    const hrOnHand = avail?.hrOnHand ?? 0;
+    const generalOnHand = avail?.generalOnHand ?? 0;
+    const sourceNo = String(req.request_no ?? "—");
+    const distributionDate = String(req.distribution_date ?? "").slice(0, 10);
+    const createdAt = String(req.created_at ?? distributionDate);
+
+    groupMap.set(groupKey, {
+      id: groupKey,
+      postingId: requestId,
+      postingKind: "HR_REQUEST_RESERVATION",
+      postingKindLabel: postingKindToLabel("HR_REQUEST_RESERVATION"),
+      sourceNo,
+      occurredOn: distributionDate || createdAt.slice(0, 10),
+      postedAt: createdAt,
+      postedByName: "人資單位",
+      itemId,
+      itemCode,
+      itemName,
+      size,
+      unit,
+      hrDelta: -issueQty,
+      generalDelta: 0,
+      hrOnHand,
+      generalOnHand,
+    });
+  }
+
+  // 2. 處理不可變發貨與補庫流水
   for (const h of historyRows) {
     const postingKind = String(h.posting_kind ?? "");
     // 僅處理「員工制服需求發貨」與「額外補庫」

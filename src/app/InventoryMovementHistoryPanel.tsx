@@ -50,7 +50,7 @@ export default function InventoryMovementHistoryPanel() {
     setLoading(true);
 
     try {
-      const [historyResult, availabilityResult] = await retrySupabaseQueriesAfterSessionRefresh(
+      const [historyResult, availabilityResult, pendingRequestsResult] = await retrySupabaseQueriesAfterSessionRefresh(
         client,
         () => Promise.all([
           client
@@ -63,6 +63,12 @@ export default function InventoryMovementHistoryPanel() {
             .from("v_item_availability")
             .select("item_id,item_code,item_name,size,unit,hr_on_hand_quantity,general_on_hand_quantity")
             .limit(1000),
+          client
+            .from("v_hr_request_item_totals")
+            .select("request_id,request_no,status,distribution_date,created_at,item_id,item_code,item_name,unit,issue_quantity")
+            .eq("status", "SUBMITTED")
+            .gt("issue_quantity", 0)
+            .limit(1000),
         ]),
       );
 
@@ -74,10 +80,11 @@ export default function InventoryMovementHistoryPanel() {
 
       const historyData = (historyResult.data ?? []) as Array<Record<string, unknown>>;
       const availabilityData = (availabilityResult?.data ?? []) as Array<Record<string, unknown>>;
+      const pendingData = (pendingRequestsResult?.data ?? []) as Array<Record<string, unknown>>;
 
-      const aggregated = aggregateStockMovements(historyData, availabilityData);
+      const aggregated = aggregateStockMovements(historyData, availabilityData, pendingData);
       setRows(aggregated);
-      setMessage(`已載入 ${aggregated.length} 筆進出貨異動紀錄（發貨與補庫過帳）`);
+      setMessage(`已載入 ${aggregated.length} 筆進出貨異動紀錄（含待發貨預留、發貨與補庫過帳）`);
     } catch (err) {
       setMessage(`讀取進出貨紀錄異常：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -190,6 +197,7 @@ export default function InventoryMovementHistoryPanel() {
             }}
           >
             <option value="ALL">全部單據</option>
+            <option value="HR_REQUEST_RESERVATION">需求預留(待發貨)</option>
             <option value="WAREHOUSE_SHIPMENT">員工需求發貨</option>
             <option value="REPLENISHMENT">額外補庫調撥</option>
           </select>
@@ -276,8 +284,18 @@ export default function InventoryMovementHistoryPanel() {
                       padding: "1px 6px",
                       borderRadius: 4,
                       fontWeight: 600,
-                      background: row.postingKind === "REPLENISHMENT" ? "#e0f2fe" : "#fef3c7",
-                      color: row.postingKind === "REPLENISHMENT" ? "#0369a1" : "#92400e",
+                      background:
+                        row.postingKind === "HR_REQUEST_RESERVATION"
+                          ? "#f3e8ff"
+                          : row.postingKind === "REPLENISHMENT"
+                            ? "#e0f2fe"
+                            : "#fef3c7",
+                      color:
+                        row.postingKind === "HR_REQUEST_RESERVATION"
+                          ? "#7e22ce"
+                          : row.postingKind === "REPLENISHMENT"
+                            ? "#0369a1"
+                            : "#92400e",
                     }}
                   >
                     {row.postingKindLabel}

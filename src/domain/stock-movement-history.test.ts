@@ -146,4 +146,37 @@ describe("stock-movement-history", () => {
     expect(sortedByGeneralOnHand[0].generalOnHand).toBe(50);
     expect(sortedByGeneralOnHand[1].generalOnHand).toBe(20);
   });
+
+  it("aggregates pending submitted HR requests as reservation rows with negative HR delta", () => {
+    const mockPending = [
+      {
+        request_id: "req-pending-1",
+        request_no: "HR-20261006001",
+        status: "SUBMITTED",
+        distribution_date: "2026-10-06",
+        created_at: "2026-10-06T09:00:00Z",
+        item_id: "item-1",
+        item_code: "UNT0102",
+        item_name: "短袖制服",
+        unit: "件",
+        issue_quantity: 2,
+      },
+    ];
+
+    const rows = aggregateStockMovements([], mockAvailability, mockPending);
+    expect(rows.length).toBe(1);
+
+    const resRow = rows[0];
+    expect(resRow.postingKind).toBe("HR_REQUEST_RESERVATION");
+    expect(resRow.postingKindLabel).toBe("需求預留(待發貨)");
+    expect(resRow.sourceNo).toBe("HR-20261006001");
+    expect(resRow.itemCode).toBe("UNT0102");
+    expect(resRow.itemName).toBe("短袖制服");
+    expect(resRow.size).toBe("2L");
+    expect(resRow.hrDelta).toBe(-2);
+    expect(resRow.generalDelta).toBe(0);
+    expect(resRow.hrOnHand).toBe(30);
+    expect(resRow.generalOnHand).toBe(50);
+  });
 });
+
