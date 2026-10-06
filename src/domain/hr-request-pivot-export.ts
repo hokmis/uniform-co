@@ -309,6 +309,7 @@ export const ORDERED_ITEM_CATEGORIES = [
   "照服初階",
   "護士夏季",
   "護士冬季",
+  "護士冬夏",
   "行政夏季",
   "行政冬季",
   "廚師夏季",
@@ -648,10 +649,10 @@ export function generatePivotXlsx(
       } else {
         borderId = 3 + customBorderXmls.length;
         customBorders.set(bKey, borderId);
-        const topColor = border.top === "medium" ? "FF000000" : "FFD4D4D4";
-        const bottomColor = border.bottom === "thin" ? "FFD4D4D4" : "FF000000";
-        const leftColor = border.left === "medium" ? "FF000000" : "FFD4D4D4";
-        const rightColor = border.right === "medium" ? "FF000000" : "FFD4D4D4";
+        const topColor = "FF000000";
+        const bottomColor = "FF000000";
+        const leftColor = "FF000000";
+        const rightColor = "FF000000";
         customBorderXmls.push(`    <border>
       <left style="${border.left}"><color rgb="${leftColor}"/></left>
       <right style="${border.right}"><color rgb="${rightColor}"/></right>
@@ -1197,10 +1198,10 @@ ${mergeCellsXml}
   <borders count="${totalBordersCount}">
     <border><left/><right/><top/><bottom/><diagonal/></border>
     <border>
-      <left style="thin"><color rgb="FFD4D4D4"/></left>
-      <right style="thin"><color rgb="FFD4D4D4"/></right>
-      <top style="thin"><color rgb="FFD4D4D4"/></top>
-      <bottom style="thin"><color rgb="FFD4D4D4"/></bottom>
+      <left style="thin"><color rgb="FF000000"/></left>
+      <right style="thin"><color rgb="FF000000"/></right>
+      <top style="thin"><color rgb="FF000000"/></top>
+      <bottom style="thin"><color rgb="FF000000"/></bottom>
     </border>
     <border>
       <left style="thin"><color rgb="FF000000"/></left>

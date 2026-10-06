@@ -334,9 +334,10 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toMatch(/<c r="AI8" s="\d+"><f>SUM\(AI6:AI7\)<\/f><\/c>/);
     expect(sheetContent).toMatch(/<c r="AJ8" s="\d+"><f>SUM\(AJ6:AJ7\)<\/f><v>85<\/v><\/c>/); // 80 + 5 = 85
 
-    // 7. 驗證樣式表中包含 medium (粗外框線) 與 double (底端雙框線)
+    // 7. 驗證樣式表中包含 medium (粗外框線)、double (底端雙框線) 與 thin 一般黑色框線 (FF000000)
     expect(stylesContent).toContain('style="medium"');
     expect(stylesContent).toContain('style="double"');
+    expect(stylesContent).toContain('<left style="thin"><color rgb="FF000000"/></left>');
 
     // 8. 驗證字體大小：大標題改為 20pt、原 12pt 改為 13pt、A2~AM2 表頭取消粗體使用 fontId=0 (13pt normal)
     expect(stylesContent).toContain('<font><sz val="13"/><name val="微軟正黑體"/></font>');
@@ -424,11 +425,12 @@ describe("hr-request-pivot-export", () => {
     ]);
   });
 
-  it("strictly sorts 13 item categories in the requested user sequence", () => {
-    // 建立 13 個指定類別的品項各一個（隨機打亂順序輸入）
+  it("strictly sorts 14 item categories in the requested user sequence including 護士冬夏", () => {
+    // 建立 14 個指定類別的品項各一個（隨機打亂順序輸入）
     const shuffledCategories = [
       "工務冬季上衣-M",
       "廚師夏季上衣-M",
+      "護士冬夏長褲-M",
       "照服冬季上衣-M",
       "幼兒園夏季上衣-M",
       "行政夏季上衣-M",
@@ -459,6 +461,7 @@ describe("hr-request-pivot-export", () => {
       "照服初階夏上衣-M",
       "護士夏季上衣-M",
       "護士冬季上衣-M",
+      "護士冬夏長褲-M",
       "行政夏季上衣-M",
       "行政冬季上衣-M",
       "廚師夏季上衣-M",
