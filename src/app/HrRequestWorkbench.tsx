@@ -38,6 +38,50 @@ type LineState = HrRequestLineSelection & {
 
 type DepartmentOption = { code: string; name: string };
 
+type UniformCategoryKey = "ALL" | "照服" | "護士" | "行政" | "廚師" | "工務" | "幼兒園" | "OTHER";
+type GenderFilterKey = "ALL" | "MALE" | "FEMALE";
+type SeasonFilterKey = "ALL" | "SUMMER" | "WINTER";
+
+function getUniformCategory(itemName: string, itemCode: string): UniformCategoryKey {
+  const name = itemName || "";
+  const code = itemCode || "";
+  if (name.includes("照服") || code.includes("照服")) return "照服";
+  if (name.includes("護士") || code.includes("護士")) return "護士";
+  if (name.includes("行政") || code.includes("行政")) return "行政";
+  if (name.includes("廚師") || code.includes("廚師")) return "廚師";
+  if (name.includes("工務") || code.includes("工務")) return "工務";
+  if (name.includes("幼兒園") || name.includes("幼") || code.includes("幼")) return "幼兒園";
+  return "OTHER";
+}
+
+function getUniformGender(itemName: string, size?: string): "MALE" | "FEMALE" | "NEUTRAL" {
+  const s = size ? size.trim() : "";
+  const name = itemName ? itemName.trim() : "";
+
+  const sHasMale = s.includes("男");
+  const sHasFemale = s.includes("女");
+  if (sHasMale && !sHasFemale) return "MALE";
+  if (sHasFemale && !sHasMale) return "FEMALE";
+
+  const nameHasMale = name.includes("男");
+  const nameHasFemale = name.includes("女");
+  if (nameHasMale && !nameHasFemale) return "MALE";
+  if (nameHasFemale && !nameHasMale) return "FEMALE";
+
+  return "NEUTRAL";
+}
+
+function getUniformSeason(itemName: string): "SUMMER" | "WINTER" | "ALL_SEASON" | "NONE" {
+  const name = itemName ? itemName.trim() : "";
+  const hasSummer = name.includes("夏");
+  const hasWinter = name.includes("冬");
+
+  if (hasSummer && hasWinter) return "ALL_SEASON";
+  if (hasSummer) return "SUMMER";
+  if (hasWinter) return "WINTER";
+  return "NONE";
+}
+
 const previewEmployees: EmployeeSnapshot[] = [
   {
     employeeId: "employee-1",
@@ -110,6 +154,9 @@ export default function HrRequestWorkbench() {
   );
   const [increasePage, setIncreasePage] = useState(1);
   const [increaseSearch, setIncreaseSearch] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<UniformCategoryKey>("ALL");
+  const [genderFilter, setGenderFilter] = useState<GenderFilterKey>("ALL");
+  const [seasonFilter, setSeasonFilter] = useState<SeasonFilterKey>("ALL");
   const [dataMessage, setDataMessage] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
   const [loadingData, setLoadingData] = useState(() => Boolean(client));
@@ -147,15 +194,72 @@ export default function HrRequestWorkbench() {
   const visibleItemOptions = useMemo(() => hasCurrentDataSnapshot ? itemOptions : [], [hasCurrentDataSnapshot, itemOptions]);
   const visibleLines = useMemo(() => hasCurrentDataSnapshot ? lines : [], [hasCurrentDataSnapshot, lines]);
 
+  const categoryCounts = useMemo(() => {
+    const counts: Record<UniformCategoryKey, number> = {
+      ALL: visibleItemOptions.length,
+      照服: 0,
+      護士: 0,
+      行政: 0,
+      廚師: 0,
+      工務: 0,
+      幼兒園: 0,
+      OTHER: 0,
+    };
+    for (const item of visibleItemOptions) {
+      const cat = getUniformCategory(item.itemName, item.itemCode);
+      counts[cat] = (counts[cat] || 0) + 1;
+    }
+    return counts;
+  }, [visibleItemOptions]);
+
+  const categoryTabs = useMemo(() => {
+    const base: { key: UniformCategoryKey; label: string }[] = [
+      { key: "ALL", label: "全部" },
+      { key: "照服", label: "照服" },
+      { key: "護士", label: "護士" },
+      { key: "行政", label: "行政" },
+      { key: "廚師", label: "廚師" },
+      { key: "工務", label: "工務" },
+      { key: "幼兒園", label: "幼兒園" },
+    ];
+    if (categoryCounts.OTHER > 0) {
+      base.push({ key: "OTHER", label: "其他" });
+    }
+    return base.map((cat) => ({
+      ...cat,
+      count: categoryCounts[cat.key] || 0,
+    }));
+  }, [categoryCounts]);
+
   const filteredIncreaseItems = useMemo(() => {
     const q = increaseSearch.trim().toLowerCase();
-    if (!q) return visibleItemOptions;
-    return visibleItemOptions.filter((item) =>
-      item.itemCode.toLowerCase().includes(q)
-      || item.itemName.toLowerCase().includes(q)
-      || (item.size && item.size.toLowerCase().includes(q)),
-    );
-  }, [increaseSearch, visibleItemOptions]);
+    return visibleItemOptions.filter((item) => {
+      // 1. 分類頁籤
+      if (categoryFilter !== "ALL") {
+        const cat = getUniformCategory(item.itemName, item.itemCode);
+        if (cat !== categoryFilter) return false;
+      }
+      // 2. 性別篩選
+      if (genderFilter !== "ALL") {
+        const g = getUniformGender(item.itemName, item.size);
+        if (g !== genderFilter) return false;
+      }
+      // 3. 季節篩選
+      if (seasonFilter !== "ALL") {
+        const s = getUniformSeason(item.itemName);
+        if (seasonFilter === "SUMMER" && s !== "SUMMER" && s !== "ALL_SEASON") return false;
+        if (seasonFilter === "WINTER" && s !== "WINTER" && s !== "ALL_SEASON") return false;
+      }
+      // 4. 文字搜尋
+      if (q) {
+        const matchCode = item.itemCode.toLowerCase().includes(q);
+        const matchName = item.itemName.toLowerCase().includes(q);
+        const matchSize = item.size && item.size.toLowerCase().includes(q);
+        if (!matchCode && !matchName && !matchSize) return false;
+      }
+      return true;
+    });
+  }, [categoryFilter, genderFilter, increaseSearch, seasonFilter, visibleItemOptions]);
 
   const increasePageSize = 10;
   const totalIncreasePages = Math.max(1, Math.ceil(filteredIncreaseItems.length / increasePageSize));
@@ -181,6 +285,9 @@ export default function HrRequestWorkbench() {
     setIncreases(Object.fromEntries(itemOptions.map((item) => [item.itemId, 0])));
     setIncreasePage(1);
     setIncreaseSearch("");
+    setCategoryFilter("ALL");
+    setGenderFilter("ALL");
+    setSeasonFilter("ALL");
   }
 
   function resetEntryAfterCancel() {
@@ -723,11 +830,173 @@ export default function HrRequestWorkbench() {
         ) : (
           <div className="tab-pane increase-tab-pane">
             <div className="increase-list" style={{ borderTop: "none", marginTop: 0, paddingTop: 0 }}>
-              <div className="subheading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
-                <div>
-                  <h3>品號彙總增庫量</h3>
-                  <span>尺寸選填；庫存按品號獨立計算{filteredIncreaseItems.length > 0 ? `（每頁 10 筆，共 ${filteredIncreaseItems.length} 個品號${increaseSearch.trim() ? `／搜尋「${increaseSearch.trim()}」` : ""}）` : ""}</span>
+              {/* 制服品項分類頁籤 */}
+              <div
+                className="increase-category-tabs"
+                role="tablist"
+                aria-label="制服品項分類"
+                style={{
+                  display: "flex",
+                  gap: "6px",
+                  flexWrap: "wrap",
+                  marginBottom: "12px",
+                  paddingBottom: "8px",
+                  borderBottom: "1px solid var(--line, #e5e9ef)",
+                }}
+              >
+                {categoryTabs.map((cat) => {
+                  const isActive = categoryFilter === cat.key;
+                  return (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => {
+                        setCategoryFilter(cat.key);
+                        setIncreasePage(1);
+                      }}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: "8px",
+                        border: isActive ? "1px solid var(--accent, #d8744a)" : "1px solid #e2e8f0",
+                        background: isActive ? "var(--accent, #d8744a)" : "#f8fafc",
+                        color: isActive ? "#fff" : "#475569",
+                        fontWeight: isActive ? 700 : 500,
+                        fontSize: "13px",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <span>{cat.label}</span>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          padding: "1px 5px",
+                          borderRadius: "10px",
+                          background: isActive ? "rgba(255, 255, 255, 0.25)" : "#e2e8f0",
+                          color: isActive ? "#fff" : "#64748b",
+                        }}
+                      >
+                        {cat.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 次級篩選按鈕（性別、季節）與搜尋列 */}
+              <div
+                className="increase-filter-toolbar"
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "10px",
+                  marginBottom: "14px",
+                  background: "#f8fafc",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #e2e8f0",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+                  {/* 性別篩選按鈕群 */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>性別：</span>
+                    <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1" }}>
+                      {[
+                        { key: "ALL", label: "全部" },
+                        { key: "MALE", label: "男" },
+                        { key: "FEMALE", label: "女" },
+                      ].map((g) => {
+                        const active = genderFilter === g.key;
+                        return (
+                          <button
+                            key={g.key}
+                            type="button"
+                            onClick={() => {
+                              setGenderFilter(g.key as GenderFilterKey);
+                              setIncreasePage(1);
+                            }}
+                            style={{
+                              padding: "3px 9px",
+                              fontSize: "12px",
+                              border: "none",
+                              borderRight: "1px solid #cbd5e1",
+                              background: active ? "var(--accent, #d8744a)" : "#fff",
+                              color: active ? "#fff" : "#334155",
+                              fontWeight: active ? 700 : 400,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {g.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 季節篩選按鈕群 */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>季節：</span>
+                    <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1" }}>
+                      {[
+                        { key: "ALL", label: "全部" },
+                        { key: "SUMMER", label: "夏季" },
+                        { key: "WINTER", label: "冬季" },
+                      ].map((s) => {
+                        const active = seasonFilter === s.key;
+                        return (
+                          <button
+                            key={s.key}
+                            type="button"
+                            onClick={() => {
+                              setSeasonFilter(s.key as SeasonFilterKey);
+                              setIncreasePage(1);
+                            }}
+                            style={{
+                              padding: "3px 9px",
+                              fontSize: "12px",
+                              border: "none",
+                              borderRight: "1px solid #cbd5e1",
+                              background: active ? "var(--accent, #d8744a)" : "#fff",
+                              color: active ? "#fff" : "#334155",
+                              fontWeight: active ? 700 : 400,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 重設篩選 */}
+                  {categoryFilter !== "ALL" || genderFilter !== "ALL" || seasonFilter !== "ALL" || increaseSearch ? (
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => {
+                        setCategoryFilter("ALL");
+                        setGenderFilter("ALL");
+                        setSeasonFilter("ALL");
+                        setIncreaseSearch("");
+                        setIncreasePage(1);
+                      }}
+                      style={{ fontSize: "12px", color: "#64748b", padding: "2px 4px" }}
+                    >
+                      重設篩選
+                    </button>
+                  ) : null}
                 </div>
+
+                {/* 搜尋框與分頁小控制項 */}
                 <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
                   <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
                     <input
@@ -740,11 +1009,12 @@ export default function HrRequestWorkbench() {
                       placeholder="搜尋品號、品名或尺寸…"
                       disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
                       style={{
-                        padding: "5px 10px",
-                        fontSize: "13px",
+                        padding: "4px 8px",
+                        fontSize: "12px",
                         borderRadius: "6px",
                         border: "1px solid var(--line, #ccc)",
-                        width: "200px",
+                        width: "180px",
+                        background: "#fff",
                       }}
                       aria-label="搜尋增庫品項"
                     />
@@ -763,25 +1033,25 @@ export default function HrRequestWorkbench() {
                     ) : null}
                   </div>
                   {totalIncreasePages > 1 ? (
-                    <div className="button-row pagination-controls" style={{ margin: 0, gap: "6px", alignItems: "center" }}>
+                    <div className="button-row pagination-controls" style={{ margin: 0, gap: "4px", alignItems: "center" }}>
                       <button
                         className="secondary-button"
                         type="button"
                         disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
                         onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
-                        style={{ padding: "4px 10px", fontSize: "13px" }}
+                        style={{ padding: "3px 8px", fontSize: "12px" }}
                       >
                         上一頁
                       </button>
-                      <span style={{ alignSelf: "center", fontSize: "13px", fontWeight: 600 }}>
-                        第 {currentIncreasePage} / {totalIncreasePages} 頁
+                      <span style={{ alignSelf: "center", fontSize: "12px", fontWeight: 600 }}>
+                        {currentIncreasePage} / {totalIncreasePages}
                       </span>
                       <button
                         className="secondary-button"
                         type="button"
                         disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
                         onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
-                        style={{ padding: "4px 10px", fontSize: "13px" }}
+                        style={{ padding: "3px 8px", fontSize: "12px" }}
                       >
                         下一頁
                       </button>
@@ -789,9 +1059,19 @@ export default function HrRequestWorkbench() {
                   ) : null}
                 </div>
               </div>
+
+              <div className="subheading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "15px" }}>品號彙總增庫量</h3>
+                  <span style={{ fontSize: "12px", color: "var(--muted, #666)" }}>
+                    尺寸選填；庫存按品號獨立計算{filteredIncreaseItems.length > 0 ? `（每頁 10 筆，目前篩選共 ${filteredIncreaseItems.length} 個品號）` : ""}
+                  </span>
+                </div>
+              </div>
+
               {filteredIncreaseItems.length === 0 ? (
                 <p className="empty-state" style={{ padding: "16px 0", textAlign: "center" }}>
-                  查無符合「{increaseSearch}」的品號；請調整搜尋關鍵字或點擊清除。
+                  查無符合目前分類或條件的品號；請調整分類頁籤、篩選條件或點擊「重設篩選」。
                 </p>
               ) : null}
               {pagedIncreaseItems.map((item) => (
