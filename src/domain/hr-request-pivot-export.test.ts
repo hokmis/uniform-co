@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ORDERED_INSTITUTION_NAMES,
   ALLOWED_INSTITUTION_NAMES,
+  HR_REQUEST_ALLOWED_DEPARTMENTS,
   resolveInstitutionInfo,
   buildPivotTableData,
   generatePivotXlsx,
@@ -25,6 +26,8 @@ describe("hr-request-pivot-export", () => {
       "護家", "含笑", "法人", "一館", "二館", "三館", "幼"
     ];
     expect(ORDERED_INSTITUTION_NAMES).toEqual(expected);
+    expect(HR_REQUEST_ALLOWED_DEPARTMENTS.map((d) => d.name)).toEqual(expected);
+    expect(HR_REQUEST_ALLOWED_DEPARTMENTS).toHaveLength(22);
   });
 
   it("normalizes institution codes and names correctly", () => {
@@ -35,6 +38,7 @@ describe("hr-request-pivot-export", () => {
     expect(resolveInstitutionInfo("2CD清護").shortName).toBe("護家");
     expect(resolveInstitutionInfo("CD2").shortName).toBe("護家");
     expect(resolveInstitutionInfo("47091980").shortName).toBe("含笑");
+    expect(resolveInstitutionInfo("7091980").shortName).toBe("含笑");
     expect(resolveInstitutionInfo("含笑").shortName).toBe("含笑");
     expect(resolveInstitutionInfo("清福法人").shortName).toBe("法人");
     expect(resolveInstitutionInfo("L1").shortName).toBe("法人");
@@ -42,9 +46,10 @@ describe("hr-request-pivot-export", () => {
     expect(resolveInstitutionInfo("清福幼兒園").shortName).toBe("幼");
     expect(resolveInstitutionInfo("B2").shortName).toBe("幼");
 
-    // 驗證代碼映射：含笑只有 47091980，三館只有 L23
+    // 驗證代碼映射：含笑支援 47091980 與 7091980，三館只有 L23
     expect(resolveInstitutionInfo("含笑").code).toBe("47091980");
     expect(resolveInstitutionInfo("47091980").code).toBe("47091980");
+    expect(resolveInstitutionInfo("7091980").code).toBe("47091980");
     expect(resolveInstitutionInfo("三館").code).toBe("L23");
     expect(resolveInstitutionInfo("L23").code).toBe("L23");
   });

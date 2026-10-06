@@ -59,12 +59,41 @@ export const INSTITUTION_CODE_MAP: Record<string, { shortName: OrderedInstitutio
   "2CD": { shortName: "護家", code: "CD2" },
   // 法人／會館／園區
   "47091980": { shortName: "含笑", code: "47091980" },
+  "7091980": { shortName: "含笑", code: "47091980" },
   "L1": { shortName: "法人", code: "L1" },
   "L67": { shortName: "一館", code: "L67" },
   "L5": { shortName: "二館", code: "L5" },
   "L23": { shortName: "三館", code: "L23" },
   "B2": { shortName: "幼", code: "B2" },
 };
+
+/**
+ * 人資需求工作台「報局單位」固定白名單選項（22 個指定單位，其餘不顯示）
+ */
+export const HR_REQUEST_ALLOWED_DEPARTMENTS: { code: string; name: string }[] = [
+  { code: "C8", name: "福" },
+  { code: "C7", name: "氣" },
+  { code: "C6", name: "心" },
+  { code: "C5", name: "平" },
+  { code: "C3", name: "安" },
+  { code: "D8", name: "春" },
+  { code: "D7", name: "日" },
+  { code: "D6", name: "照" },
+  { code: "D5", name: "風" },
+  { code: "D3", name: "景" },
+  { code: "E8", name: "山" },
+  { code: "E7", name: "泉" },
+  { code: "E6", name: "水" },
+  { code: "E5", name: "清" },
+  { code: "E3", name: "涼" },
+  { code: "CD2", name: "護家" },
+  { code: "47091980", name: "含笑" },
+  { code: "L1", name: "法人" },
+  { code: "L67", name: "一館" },
+  { code: "L5", name: "二館" },
+  { code: "L23", name: "三館" },
+  { code: "B2", name: "幼" },
+];
 
 /**
  * 將機構代碼或名稱正規化至指定簡稱
@@ -81,7 +110,7 @@ export function resolveInstitutionInfo(rawCodeOrName: string | null | undefined)
 
   // 2. 由包含的關鍵字命中
   if (trimmed.includes("護家") || trimmed.includes("清護") || trimmed.includes("2CD")) return { shortName: "護家", code: "CD2" };
-  if (trimmed.includes("含笑") || trimmed.includes("47091980")) return { shortName: "含笑", code: "47091980" };
+  if (trimmed.includes("含笑") || trimmed.includes("47091980") || trimmed.includes("7091980")) return { shortName: "含笑", code: "47091980" };
   if (trimmed.includes("幼兒園") || trimmed.includes("幼") || trimmed.includes("B2")) return { shortName: "幼", code: "B2" };
   if (trimmed.includes("一館") || trimmed.includes("L67")) return { shortName: "一館", code: "L67" };
   if (trimmed.includes("二館") || trimmed.includes("L5")) return { shortName: "二館", code: "L5" };

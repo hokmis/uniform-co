@@ -28,6 +28,10 @@ import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
 import { invalidateMasterDataCache, loadHrRequestMasterData, loadOrganizationMasterData, safeHrRequestMasterDataErrorMessage } from "@/src/lib/master-data-cache";
 import { isSupabaseSessionSyncError, retrySupabaseQueriesAfterSessionRefresh, safeSupabaseMutationErrorMessage } from "@/src/lib/supabase-session";
+import {
+  HR_REQUEST_ALLOWED_DEPARTMENTS,
+  resolveInstitutionInfo,
+} from "@/src/domain/hr-request-pivot-export";
 import { useWorkspaceSession } from "./workspace-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import WorkflowActionBar from "./WorkflowActionBar";
@@ -37,6 +41,19 @@ type LineState = HrRequestLineSelection & {
 };
 
 type DepartmentOption = { code: string; name: string };
+
+function findEmployeeForDepartment(employees: EmployeeSnapshot[], deptCode?: string): EmployeeSnapshot | undefined {
+  if (!deptCode || employees.length === 0) return undefined;
+  const direct = employees.find((emp) => emp.institutionCode === deptCode || emp.departmentCode === deptCode);
+  if (direct) return direct;
+  const targetInfo = resolveInstitutionInfo(deptCode);
+  return employees.find((emp) => {
+    const instInfo = resolveInstitutionInfo(emp.institutionCode || emp.institutionName);
+    const deptInfo = resolveInstitutionInfo(emp.departmentCode || emp.departmentName);
+    return (instInfo.shortName && instInfo.shortName !== "其他" && instInfo.shortName === targetInfo.shortName)
+      || (deptInfo.shortName && deptInfo.shortName !== "其他" && deptInfo.shortName === targetInfo.shortName);
+  });
+}
 
 type UniformCategoryKey = "ALL" | "照服" | "護士" | "行政" | "廚師" | "工務" | "幼兒園" | "OTHER";
 type GenderFilterKey = "ALL" | "MALE" | "FEMALE";
@@ -87,26 +104,23 @@ const previewEmployees: EmployeeSnapshot[] = [
     employeeId: "employee-1",
     employeeNo: "E001",
     employeeName: "測試員工一",
-    institutionCode: "ABC",
-    institutionName: "ABC 機構",
-    departmentCode: "A",
-    departmentName: "A 部門",
+    institutionCode: "C8",
+    institutionName: "福",
+    departmentCode: "C8",
+    departmentName: "福",
   },
   {
     employeeId: "employee-2",
     employeeNo: "E002",
     employeeName: "測試員工二",
-    institutionCode: "ABD",
-    institutionName: "ABD 機構",
-    departmentCode: "B",
-    departmentName: "B 部門",
+    institutionCode: "C7",
+    institutionName: "氣",
+    departmentCode: "C7",
+    departmentName: "氣",
   },
 ];
 
-const previewDepartments: DepartmentOption[] = [
-  { code: "ABC", name: "ABC 機構" },
-  { code: "ABD", name: "ABD 機構" },
-];
+const previewDepartments: DepartmentOption[] = HR_REQUEST_ALLOWED_DEPARTMENTS;
 
 const previewItems: UniformItemSnapshot[] = [
   {
@@ -132,7 +146,7 @@ const previewItems: UniformItemSnapshot[] = [
 ];
 
 const previewLines: LineState[] = [
-  { lineId: "line-1", employeeId: "employee-1", itemId: "item-m", quantity: 10, departmentCode: "ABC" },
+  { lineId: "line-1", employeeId: "employee-1", itemId: "item-m", quantity: 10, departmentCode: "C8" },
 ];
 
 function taipeiToday(): string {
@@ -384,21 +398,20 @@ export default function HrRequestWorkbench() {
         employeeOptionsRef.current = employeeRows;
         itemOptionsRef.current = itemRows;
         setEmployeeOptions(employeeRows);
-        const instMap = new Map<string, string>();
         const orgInstitutions = ((orgData?.institutions ?? []) as { code: string; name: string; is_active: boolean }[])
           .filter((inst) => inst.is_active)
           .map((inst) => ({ code: inst.code, name: inst.name }));
-        for (const inst of orgInstitutions) {
-          if (inst.code) {
-            instMap.set(inst.code, inst.name || inst.code);
-          }
-        }
-        for (const emp of employeeRows) {
-          if (emp.institutionCode && (!instMap.has(emp.institutionCode) || instMap.get(emp.institutionCode) === emp.institutionCode)) {
-            instMap.set(emp.institutionCode, emp.institutionName || emp.institutionCode);
-          }
-        }
-        setDepartmentOptions(Array.from(instMap.entries()).map(([code, name]) => ({ code, name })));
+        // 僅保留使用者指定的 22 個指定報局單位（福, 氣, 心, 平, 安, 春, 日, 照, 風, 景, 山, 泉, 水, 清, 涼, 護家, 含笑, 法人, 一館, 二館, 三館, 幼），其餘不顯示
+        const allowedDepts: DepartmentOption[] = HR_REQUEST_ALLOWED_DEPARTMENTS.map((allowed) => {
+          const matched = orgInstitutions.find(
+            (inst) => inst.code === allowed.code || (inst.name && inst.name.includes(allowed.name))
+          );
+          return {
+            code: matched?.code || allowed.code,
+            name: allowed.name,
+          };
+        });
+        setDepartmentOptions(allowedDepts);
         setItemOptions(itemRows);
         dataSnapshotAccountIdRef.current = accountId;
         setDataSnapshotAccountId(accountId);
@@ -442,7 +455,7 @@ export default function HrRequestWorkbench() {
       }
       const issueLines: IssueLineDraft[] = visibleLines.map((line) => {
         const emp = visibleEmployeeOptions.find((employee) => employee.employeeId === line.employeeId)
-          ?? (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.institutionCode === line.departmentCode || employee.departmentCode === line.departmentCode) : undefined)
+          ?? (line.departmentCode ? findEmployeeForDepartment(visibleEmployeeOptions, line.departmentCode) : undefined)
           ?? visibleEmployeeOptions[0];
         return {
           ...line,
@@ -479,7 +492,7 @@ export default function HrRequestWorkbench() {
           return { ...line, quantity: Number(value) || 0 };
         }
         if (field === "departmentCode") {
-          const matchedEmp = visibleEmployeeOptions.find((emp) => emp.institutionCode === value || emp.departmentCode === value)
+          const matchedEmp = findEmployeeForDepartment(visibleEmployeeOptions, value)
             ?? visibleEmployeeOptions[0];
           return {
             ...line,
@@ -539,7 +552,7 @@ export default function HrRequestWorkbench() {
     const submissionRoute = resolveHrRequestSubmissionRoute(operation.draftId, requestEntryState);
     const issuePayload = visibleLines.map((line) => {
       const resolvedEmpId = line.employeeId
-        || (line.departmentCode ? visibleEmployeeOptions.find((employee) => employee.institutionCode === line.departmentCode || employee.departmentCode === line.departmentCode)?.employeeId : undefined)
+        || (line.departmentCode ? findEmployeeForDepartment(visibleEmployeeOptions, line.departmentCode)?.employeeId : undefined)
         || visibleEmployeeOptions[0]?.employeeId
         || "";
       return { employeeId: resolvedEmpId, itemId: line.itemId, quantity: line.quantity };

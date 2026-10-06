@@ -28,6 +28,7 @@ import {
   buildPivotTableData,
   generatePivotXlsx,
   downloadPivotXlsx,
+  HR_REQUEST_ALLOWED_DEPARTMENTS,
   type RawIssueLineInput,
   type ItemStockInfo,
 } from "@/src/domain/hr-request-pivot-export";
@@ -809,6 +810,9 @@ export default function HrRequestHistoryPanel() {
       .then((orgData) => {
         if (!active) return;
         const nextMap = new Map<string, string>();
+        for (const dept of HR_REQUEST_ALLOWED_DEPARTMENTS) {
+          nextMap.set(dept.code, dept.name);
+        }
         for (const dept of orgData?.departments ?? []) {
           if (dept.code) nextMap.set(dept.code, dept.name || dept.code);
         }

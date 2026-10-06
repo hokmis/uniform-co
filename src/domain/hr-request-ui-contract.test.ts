@@ -78,4 +78,10 @@ describe("HR request UI flow", () => {
     expect(source).not.toContain("const [submittedRequestId, setSubmittedRequestId]");
     expect(source).not.toContain("const [editingSubmitted, setEditingSubmitted]");
   });
+
+  it("restricts department choices strictly to the 22 allowed units in specified order", () => {
+    expect(source).toContain("HR_REQUEST_ALLOWED_DEPARTMENTS");
+    expect(source).toContain("const allowedDepts: DepartmentOption[] = HR_REQUEST_ALLOWED_DEPARTMENTS.map(");
+    expect(source).toContain("setDepartmentOptions(allowedDepts)");
+  });
 });
