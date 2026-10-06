@@ -121,6 +121,7 @@ export default function HrRequestWorkbench() {
     input: HrRequestSubmissionInput;
   } | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [activeTab, setActiveTab] = useState<"request" | "increase">("request");
   const operationRef = useRef<HrRequestOperation | null>(null);
   const cancelKeyRef = useRef<string | null>(null);
   const employeeOptionsRef = useRef<EmployeeSnapshot[]>(employeeOptions);
@@ -583,217 +584,295 @@ export default function HrRequestWorkbench() {
           </div>
         </div>
 
-        <label className="field date-field"><span>發放日期</span><input type="date" value={distributionDate} onChange={(event) => { markDraftChanged(); setDistributionDate(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} required /></label>
-        <label className="field"><span>備註（選填）</span><input value={requestNote.replace(/<!--unit_map:.*?-->/g, "").trim()} onChange={(event) => { markDraftChanged(); setRequestNote(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} maxLength={2000} placeholder="例如：新人報到／換季發放" /></label>
-        <div className="request-table" role="table" aria-label="發放明細">
-          <div className="request-table-row request-table-header" role="row">
-            <span>報局單位</span>
-            <span>制服品號</span>
-            <span>發放量</span>
-            <span aria-hidden="true" />
+        <nav className="hr-workbench-tabs" role="tablist" aria-label="需求單與增庫量頁籤" style={{ display: "flex", gap: "10px", borderBottom: "1px solid var(--line, #e5e9ef)", marginBottom: "20px" }}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "request"}
+            className={`tab-btn ${activeTab === "request" ? "active" : ""}`}
+            onClick={() => setActiveTab("request")}
+            style={{
+              padding: "10px 16px",
+              background: "transparent",
+              border: "none",
+              borderBottom: activeTab === "request" ? "3px solid var(--accent, #d8744a)" : "3px solid transparent",
+              color: activeTab === "request" ? "var(--accent, #d8744a)" : "var(--muted, #666)",
+              fontWeight: 700,
+              fontSize: "15px",
+              cursor: "pointer",
+            }}
+          >
+            新增員工制服需求單
+            {lines.length > 0 ? (
+              <span style={{ marginLeft: "6px", fontSize: "12px", background: "color-mix(in srgb, var(--accent, #d8744a) 15%, transparent)", padding: "2px 6px", borderRadius: "10px" }}>
+                {lines.length}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={activeTab === "increase"}
+            className={`tab-btn ${activeTab === "increase" ? "active" : ""}`}
+            onClick={() => setActiveTab("increase")}
+            style={{
+              padding: "10px 16px",
+              background: "transparent",
+              border: "none",
+              borderBottom: activeTab === "increase" ? "3px solid var(--accent, #d8744a)" : "3px solid transparent",
+              color: activeTab === "increase" ? "var(--accent, #d8744a)" : "var(--muted, #666)",
+              fontWeight: 700,
+              fontSize: "15px",
+              cursor: "pointer",
+            }}
+          >
+            品號彙總增庫量
+            {Object.values(increases).some((qty) => qty > 0) ? (
+              <span style={{ marginLeft: "6px", fontSize: "12px", background: "color-mix(in srgb, var(--accent, #d8744a) 15%, transparent)", padding: "2px 6px", borderRadius: "10px" }}>
+                {Object.values(increases).filter((qty) => qty > 0).length}
+              </span>
+            ) : null}
+          </button>
+        </nav>
+
+        {activeTab === "request" ? (
+          <div className="tab-pane request-tab-pane">
+            <label className="field date-field"><span>發放日期</span><input type="date" value={distributionDate} onChange={(event) => { markDraftChanged(); setDistributionDate(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} required /></label>
+            <label className="field"><span>備註（選填）</span><input value={requestNote.replace(/<!--unit_map:.*?-->/g, "").trim()} onChange={(event) => { markDraftChanged(); setRequestNote(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} maxLength={2000} placeholder="例如：新人報到／換季發放" /></label>
+            <div className="request-table" role="table" aria-label="發放明細">
+              <div className="request-table-row request-table-header" role="row">
+                <span>報局單位</span>
+                <span>制服品號</span>
+                <span>發放量</span>
+                <span aria-hidden="true" />
+              </div>
+              {lines.map((line) => (
+                <div className="request-table-row" role="row" key={line.lineId}>
+                  <label className="field">
+                    <span className="sr-only">報局單位</span>
+                    <select
+                      value={line.departmentCode ?? ""}
+                      onChange={(event) => updateLine(line.lineId, "departmentCode", event.target.value)}
+                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                    >
+                      <option value="">請選擇報局單位</option>
+                      {visibleDepartmentOptions.map((dept) => (
+                        <option key={dept.code} value={dept.code}>
+                          {dept.name && dept.name !== dept.code ? `${dept.code}｜${dept.name}` : dept.code}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="sr-only">制服品號</span>
+                    <select
+                      value={line.itemId}
+                      onChange={(event) => updateLine(line.lineId, "itemId", event.target.value)}
+                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                    >
+                      <option value="">請選擇制服品號</option>
+                      {visibleItemOptions.map((item) => (
+                        <option key={item.itemId} value={item.itemId}>
+                          {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span className="sr-only">發放量</span>
+                    <input
+                      min={1}
+                      step={1}
+                      type="number"
+                      value={line.quantity}
+                      onChange={(event) => updateLine(line.lineId, "quantity", event.target.value)}
+                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                    />
+                  </label>
+                  <button className="text-button" type="button" onClick={() => removeLine(line.lineId)} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}>
+                    移除
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button className="secondary-button" type="button" onClick={addLine} disabled={submitting || submissionRecovering || dataReadBlocked || (Boolean(submittedRequestId) && !editingSubmitted)}>
+              ＋新增員工明細
+            </button>
+            <WorkflowActionBar
+              primary={{
+                onClick: () => void submitRequest(),
+                busy: submitting,
+                busyLabel: "送出中…",
+                disabled: submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted),
+                label: submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出",
+              }}
+              secondary={submittedRequestId && !editingSubmitted || hasDraftOperation ? <>
+                {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
+                {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
+                {hasDraftOperation ? <div className="workflow-secondary-form">
+                  <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
+                  <button className="secondary-button" type="button" onClick={() => void cancelRequest()} disabled={submitting || submissionRecovering}>取消本張需求</button>
+                </div> : null}
+              </> : null}
+            />
+            {dataMessage ? <p className="auth-message" role="status">{dataMessage}</p> : null}
+            {submitMessage ? <p className={submitMessage.includes("已送出") || submitMessage.includes("已取消") ? "success-note" : "error-box"} role="status">{submitMessage}</p> : null}
+            {submissionRecovering ? <p className="auth-message" role="status">伺服器結果尚未確認；為避免重複建立，欄位暫時鎖定。請按「以相同資料查回／重試送出」。</p> : null}
           </div>
-          {lines.map((line) => (
-            <div className="request-table-row" role="row" key={line.lineId}>
-              <label className="field">
-                <span className="sr-only">報局單位</span>
-                <select
-                  value={line.departmentCode ?? ""}
-                  onChange={(event) => updateLine(line.lineId, "departmentCode", event.target.value)}
-                  disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                >
-                  <option value="">請選擇報局單位</option>
-                  {visibleDepartmentOptions.map((dept) => (
-                    <option key={dept.code} value={dept.code}>
-                      {dept.name && dept.name !== dept.code ? `${dept.code}｜${dept.name}` : dept.code}
-                    </option>
-                  ))}
-                </select>
-              </label>
-                <label className="field">
-                  <span className="sr-only">制服品號</span>
-                  <select
-                    value={line.itemId}
-                    onChange={(event) => updateLine(line.lineId, "itemId", event.target.value)}
-                    disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                  >
-                    <option value="">請選擇制服品號</option>
-                    {visibleItemOptions.map((item) => (
-                      <option key={item.itemId} value={item.itemId}>
-                        {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span className="sr-only">發放量</span>
+        ) : (
+          <div className="tab-pane increase-tab-pane">
+            <div className="increase-list" style={{ borderTop: "none", marginTop: 0, paddingTop: 0 }}>
+              <div className="subheading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
+                <div>
+                  <h3>品號彙總增庫量</h3>
+                  <span>尺寸選填；庫存按品號獨立計算{filteredIncreaseItems.length > 0 ? `（每頁 10 筆，共 ${filteredIncreaseItems.length} 個品號${increaseSearch.trim() ? `／搜尋「${increaseSearch.trim()}」` : ""}）` : ""}</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <input
+                      type="search"
+                      value={increaseSearch}
+                      onChange={(event) => {
+                        setIncreaseSearch(event.target.value);
+                        setIncreasePage(1);
+                      }}
+                      placeholder="搜尋品號、品名或尺寸…"
+                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                      style={{
+                        padding: "5px 10px",
+                        fontSize: "13px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--line, #ccc)",
+                        width: "200px",
+                      }}
+                      aria-label="搜尋增庫品項"
+                    />
+                    {increaseSearch ? (
+                      <button
+                        className="text-button"
+                        type="button"
+                        onClick={() => {
+                          setIncreaseSearch("");
+                          setIncreasePage(1);
+                        }}
+                        style={{ fontSize: "12px", padding: "2px 4px" }}
+                      >
+                        清除
+                      </button>
+                    ) : null}
+                  </div>
+                  {totalIncreasePages > 1 ? (
+                    <div className="button-row pagination-controls" style={{ margin: 0, gap: "6px", alignItems: "center" }}>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
+                        onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
+                        style={{ padding: "4px 10px", fontSize: "13px" }}
+                      >
+                        上一頁
+                      </button>
+                      <span style={{ alignSelf: "center", fontSize: "13px", fontWeight: 600 }}>
+                        第 {currentIncreasePage} / {totalIncreasePages} 頁
+                      </span>
+                      <button
+                        className="secondary-button"
+                        type="button"
+                        disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
+                        onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
+                        style={{ padding: "4px 10px", fontSize: "13px" }}
+                      >
+                        下一頁
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              {filteredIncreaseItems.length === 0 ? (
+                <p className="empty-state" style={{ padding: "16px 0", textAlign: "center" }}>
+                  查無符合「{increaseSearch}」的品號；請調整搜尋關鍵字或點擊清除。
+                </p>
+              ) : null}
+              {pagedIncreaseItems.map((item) => (
+                <label className="increase-row" key={item.itemId}>
+                  <span>
+                    {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
+                    <small>
+                      人資倉 {item.hrOnHand} ／總倉 {item.generalOnHand}／有效預留 {item.activeReserved}
+                    </small>
+                  </span>
                   <input
-                    min={1}
+                    min={0}
                     step={1}
                     type="number"
-                    value={line.quantity}
-                    onChange={(event) => updateLine(line.lineId, "quantity", event.target.value)}
+                    value={increases[item.itemId] ?? 0}
+                    onChange={(event) => {
+                      markDraftChanged();
+                      setIncreases((current) => ({
+                        ...current,
+                        [item.itemId]: Number(event.target.value) || 0,
+                      }));
+                    }}
                     disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                    aria-label={`${item.itemCode} 增庫量`}
                   />
                 </label>
-                <button className="text-button" type="button" onClick={() => removeLine(line.lineId)} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}>
-                  移除
-                </button>
-              </div>
-            ))}
-          </div>
-
-        <button className="secondary-button" type="button" onClick={addLine} disabled={submitting || submissionRecovering || dataReadBlocked || (Boolean(submittedRequestId) && !editingSubmitted)}>
-          ＋新增員工明細
-        </button>
-        <WorkflowActionBar
-          primary={{
-            onClick: () => void submitRequest(),
-            busy: submitting,
-            busyLabel: "送出中…",
-            disabled: submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted),
-            label: submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出",
-          }}
-          secondary={submittedRequestId && !editingSubmitted || hasDraftOperation ? <>
-            {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
-            {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
-            {hasDraftOperation ? <div className="workflow-secondary-form">
-              <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
-              <button className="secondary-button" type="button" onClick={() => void cancelRequest()} disabled={submitting || submissionRecovering}>取消本張需求</button>
-            </div> : null}
-          </> : null}
-        />
-        {dataMessage ? <p className="auth-message" role="status">{dataMessage}</p> : null}
-        {submitMessage ? <p className={submitMessage.includes("已送出") || submitMessage.includes("已取消") ? "success-note" : "error-box"} role="status">{submitMessage}</p> : null}
-        {submissionRecovering ? <p className="auth-message" role="status">伺服器結果尚未確認；為避免重複建立，欄位暫時鎖定。請按「以相同資料查回／重試送出」。</p> : null}
-
-        <div className="increase-list">
-          <div className="subheading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
-            <div>
-              <h3>品號彙總增庫量</h3>
-              <span>尺寸選填；庫存按品號獨立計算{filteredIncreaseItems.length > 0 ? `（每頁 10 筆，共 ${filteredIncreaseItems.length} 個品號${increaseSearch.trim() ? `／搜尋「${increaseSearch.trim()}」` : ""}）` : ""}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                <input
-                  type="search"
-                  value={increaseSearch}
-                  onChange={(event) => {
-                    setIncreaseSearch(event.target.value);
-                    setIncreasePage(1);
-                  }}
-                  placeholder="搜尋品號、品名或尺寸…"
-                  disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                  style={{
-                    padding: "5px 10px",
-                    fontSize: "13px",
-                    borderRadius: "6px",
-                    border: "1px solid var(--line, #ccc)",
-                    width: "200px",
-                  }}
-                  aria-label="搜尋增庫品項"
-                />
-                {increaseSearch ? (
-                  <button
-                    className="text-button"
-                    type="button"
-                    onClick={() => {
-                      setIncreaseSearch("");
-                      setIncreasePage(1);
-                    }}
-                    style={{ fontSize: "12px", padding: "2px 4px" }}
-                  >
-                    清除
-                  </button>
-                ) : null}
-              </div>
+              ))}
               {totalIncreasePages > 1 ? (
-                <div className="button-row pagination-controls" style={{ margin: 0, gap: "6px", alignItems: "center" }}>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
-                    onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
-                    style={{ padding: "4px 10px", fontSize: "13px" }}
-                  >
-                    上一頁
-                  </button>
-                  <span style={{ alignSelf: "center", fontSize: "13px", fontWeight: 600 }}>
-                    第 {currentIncreasePage} / {totalIncreasePages} 頁
+                <div className="button-row pagination-controls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+                  <span style={{ fontSize: "13px", color: "var(--muted, #666)" }}>
+                    顯示第 {(currentIncreasePage - 1) * increasePageSize + 1} 至 {Math.min(currentIncreasePage * increasePageSize, filteredIncreaseItems.length)} 筆，共 {filteredIncreaseItems.length} 筆
                   </span>
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
-                    onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
-                    style={{ padding: "4px 10px", fontSize: "13px" }}
-                  >
-                    下一頁
-                  </button>
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
+                      onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
+                      style={{ padding: "4px 10px", fontSize: "13px" }}
+                    >
+                      上一頁
+                    </button>
+                    <span style={{ fontSize: "13px", fontWeight: 600 }}>
+                      第 {currentIncreasePage} / {totalIncreasePages} 頁
+                    </span>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
+                      onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
+                      style={{ padding: "4px 10px", fontSize: "13px" }}
+                    >
+                      下一頁
+                    </button>
+                  </div>
                 </div>
               ) : null}
             </div>
+
+            <WorkflowActionBar
+              primary={{
+                onClick: () => void submitRequest(),
+                busy: submitting,
+                busyLabel: "送出中…",
+                disabled: submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted),
+                label: submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出",
+              }}
+              secondary={submittedRequestId && !editingSubmitted || hasDraftOperation ? <>
+                {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
+                {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
+                {hasDraftOperation ? <div className="workflow-secondary-form">
+                  <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
+                  <button className="secondary-button" type="button" onClick={() => void cancelRequest()} disabled={submitting || submissionRecovering}>取消本張需求</button>
+                </div> : null}
+              </> : null}
+            />
+            {dataMessage ? <p className="auth-message" role="status">{dataMessage}</p> : null}
+            {submitMessage ? <p className={submitMessage.includes("已送出") || submitMessage.includes("已取消") ? "success-note" : "error-box"} role="status">{submitMessage}</p> : null}
+            {submissionRecovering ? <p className="auth-message" role="status">伺服器結果尚未確認；為避免重複建立，欄位暫時鎖定。請按「以相同資料查回／重試送出」。</p> : null}
           </div>
-          {filteredIncreaseItems.length === 0 ? (
-            <p className="empty-state" style={{ padding: "16px 0", textAlign: "center" }}>
-              查無符合「{increaseSearch}」的品號；請調整搜尋關鍵字或點擊清除。
-            </p>
-          ) : null}
-          {pagedIncreaseItems.map((item) => (
-            <label className="increase-row" key={item.itemId}>
-              <span>
-                {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
-                <small>
-                  人資倉 {item.hrOnHand} ／總倉 {item.generalOnHand}／有效預留 {item.activeReserved}
-                </small>
-              </span>
-              <input
-                min={0}
-                step={1}
-                type="number"
-                value={increases[item.itemId] ?? 0}
-                onChange={(event) => {
-                  markDraftChanged();
-                  setIncreases((current) => ({
-                    ...current,
-                    [item.itemId]: Number(event.target.value) || 0,
-                  }));
-                }}
-                disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                aria-label={`${item.itemCode} 增庫量`}
-              />
-            </label>
-          ))}
-          {totalIncreasePages > 1 ? (
-            <div className="button-row pagination-controls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
-              <span style={{ fontSize: "13px", color: "var(--muted, #666)" }}>
-                顯示第 {(currentIncreasePage - 1) * increasePageSize + 1} 至 {Math.min(currentIncreasePage * increasePageSize, filteredIncreaseItems.length)} 筆，共 {filteredIncreaseItems.length} 筆
-              </span>
-              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={currentIncreasePage <= 1 || submitting || submissionRecovering}
-                  onClick={() => setIncreasePage((p) => Math.max(1, p - 1))}
-                  style={{ padding: "4px 10px", fontSize: "13px" }}
-                >
-                  上一頁
-                </button>
-                <span style={{ fontSize: "13px", fontWeight: 600 }}>
-                  第 {currentIncreasePage} / {totalIncreasePages} 頁
-                </span>
-                <button
-                  className="secondary-button"
-                  type="button"
-                  disabled={currentIncreasePage >= totalIncreasePages || submitting || submissionRecovering}
-                  onClick={() => setIncreasePage((p) => Math.min(totalIncreasePages, p + 1))}
-                  style={{ padding: "4px 10px", fontSize: "13px" }}
-                >
-                  下一頁
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+        )}
       </div>
 
       <div className="panel result-panel">
