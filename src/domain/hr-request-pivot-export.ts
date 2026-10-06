@@ -58,13 +58,11 @@ export const INSTITUTION_CODE_MAP: Record<string, { shortName: OrderedInstitutio
   "CD2": { shortName: "護家", code: "CD2" },
   "2CD": { shortName: "護家", code: "CD2" },
   // 法人／會館／園區
-  "7091980": { shortName: "含笑", code: "7091980" },
-  "47091980": { shortName: "含笑", code: "7091980" },
+  "47091980": { shortName: "含笑", code: "47091980" },
   "L1": { shortName: "法人", code: "L1" },
   "L67": { shortName: "一館", code: "L67" },
   "L5": { shortName: "二館", code: "L5" },
   "L23": { shortName: "三館", code: "L23" },
-  "L2B3": { shortName: "三館", code: "L23" },
   "B2": { shortName: "幼", code: "B2" },
 };
 
@@ -288,34 +286,91 @@ export function getBaseItemName(itemName: string, size?: string): string {
 }
 
 /**
- * 依據品名連帶品號排序資料列，將相同類似的品名排列在一起，
- * 並依尺碼由小至大（S, M, L, XL, 2L, 3L, 4L, 5L, 6L...）順序排列
+ * 使用者指定品名大類別排序順序：
+ * 1. 照服夏季
+ * 2. 照服冬季
+ * 3. 照服行政
+ * 4. 照服中高階
+ * 5. 照服初階
+ * 6. 護士夏季
+ * 7. 護士冬季
+ * 8. 行政夏季
+ * 9. 行政冬季
+ * 10. 廚師夏季
+ * 11. 工務夏季
+ * 12. 工務冬季
+ * 13. 幼兒園夏季
+ */
+export const ORDERED_ITEM_CATEGORIES = [
+  "照服夏季",
+  "照服冬季",
+  "照服行政",
+  "照服中高階",
+  "照服初階",
+  "護士夏季",
+  "護士冬季",
+  "行政夏季",
+  "行政冬季",
+  "廚師夏季",
+  "工務夏季",
+  "工務冬季",
+  "幼兒園夏季",
+] as const;
+
+export type OrderedItemCategory = typeof ORDERED_ITEM_CATEGORIES[number];
+
+/**
+ * 取得品名所屬之大類別排序權重（0 ~ 12，若未命中則為 999）
+ */
+export function getItemCategoryRank(itemName: string, itemCode?: string): number {
+  const name = (itemName || itemCode || "").trim();
+  for (let i = 0; i < ORDERED_ITEM_CATEGORIES.length; i++) {
+    const cat = ORDERED_ITEM_CATEGORIES[i];
+    if (name.includes(cat)) {
+      return i;
+    }
+  }
+  return 999;
+}
+
+/**
+ * 依據品名連帶品號排序資料列：
+ * 1. 優先依品名大類別排序（照服夏季 -> 照服冬季 -> 照服行政 -> 照服中高階 -> 照服初階 -> 護士夏季 -> 護士冬季 -> 行政夏季 -> 行政冬季 -> 廚師夏季 -> 工務夏季 -> 工務冬季 -> 幼兒園夏季）
+ * 2. 同類別內依基礎品名排序
+ * 3. 依性別排序（女款先於男款）
+ * 4. 依尺碼由小至大排序（S, M, L, XL, 2L, 3L, 4L, 5L, 6L...）
+ * 5. 依品號與原始規格備用排序
  */
 export function comparePivotRows(a: PivotRow, b: PivotRow): number {
-  // 1. 基礎品名排序（例如：工務冬季上衣、幼兒園夏季上衣、行政冬季上衣）
+  // 1. 大類別權重排序
+  const catRankA = getItemCategoryRank(a.itemName, a.itemCode);
+  const catRankB = getItemCategoryRank(b.itemName, b.itemCode);
+  if (catRankA !== catRankB) return catRankA - catRankB;
+
+  // 2. 基礎品名排序（例如：工務冬季上衣、幼兒園夏季上衣、行政冬季上衣）
   const baseA = getBaseItemName(a.itemName || a.itemCode, a.size);
   const baseB = getBaseItemName(b.itemName || b.itemCode, b.size);
   const baseCmp = baseA.localeCompare(baseB, "zh-TW", { numeric: true });
   if (baseCmp !== 0) return baseCmp;
 
-  // 2. 性別排序：女款先於男款（例如：行政冬季上衣-女 在 行政冬季上衣-男 之前）
+  // 3. 性別排序：女款先於男款（例如：行政冬季上衣-女 在 行政冬季上衣-男 之前）
   const genderA = getItemGender(a.itemName, a.size);
   const genderB = getItemGender(b.itemName, b.size);
   const genderCmp = genderA.localeCompare(genderB, "zh-TW");
   if (genderCmp !== 0) return genderCmp;
 
-  // 3. 尺碼順序排序：由小至大（S < M < L < XL < 2L < 3L < 4L < 5L < 6L）
+  // 4. 尺碼順序排序：由小至大（S < M < L < XL < 2L < 3L < 4L < 5L < 6L）
   const sizeStrA = a.size || (a.itemName.match(/-([男女]?[A-Za-z0-9]+)$/)?.[1] ?? "");
   const sizeStrB = b.size || (b.itemName.match(/-([男女]?[A-Za-z0-9]+)$/)?.[1] ?? "");
   const rankA = getSizeRank(sizeStrA);
   const rankB = getSizeRank(sizeStrB);
   if (rankA !== rankB) return rankA - rankB;
 
-  // 4. 品號排序
+  // 5. 品號排序
   const codeCmp = (a.itemCode || "").trim().localeCompare((b.itemCode || "").trim(), "zh-TW", { numeric: true });
   if (codeCmp !== 0) return codeCmp;
 
-  // 5. 原始規格備用排序
+  // 6. 原始規格備用排序
   return (a.size || "").trim().localeCompare((b.size || "").trim(), "zh-TW", { numeric: true });
 }
 

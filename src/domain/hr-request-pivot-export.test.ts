@@ -10,6 +10,8 @@ import {
   comparePivotRows,
   getSizeRank,
   getBaseItemName,
+  ORDERED_ITEM_CATEGORIES,
+  getItemCategoryRank,
   type RawIssueLineInput,
 } from "./hr-request-pivot-export";
 import { unzipSync } from "fflate";
@@ -39,6 +41,12 @@ describe("hr-request-pivot-export", () => {
     expect(resolveInstitutionInfo("一館").shortName).toBe("一館");
     expect(resolveInstitutionInfo("清福幼兒園").shortName).toBe("幼");
     expect(resolveInstitutionInfo("B2").shortName).toBe("幼");
+
+    // 驗證代碼映射：含笑只有 47091980，三館只有 L23
+    expect(resolveInstitutionInfo("含笑").code).toBe("47091980");
+    expect(resolveInstitutionInfo("47091980").code).toBe("47091980");
+    expect(resolveInstitutionInfo("三館").code).toBe("L23");
+    expect(resolveInstitutionInfo("L23").code).toBe("L23");
   });
 
   it("aggregates raw issue lines into pivot rows with correct quantities", () => {
@@ -406,13 +414,57 @@ describe("hr-request-pivot-export", () => {
       { itemCode: "BBB555", itemName: "廚師夏季圍裙-F", size: "F", institutionCodeOrName: "8C清福", quantity: 1 },
     ];
     const data = buildPivotTableData(lines);
-    // 廚師夏季上衣聚集在一起（M 先於 L），廚師夏季圍裙在其旁，照服夏季上衣聚集在一起（M 先於 L）
+    // 依指定大類別：照服夏季（類別 0）排在 廚師夏季（類別 9）之前，且同類別中 M 先於 L
     expect(data.rows.map((r) => r.itemName)).toEqual([
+      "照服夏季上衣-M",
+      "照服夏季上衣-L",
       "廚師夏季上衣-M",
       "廚師夏季上衣-L",
       "廚師夏季圍裙-F",
+    ]);
+  });
+
+  it("strictly sorts 13 item categories in the requested user sequence", () => {
+    // 建立 13 個指定類別的品項各一個（隨機打亂順序輸入）
+    const shuffledCategories = [
+      "工務冬季上衣-M",
+      "廚師夏季上衣-M",
+      "照服冬季上衣-M",
+      "幼兒園夏季上衣-M",
+      "行政夏季上衣-M",
       "照服夏季上衣-M",
-      "照服夏季上衣-L",
+      "護士冬季上衣-M",
+      "工務夏季上衣-M",
+      "照服初階夏上衣-M",
+      "照服行政冬夏褲-M",
+      "護士夏季上衣-M",
+      "行政冬季上衣-M",
+      "照服中高階夏上衣-M",
+    ];
+
+    const lines: RawIssueLineInput[] = shuffledCategories.map((itemName, idx) => ({
+      itemCode: `ITEM_${idx}`,
+      itemName,
+      size: "M",
+      institutionCodeOrName: "8C清福",
+      quantity: 1,
+    }));
+
+    const data = buildPivotTableData(lines);
+    expect(data.rows.map((r) => r.itemName)).toEqual([
+      "照服夏季上衣-M",
+      "照服冬季上衣-M",
+      "照服行政冬夏褲-M",
+      "照服中高階夏上衣-M",
+      "照服初階夏上衣-M",
+      "護士夏季上衣-M",
+      "護士冬季上衣-M",
+      "行政夏季上衣-M",
+      "行政冬季上衣-M",
+      "廚師夏季上衣-M",
+      "工務夏季上衣-M",
+      "工務冬季上衣-M",
+      "幼兒園夏季上衣-M",
     ]);
   });
 
