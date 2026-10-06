@@ -90,9 +90,24 @@ function workspaceFromUrl(): WorkspaceId {
   return isWorkspaceId(value) ? value : "overview";
 }
 
-function WorkspaceStage({ children, appearanceTheme }: { children: ReactNode; appearanceTheme: AppearanceTheme }) {
+function WorkspaceStage({
+  children,
+  appearanceTheme,
+  sidebarCollapsed,
+}: {
+  children: ReactNode;
+  appearanceTheme: AppearanceTheme;
+  sidebarCollapsed?: boolean;
+}) {
   const motionScope = useWorkspaceMotion(appearanceTheme);
-  return <div ref={motionScope} className="app-shell">{children}</div>;
+  return (
+    <div
+      ref={motionScope}
+      className={`app-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}
+    >
+      {children}
+    </div>
+  );
 }
 
 type WorkspaceContentProps = {
@@ -138,6 +153,24 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
   const accountLabel = user ? accountLabelFromUser(user) : "已登入帳號";
   const guideNavigationVisible = systemGuide.allowed || (initialSystemGuide && systemGuide.checking);
   const [signingOut, setSigningOut] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("app_sidebar_collapsed");
+      if (saved === "true") setSidebarCollapsed(true);
+    } catch {}
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem("app_sidebar_collapsed", String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
 
   const handleSignOut = async () => {
     if (!client) return;
@@ -234,14 +267,39 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
   }
 
   return (
-    <WorkspaceStage appearanceTheme={appearanceTheme}>
+    <WorkspaceStage appearanceTheme={appearanceTheme} sidebarCollapsed={sidebarCollapsed}>
       <aside className="app-sidebar" aria-label="工作區導航">
         <div className="app-brand">
-          <span className="app-brand-mark" aria-hidden="true">U</span>
-          <div>
-            <strong>UNIFORM CO.</strong>
-            <span>制服資產作業台</span>
+          <div className="app-brand-main">
+            <span className="app-brand-mark" aria-hidden="true">U</span>
+            <div>
+              <strong>UNIFORM CO.</strong>
+              <span>制服資產作業台</span>
+            </div>
           </div>
+          <button
+            type="button"
+            className="sidebar-brand-toggle"
+            onClick={toggleSidebar}
+            title="收起選單"
+            aria-label="收起選單"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect width="18" height="18" x="3" y="3" rx="2" />
+              <path d="M9 3v18" />
+              <path d="m16 15-3-3 3-3" />
+            </svg>
+          </button>
         </div>
 
         <p className="app-nav-label">WORKSPACE</p>
@@ -296,6 +354,8 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
           onNavigate={selectWorkspace}
           onOpenSystemGuide={systemGuide.allowed && !initialSystemGuide ? () => router.push("/system-guide") : undefined}
           onSignOut={handleSignOut}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebar={toggleSidebar}
         />
 
         <div className="workspace-mobile-switcher">

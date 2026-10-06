@@ -166,6 +166,11 @@ body {
   display: grid;
   grid-template-columns: 238px minmax(0, 1fr);
   min-height: 100vh;
+  transition: grid-template-columns 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-shell.sidebar-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr);
 }
 
 .app-sidebar {
@@ -174,13 +179,61 @@ body {
   padding: 26px 16px;
   color: #d4e2e2;
   background: #102c31;
+  width: 238px;
+  box-sizing: border-box;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              padding 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+              transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform, width, opacity;
+}
+
+.app-shell.sidebar-collapsed .app-sidebar {
+  width: 0;
+  min-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(-100%);
+  pointer-events: none;
 }
 
 .app-brand {
   display: flex;
   gap: 11px;
   align-items: center;
-  padding: 0 10px 26px;
+  justify-content: space-between;
+  padding: 0 4px 26px 6px;
+}
+
+.app-brand-main {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  min-width: 0;
+}
+
+.sidebar-brand-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #b7cecc;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.sidebar-brand-toggle:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .app-brand-mark {
@@ -667,6 +720,11 @@ body {
   max-width: 1540px;
   margin: 0 auto;
   padding: 26px 50px 120px;
+  transition: max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-shell.sidebar-collapsed .app-main {
+  max-width: 1720px;
 }
 
 .app-main::before {
@@ -686,10 +744,49 @@ body {
 .workspace-topbar {
   position: relative;
   z-index: 1;
+  display: flex;
+  justify-content: space-between;
   min-height: 85px;
   align-items: flex-end;
   padding: 12px 0 25px;
   margin-bottom: 25px;
+}
+
+.workspace-topbar-copy-wrapper {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  max-width: 760px;
+}
+
+.sidebar-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-top: 4px;
+  padding: 0;
+  border: 1px solid #d2ccc0;
+  border-radius: 10px;
+  background: rgba(249, 248, 244, 0.95);
+  color: var(--ink, #17202b);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.sidebar-toggle-btn:hover {
+  background: #f7eee8;
+  border-color: var(--accent);
+  color: var(--accent-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 6px rgba(0, 0, 0, 0.08);
+}
+
+.sidebar-toggle-btn:active {
+  transform: translateY(0);
 }
 
 .workspace-topbar-copy { max-width: 720px; }
@@ -749,6 +846,7 @@ body {
 
 @media (max-width: 1060px) {
   .app-shell { grid-template-columns: 100px minmax(0, 1fr); }
+  .app-shell.sidebar-collapsed { grid-template-columns: 0px minmax(0, 1fr); }
   .app-main { padding-right: 28px; padding-left: 28px; }
 }
 

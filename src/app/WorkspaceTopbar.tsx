@@ -17,6 +17,8 @@ type Props = {
   onNavigate: (workspaceId: WorkspaceId, anchor: string) => void;
   onOpenSystemGuide?: () => void;
   onSignOut?: () => Promise<void>;
+  sidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 };
 
 function SearchIcon() {
@@ -74,7 +76,35 @@ function SearchResults({ results, onSelect }: { results: WorkspaceSearchResult[]
   );
 }
 
-export default function WorkspaceTopbar({ activeDefinition, appearanceTheme, onAppearanceChange, onNavigate, onOpenSystemGuide }: Props) {
+function SidebarToggleIcon({ collapsed }: { collapsed?: boolean }) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect width="18" height="18" x="3" y="3" rx="2" />
+      <path d="M9 3v18" />
+      {collapsed ? <path d="m14 9 3 3-3 3" /> : <path d="m16 15-3-3 3-3" />}
+    </svg>
+  );
+}
+
+export default function WorkspaceTopbar({
+  activeDefinition,
+  appearanceTheme,
+  onAppearanceChange,
+  onNavigate,
+  onOpenSystemGuide,
+  sidebarCollapsed,
+  onToggleSidebar,
+}: Props) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -108,10 +138,23 @@ export default function WorkspaceTopbar({ activeDefinition, appearanceTheme, onA
 
   return (
     <header className="workspace-topbar" aria-labelledby="active-workspace-title">
-      <div className="workspace-topbar-copy">
-        <p className="workspace-topbar-label">{activeDefinition.eyebrow}</p>
-        <h1 id="active-workspace-title">{activeDefinition.label}</h1>
-        <p>{activeDefinition.description}</p>
+      <div className="workspace-topbar-copy-wrapper">
+        {onToggleSidebar ? (
+          <button
+            className="sidebar-toggle-btn"
+            type="button"
+            onClick={onToggleSidebar}
+            title={sidebarCollapsed ? "彈出選單" : "收起選單"}
+            aria-label={sidebarCollapsed ? "彈出選單" : "收起選單"}
+          >
+            <SidebarToggleIcon collapsed={sidebarCollapsed} />
+          </button>
+        ) : null}
+        <div className="workspace-topbar-copy">
+          <p className="workspace-topbar-label">{activeDefinition.eyebrow}</p>
+          <h1 id="active-workspace-title">{activeDefinition.label}</h1>
+          <p>{activeDefinition.description}</p>
+        </div>
       </div>
 
       <div className="workspace-topbar-actions">
