@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import AuthPanel from "./AuthPanel";
@@ -19,6 +19,26 @@ import { useWorkspaceMotion } from "./use-workspace-motion";
 import { accountLabelFromUser } from "@/src/lib/account-login";
 import { resolvePostLogoutEntry } from "@/src/domain/auth-navigation";
 import { createWorkspacePrefetchIntent } from "@/src/domain/workspace-prefetch";
+
+const SIDEBAR_STORAGE_KEY = "app_sidebar_collapsed";
+
+function getSidebarCollapsedSnapshot(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true";
+}
+
+function getSidebarCollapsedServerSnapshot(): boolean {
+  return false;
+}
+
+function subscribeSidebarStorage(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener("uniform:sidebar-toggle", onStoreChange);
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener("uniform:sidebar-toggle", onStoreChange);
+  };
+}
 
 const workspaceLoaders = {
   overview: () => import("./workspaces/OverviewWorkspace"),
@@ -153,23 +173,19 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
   const accountLabel = user ? accountLabelFromUser(user) : "已登入帳號";
   const guideNavigationVisible = systemGuide.allowed || (initialSystemGuide && systemGuide.checking);
   const [signingOut, setSigningOut] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("app_sidebar_collapsed");
-      if (saved === "true") setSidebarCollapsed(true);
-    } catch {}
-  }, []);
+  const sidebarCollapsed = useSyncExternalStore(
+    subscribeSidebarStorage,
+    getSidebarCollapsedSnapshot,
+    getSidebarCollapsedServerSnapshot,
+  );
 
   const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem("app_sidebar_collapsed", String(next));
-      } catch {}
-      return next;
-    });
+    const current = getSidebarCollapsedSnapshot();
+    const next = !current;
+    try {
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+      window.dispatchEvent(new Event("uniform:sidebar-toggle"));
+    } catch {}
   }, []);
 
   const handleSignOut = async () => {
