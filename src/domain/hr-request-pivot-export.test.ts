@@ -329,15 +329,26 @@ describe("hr-request-pivot-export", () => {
     expect(stylesContent).toContain('style="medium"');
     expect(stylesContent).toContain('style="double"');
 
-    // 8. 驗證全域字體放大 2pt (13pt, 16pt, 12pt, 11pt)
+    // 8. 驗證字體大小：大標題改為 20pt、原 12pt 改為 13pt、A2~AM2 表頭取消粗體使用 fontId=0 (13pt normal)
     expect(stylesContent).toContain('<font><sz val="13"/><name val="微軟正黑體"/></font>');
-    expect(stylesContent).toContain('<font><sz val="16"/><b/><name val="微軟正黑體"/></font>');
-    expect(stylesContent).toContain('<font><sz val="12"/><b/><name val="微軟正黑體"/></font>');
-    expect(stylesContent).toContain('<font><sz val="11"/><name val="微軟正黑體"/></font>');
+    expect(stylesContent).toContain('<font><sz val="20"/><b/><name val="微軟正黑體"/></font>');
     expect(stylesContent).toContain('<font><sz val="13"/><b/><name val="微軟正黑體"/></font>');
+    expect(stylesContent).toContain('<font><sz val="11"/><name val="微軟正黑體"/></font>');
 
-    // 9. 驗證 Row 2 分店區間 (F2 ~ AA2) 完整產生帶頂部粗框線樣式的儲存格
-    expect(sheetContent).toMatch(/<c r="F2" t="inlineStr" s="\d+"><is><t>請領數量表/);
+    // 驗證 Row 2 (A2, D2, E2, AB2 等) 表頭儲存格使用 fontId="0" (無粗體)
+    const a2StyleMatch = sheetContent.match(/<c r="A2" t="inlineStr" s="(\d+)">/);
+    expect(a2StyleMatch).not.toBeNull();
+    const a2StyleId = parseInt(a2StyleMatch![1], 10);
+    // 取出對應的 xf 標籤確認其 fontId="0"
+    const xfRegex = /<xf [^>]+>/g;
+    const xfs: string[] = stylesContent.match(xfRegex) || [];
+    expect(xfs[a2StyleId]).toContain('fontId="0"');
+
+    // 9. 驗證 Row 2 分店區間 (F2 ~ AA2) 完整產生帶頂部粗框線樣式的儲存格，且同樣為 fontId="0"
+    const f2StyleMatch = sheetContent.match(/<c r="F2" t="inlineStr" s="(\d+)">/);
+    expect(f2StyleMatch).not.toBeNull();
+    const f2StyleId = parseInt(f2StyleMatch![1], 10);
+    expect(xfs[f2StyleId]).toContain('fontId="0"');
     expect(sheetContent).toMatch(/<c r="G2" s="\d+"\/>/);
     expect(sheetContent).toMatch(/<c r="AA2" s="\d+"\/>/);
 

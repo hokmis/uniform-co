@@ -542,7 +542,7 @@ export function generatePivotXlsx(
 
   // Row 1: 大標題列與區間提示
   // A1: 標題與發放區間 (例如：平日制服領用表 ( 2026-09-21 ～ 2026-10-20 )), H1: 繳交日期提示
-  xmlRows.push(`  <row r="1" ht="28" customHeight="1">
+  xmlRows.push(`  <row r="1" ht="34" customHeight="1">
     <c r="A1" t="inlineStr" s="1"><is><t>${escapeXml(displayTitle)}</t></is></c>
     <c r="H1" t="inlineStr" s="2"><is><t>${escapeXml(notice)}</t></is></c>
   </row>`);
@@ -623,11 +623,13 @@ export function generatePivotXlsx(
     const xfId = 19 + customXfXmls.length;
     customXfs.set(xfKey, xfId);
 
-    let fontId = 2; // 預設 10pt bold
-    if (type === "codeGray") {
-      fontId = 3; // 9pt
+    let fontId = 2; // 預設 13pt bold (原 12pt bold)
+    if (type.startsWith("header")) {
+      fontId = 0; // 13pt normal (A2:AM2 取消粗體)
+    } else if (type === "codeGray") {
+      fontId = 3; // 11pt
     } else if (type === "dataCenter" || type === "dataLeft" || type === "dataGreen") {
-      fontId = 0; // 11pt normal
+      fontId = 0; // 13pt normal
     }
 
     let fillId = 0;
@@ -1111,8 +1113,8 @@ ${mergeCellsXml}
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="5">
     <font><sz val="13"/><name val="微軟正黑體"/></font>
-    <font><sz val="16"/><b/><name val="微軟正黑體"/></font>
-    <font><sz val="12"/><b/><name val="微軟正黑體"/></font>
+    <font><sz val="20"/><b/><name val="微軟正黑體"/></font>
+    <font><sz val="13"/><b/><name val="微軟正黑體"/></font>
     <font><sz val="11"/><name val="微軟正黑體"/></font>
     <font><sz val="13"/><b/><name val="微軟正黑體"/></font>
   </fonts>
@@ -1145,7 +1147,7 @@ ${mergeCellsXml}
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" applyAlignment="1"><alignment vertical="center"/></xf>
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="2" fillId="3" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="3" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
@@ -1157,7 +1159,7 @@ ${mergeCellsXml}
     <xf numFmtId="0" fontId="4" fillId="0" borderId="2" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="0" fillId="0" borderId="2" applyBorder="1"/>
     <!-- 綠底樣式 (FFE2EFDA) -->
-    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="3" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
     <xf numFmtId="0" fontId="0" fillId="4" borderId="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
