@@ -669,10 +669,10 @@ export default function HrRequestDetailModal({
             {header.requestType !== "REPLENISHMENT" && (
               <div>
                 <h4 style={{ margin: "10px 0 8px", fontSize: "1rem" }}>
-                  員工領用發放明細（共 {issueLines.length} 筆）
+                  領用發放明細（共 {issueLines.length} 筆）
                 </h4>
                 {issueLines.length === 0 ? (
-                  <p className="muted" style={{ padding: "8px 0" }}>此需求單無各別員工發放明細</p>
+                  <p className="muted" style={{ padding: "8px 0" }}>此需求單無各別發放明細</p>
                 ) : (
                   <div className="table-scroll" style={{ maxHeight: "280px", overflowY: "auto", border: "1px solid #e2e8f0" }}>
                     <table className="inventory-movement-table" style={{ width: "100%", fontSize: "0.85rem", borderCollapse: "collapse" }}>
@@ -680,7 +680,6 @@ export default function HrRequestDetailModal({
                         <tr style={{ background: "#f8fafc" }}>
                           <th style={{ padding: "8px 10px", textAlign: "left", width: "40px" }}>序</th>
                           <th style={{ padding: "8px 10px", textAlign: "left" }}>報局單位</th>
-                          <th style={{ padding: "8px 10px", textAlign: "left" }}>員編／姓名</th>
                           <th style={{ padding: "8px 10px", textAlign: "left" }}>品號／品名</th>
                           <th style={{ padding: "8px 10px", textAlign: "center", width: "60px" }}>規格</th>
                           <th style={{ padding: "8px 10px", textAlign: "right", width: "70px" }}>數量</th>
@@ -705,10 +704,6 @@ export default function HrRequestDetailModal({
                             <tr key={line.id} style={{ borderTop: "1px solid #f1f5f9" }}>
                               <td style={{ padding: "8px 10px", color: "#64748b" }}>{line.line_no || idx + 1}</td>
                               <td style={{ padding: "8px 10px", fontWeight: 600 }}>{unitDisplay}</td>
-                              <td style={{ padding: "8px 10px" }}>
-                                {line.employee_no_snapshot ? `${line.employee_no_snapshot} ` : ""}
-                                <strong>{line.employee_name_snapshot || "—"}</strong>
-                              </td>
                               <td style={{ padding: "8px 10px" }}>
                                 <div><strong>{line.item_code_snapshot || "—"}</strong></div>
                                 <div style={{ fontSize: "0.8rem", color: "#64748b" }}>{line.item_name_snapshot}</div>
