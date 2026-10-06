@@ -28,6 +28,23 @@ function formatDelta(delta: number, unit: string) {
   return <span className="muted">0 {unit}</span>;
 }
 
+function formatTaipeiDateTime(postedAt: string, occurredOn: string): string {
+  if (!postedAt) return occurredOn || "—";
+  const date = new Date(postedAt);
+  if (Number.isNaN(date.getTime())) {
+    return occurredOn || postedAt;
+  }
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date).replace(/\//g, "-");
+}
+
 export default function InventoryMovementHistoryPanel() {
   const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
   const panelActive = usePanelActivity();
@@ -303,7 +320,7 @@ export default function InventoryMovementHistoryPanel() {
                   <strong>{row.sourceNo}</strong>
                 </div>
                 <span className="table-secondary">
-                  {row.occurredOn} {row.postedAt.includes("T") ? row.postedAt.slice(11, 16) : ""}
+                  {formatTaipeiDateTime(row.postedAt, row.occurredOn)}
                 </span>
               </>
             ),
