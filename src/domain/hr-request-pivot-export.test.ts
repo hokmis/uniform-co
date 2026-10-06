@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ORDERED_INSTITUTION_NAMES,
+  ALLOWED_INSTITUTION_NAMES,
   resolveInstitutionInfo,
   buildPivotTableData,
   generatePivotXlsx,
@@ -355,8 +356,8 @@ describe("hr-request-pivot-export", () => {
     // 10. 驗證開啟預設縮放 64% (zoomScale="64")
     expect(sheetContent).toContain('<sheetView tabSelected="1" workbookViewId="0" zoomScale="64" zoomScaleNormal="64"/>');
 
-    // 11. 驗證規格欄與統計各欄具有自動最適大小欄寬設定與 bestFit="1"
-    expect(sheetContent).toMatch(/<col min="4" max="4" width="[\d\.]+" bestFit="1" customWidth="1"\/>/);
+    // 11. 驗證規格欄寬為 3.2，統計各欄具有自動最適大小欄寬設定與 bestFit="1"
+    expect(sheetContent).toContain('<col min="4" max="4" width="3.2" customWidth="1"/>');
     expect(sheetContent).toContain('width="7.5" bestFit="1" customWidth="1"'); // 請領合計 / 抽盤差異
     expect(sheetContent).toContain('width="9" bestFit="1" customWidth="1"');   // 月結量 / 事務組抽盤
     expect(sheetContent).toContain('width="11" bestFit="1" customWidth="1"');  // 備註差異說明
@@ -451,4 +452,36 @@ describe("hr-request-pivot-export", () => {
       "工務冬季上衣-5L",
     ]);
   });
+
+  it("strictly captures only the 22 specified institutions and ignores all other units", () => {
+    // 包含合法 22 個機構與非法其他機構（例如「總部」、「管理處」、「廠商A」）
+    const lines: RawIssueLineInput[] = [
+      { itemCode: "ITEM_1", itemName: "照服夏季上衣-M", size: "M", institutionCodeOrName: "8C清福", quantity: 5 },
+      { itemCode: "ITEM_1", itemName: "照服夏季上衣-M", size: "M", institutionCodeOrName: "總部管理處", quantity: 10 },
+      { itemCode: "ITEM_1", itemName: "照服夏季上衣-M", size: "M", institutionCodeOrName: "外包廠商", quantity: 20 },
+      { itemCode: "ITEM_1", itemName: "照服夏季上衣-M", size: "M", institutionCodeOrName: "B2幼兒園", quantity: 3 },
+      { itemCode: "ITEM_1", itemName: "照服夏季上衣-M", size: "M", institutionCodeOrName: "其他無關部門", quantity: 50 },
+    ];
+
+    const data = buildPivotTableData(lines);
+
+    // 1. 機構欄位數嚴格固定為 22，不產生任何其他分店欄位
+    expect(data.institutions.length).toBe(22);
+    expect(data.institutions.map((i) => i.shortName)).toEqual([
+      "福", "氣", "心", "平", "安",
+      "春", "日", "照", "風", "景",
+      "山", "泉", "水", "清", "涼",
+      "護家", "含笑", "法人", "一館", "二館", "三館", "幼"
+    ]);
+
+    // 2. 只有「福」(5) 和「幼」(3) 被抓取，其他（10 + 20 + 50）全部被過濾忽略
+    expect(data.rows.length).toBe(1);
+    const row = data.rows[0];
+    expect(row.quantitiesByInstitution["福"]).toBe(5);
+    expect(row.quantitiesByInstitution["幼"]).toBe(3);
+    // 總領用數只計算 5 + 3 = 8
+    expect(row.totalIssued).toBe(8);
+    expect(data.grandTotal).toBe(8);
+  });
 });
+

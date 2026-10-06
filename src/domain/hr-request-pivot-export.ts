@@ -14,6 +14,11 @@ export const ORDERED_INSTITUTION_NAMES = [
 export type OrderedInstitutionName = typeof ORDERED_INSTITUTION_NAMES[number];
 
 /**
+ * 允許抓取的 22 個指定機構單位白名單（其他單位均不抓取）
+ */
+export const ALLOWED_INSTITUTION_NAMES = new Set<string>(ORDERED_INSTITUTION_NAMES);
+
+/**
  * 分店代碼與簡稱對照表
  */
 export const INSTITUTION_CODE_MAP: Record<string, { shortName: OrderedInstitutionName; code: string }> = {
@@ -53,10 +58,12 @@ export const INSTITUTION_CODE_MAP: Record<string, { shortName: OrderedInstitutio
   "CD2": { shortName: "護家", code: "CD2" },
   "2CD": { shortName: "護家", code: "CD2" },
   // 法人／會館／園區
-  "47091980": { shortName: "含笑", code: "47091980" },
+  "7091980": { shortName: "含笑", code: "7091980" },
+  "47091980": { shortName: "含笑", code: "7091980" },
   "L1": { shortName: "法人", code: "L1" },
   "L67": { shortName: "一館", code: "L67" },
   "L5": { shortName: "二館", code: "L5" },
+  "L23": { shortName: "三館", code: "L23" },
   "L2B3": { shortName: "三館", code: "L23" },
   "B2": { shortName: "幼", code: "B2" },
 };
@@ -319,19 +326,11 @@ export function buildPivotTableData(
   lines: RawIssueLineInput[],
   stockMap?: Map<string, ItemStockInfo>,
 ): PivotTableData {
-  // 建立動態分店清單：基礎 22 個分店固定排前，非 22 分店者排在後面
+  // 建立動態分店清單：嚴格僅抓取並列出使用者指定的 22 個機構單位
   const institutionMap = new Map<string, { shortName: string; code: string }>();
   for (const name of ORDERED_INSTITUTION_NAMES) {
     const entry = Object.values(INSTITUTION_CODE_MAP).find((e) => e.shortName === name);
     institutionMap.set(name, { shortName: name, code: entry?.code ?? "" });
-  }
-
-  // 收集非 22 規範中的其他分店
-  for (const line of lines) {
-    const info = resolveInstitutionInfo(line.institutionCodeOrName);
-    if (!institutionMap.has(info.shortName)) {
-      institutionMap.set(info.shortName, info);
-    }
   }
 
   const institutions = Array.from(institutionMap.values());
@@ -341,12 +340,19 @@ export function buildPivotTableData(
   const groups = new Map<GroupKey, PivotRow>();
 
   for (const line of lines) {
+    const qty = Number(line.quantity) || 0;
+    if (qty <= 0) continue;
+
+    // 單位過濾：只要抓取指定的 22 個單位（福, 氣, 心, 平, 安, 春, 日, 照, 風, 景, 山, 泉, 水, 清, 涼, 護家, 含笑, 法人, 一館, 二館, 三館, 幼），其他的都不用抓取
+    const { shortName } = resolveInstitutionInfo(line.institutionCodeOrName);
+    if (!ALLOWED_INSTITUTION_NAMES.has(shortName)) {
+      continue;
+    }
+
     const itemCode = (line.itemCode || "").trim();
     const itemName = (line.itemName || "").trim();
     const size = (line.size || "").trim();
     const unit = (line.unit || "件").trim();
-    const qty = Number(line.quantity) || 0;
-    if (qty <= 0) continue;
 
     const key = `${itemCode}__${size}`;
     let group = groups.get(key);
@@ -367,7 +373,6 @@ export function buildPivotTableData(
       group.itemName = itemName;
     }
 
-    const { shortName } = resolveInstitutionInfo(line.institutionCodeOrName);
     group.quantitiesByInstitution[shortName] = (group.quantitiesByInstitution[shortName] || 0) + qty;
     group.totalIssued += qty;
   }
@@ -1037,23 +1042,12 @@ export function generatePivotXlsx(
   ].join("");
   xmlRows.push(`  <row r="${sigRow2}" ht="52" customHeight="1">${sigRow2Cells}</row>`);
 
-  // 欄寬定義：依字元內容動態計算規格欄寬，並將統計欄寬精確設為符合文字與排版的自動最適大小
-  let maxSpecLen = 2;
-  rows.forEach((r) => {
-    const s = r.size || "";
-    let len = 0;
-    for (const ch of s) {
-      len += ch.charCodeAt(0) > 255 ? 2 : 1;
-    }
-    if (len > maxSpecLen) maxSpecLen = len;
-  });
-  const specColWidth = Math.max(6.5, Math.min(10, maxSpecLen * 1.1 + 2.5));
-
+  // 欄寬定義：規格欄 (D 欄) 固定設為 3.2，統計各欄依內容設定自動合適大小
   const colsXml = `  <cols>
     <col min="1" max="1" width="7" customWidth="1"/>
     <col min="2" max="2" width="16" customWidth="1"/>
     <col min="3" max="3" width="22" customWidth="1"/>
-    <col min="4" max="4" width="${specColWidth.toFixed(1)}" bestFit="1" customWidth="1"/>
+    <col min="4" max="4" width="3.2" customWidth="1"/>
     <col min="5" max="5" width="9" customWidth="1"/>
     <col min="${firstInstCol}" max="${lastInstCol}" width="6" customWidth="1"/>
     <col min="${sumColIndex}" max="${sumColIndex}" width="7.5" bestFit="1" customWidth="1"/>
