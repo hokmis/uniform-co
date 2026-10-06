@@ -1037,17 +1037,34 @@ export function generatePivotXlsx(
   ].join("");
   xmlRows.push(`  <row r="${sigRow2}" ht="52" customHeight="1">${sigRow2Cells}</row>`);
 
-  // 欄寬定義
+  // 欄寬定義：依字元內容動態計算規格欄寬，並將統計欄寬精確設為符合文字與排版的自動最適大小
+  let maxSpecLen = 2;
+  rows.forEach((r) => {
+    const s = r.size || "";
+    let len = 0;
+    for (const ch of s) {
+      len += ch.charCodeAt(0) > 255 ? 2 : 1;
+    }
+    if (len > maxSpecLen) maxSpecLen = len;
+  });
+  const specColWidth = Math.max(6.5, Math.min(10, maxSpecLen * 1.1 + 2.5));
+
   const colsXml = `  <cols>
     <col min="1" max="1" width="7" customWidth="1"/>
     <col min="2" max="2" width="16" customWidth="1"/>
     <col min="3" max="3" width="22" customWidth="1"/>
-    <col min="4" max="4" width="9" customWidth="1"/>
+    <col min="4" max="4" width="${specColWidth.toFixed(1)}" bestFit="1" customWidth="1"/>
     <col min="5" max="5" width="9" customWidth="1"/>
     <col min="${firstInstCol}" max="${lastInstCol}" width="6" customWidth="1"/>
-    <col min="${sumColIndex}" max="${sumColIndex}" width="11" customWidth="1"/>
-    <col min="${balanceColIndex}" max="${balanceColIndex}" width="11" customWidth="1"/>
-    <col min="${damageColIndex}" max="${totalCols}" width="12" customWidth="1"/>
+    <col min="${sumColIndex}" max="${sumColIndex}" width="7.5" bestFit="1" customWidth="1"/>
+    <col min="${balanceColIndex}" max="${balanceColIndex}" width="9" bestFit="1" customWidth="1"/>
+    <col min="${damageColIndex}" max="${damageColIndex}" width="9" bestFit="1" customWidth="1"/>
+    <col min="${estimateColIndex}" max="${estimateColIndex}" width="7.5" bestFit="1" customWidth="1"/>
+    <col min="${remarkColIndex}" max="${remarkColIndex}" width="11" bestFit="1" customWidth="1"/>
+    <col min="${replenishmentColIndex}" max="${replenishmentColIndex}" width="8.5" bestFit="1" customWidth="1"/>
+    <col min="${issueColIndex}" max="${issueColIndex}" width="8.5" bestFit="1" customWidth="1"/>
+    <col min="${returnColIndex}" max="${returnColIndex}" width="8.5" bestFit="1" customWidth="1"/>
+    <col min="${finalColIndex}" max="${finalColIndex}" width="11.5" bestFit="1" customWidth="1"/>
   </cols>`;
 
   // 合併儲存格
@@ -1094,7 +1111,7 @@ export function generatePivotXlsx(
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetViews>
-    <sheetView tabSelected="1" workbookViewId="0" zoomScale="70" zoomScaleNormal="70"/>
+    <sheetView tabSelected="1" workbookViewId="0" zoomScale="64" zoomScaleNormal="64"/>
   </sheetViews>
 ${colsXml}
   <sheetData>

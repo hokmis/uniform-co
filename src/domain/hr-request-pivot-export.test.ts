@@ -352,8 +352,15 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toMatch(/<c r="G2" s="\d+"\/>/);
     expect(sheetContent).toMatch(/<c r="AA2" s="\d+"\/>/);
 
-    // 10. 驗證開啟預設縮放 70% (zoomScale="70")
-    expect(sheetContent).toContain('<sheetView tabSelected="1" workbookViewId="0" zoomScale="70" zoomScaleNormal="70"/>');
+    // 10. 驗證開啟預設縮放 64% (zoomScale="64")
+    expect(sheetContent).toContain('<sheetView tabSelected="1" workbookViewId="0" zoomScale="64" zoomScaleNormal="64"/>');
+
+    // 11. 驗證規格欄與統計各欄具有自動最適大小欄寬設定與 bestFit="1"
+    expect(sheetContent).toMatch(/<col min="4" max="4" width="[\d\.]+" bestFit="1" customWidth="1"\/>/);
+    expect(sheetContent).toContain('width="7.5" bestFit="1" customWidth="1"'); // 請領合計 / 抽盤差異
+    expect(sheetContent).toContain('width="9" bestFit="1" customWidth="1"');   // 月結量 / 事務組抽盤
+    expect(sheetContent).toContain('width="11" bestFit="1" customWidth="1"');  // 備註差異說明
+    expect(sheetContent).toContain('width="8.5" bestFit="1" customWidth="1"'); // 庫增量 / 本次發放量 / 冬夏領退量
   });
 
   it("accurately detects category and gender transitions as requested by the user", () => {
