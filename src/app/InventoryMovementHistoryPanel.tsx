@@ -17,6 +17,7 @@ import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
+import HrRequestDetailModal from "./HrRequestDetailModal";
 
 function formatDelta(delta: number, unit: string) {
   if (delta > 0) {
@@ -58,6 +59,12 @@ export default function InventoryMovementHistoryPanel() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [modalTarget, setModalTarget] = useState<{
+    isOpen: boolean;
+    sourceNo: string;
+    postingId?: string;
+    postingKind?: StockMovementPostingKind;
+  }>({ isOpen: false, sourceNo: "" });
 
   const identityReady = Boolean(client && panelActive && isAuthenticated && accountId && !identityLoading && !identityError);
 
@@ -317,7 +324,32 @@ export default function InventoryMovementHistoryPanel() {
                   >
                     {row.postingKindLabel}
                   </span>
-                  <strong>{row.sourceNo}</strong>
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      margin: 0,
+                      font: "inherit",
+                      fontWeight: 700,
+                      color: "#0284c7",
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                    onClick={() =>
+                      setModalTarget({
+                        isOpen: true,
+                        sourceNo: row.sourceNo,
+                        postingId: row.postingId,
+                        postingKind: row.postingKind,
+                      })
+                    }
+                    title="點擊查看完整單據明細"
+                  >
+                    {row.sourceNo}
+                  </button>
                 </div>
                 <span className="table-secondary">
                   {formatTaipeiDateTime(row.postedAt, row.occurredOn)}
@@ -381,6 +413,15 @@ export default function InventoryMovementHistoryPanel() {
             ),
           },
         ] satisfies readonly ManagementCatalogColumn<StockMovementRow, StockMovementSortKey>[]}
+      />
+
+      <HrRequestDetailModal
+        isOpen={modalTarget.isOpen}
+        onClose={() => setModalTarget({ isOpen: false, sourceNo: "" })}
+        client={client}
+        sourceNo={modalTarget.sourceNo}
+        postingId={modalTarget.postingId}
+        postingKind={modalTarget.postingKind}
       />
     </section>
   );
