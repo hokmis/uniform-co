@@ -1169,7 +1169,7 @@ export default function HrRequestWorkbench() {
       </div>
 
       <div className="panel result-panel">
-        <div className="panel-heading">
+        <div className="panel-heading" style={{ flexWrap: "wrap", gap: "10px", marginBottom: "18px" }}>
           <div>
             <p className="eyebrow">04 / ITEM SUMMARY</p>
             <h2>送出前品號檢查</h2>
@@ -1192,29 +1192,35 @@ export default function HrRequestWorkbench() {
           </div>
         ) : (
           <>
-            <div className="metric-grid">
-              <Metric label="發放總量" value={result.summary?.totalIssueQuantity ?? 0} />
-              <Metric label="增庫總量" value={result.summary?.totalIncreaseQuantity ?? 0} />
-              <Metric
-                label="總倉調庫需求"
-                value={result.summary?.totalRequestedTransferQuantity ?? 0}
-              />
-            </div>
-            <div className="summary-list">
+            <div className="summary-list" style={{ marginTop: 0, borderTop: "none" }}>
               {result.summary?.summaries.map((summary) => (
-                <div className="summary-row" key={summary.item.itemId}>
-                  <span>
-                    <strong>{summary.item.itemCode}</strong>
-                    <small>
+                <div
+                  className="summary-row"
+                  key={summary.item.itemId}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "stretch",
+                    gap: "4px",
+                    padding: "10px 0",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "8px" }}>
+                    <strong style={{ fontSize: "14px", color: "var(--ink)" }}>
+                      {summary.item.itemCode}
+                    </strong>
+                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                      發放 {summary.issueQuantity} ＋ 增庫 {summary.increaseQuantity}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+                    <small style={{ fontSize: "12px", color: "var(--muted)" }}>
                       {summary.item.itemName}／{summary.item.size || "不分尺寸"}
                     </small>
-                  </span>
-                  <span>
-                    發放 {summary.issueQuantity} ＋ 增庫 {summary.increaseQuantity}
-                  </span>
-                  <strong>
-                    調庫 {summary.requestedTransferQuantity}／兩倉總可用 {summary.availableToRequest}
-                  </strong>
+                    <strong style={{ fontSize: "12px", color: summary.requestedTransferQuantity > 0 ? "var(--accent)" : "inherit" }}>
+                      調庫 {summary.requestedTransferQuantity}／兩倉總可用 {summary.availableToRequest}
+                    </strong>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1223,6 +1229,15 @@ export default function HrRequestWorkbench() {
                 ? "這是本機測試資料的送出前預覽；設定 Supabase env 並登入後才可建立正式需求。"
                 : "正式送單會優先以單次 RPC 完成草稿與送出；資料庫仍會鎖定品號、重算兩倉合計並建立預留。"}
             </p>
+            <div className="workbench-bottom-metrics">
+              <Metric label="發放總量" value={result.summary?.totalIssueQuantity ?? 0} compact />
+              <Metric label="增庫總量" value={result.summary?.totalIncreaseQuantity ?? 0} compact />
+              <Metric
+                label="總倉調庫需求"
+                value={result.summary?.totalRequestedTransferQuantity ?? 0}
+                compact
+              />
+            </div>
           </>
         )}
       </div>
@@ -1230,7 +1245,25 @@ export default function HrRequestWorkbench() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({ label, value, compact }: { label: string; value: number; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div
+        className="metric compact-metric"
+        style={{
+          padding: "8px 12px",
+          borderRadius: "10px",
+          display: "grid",
+          gap: "3px",
+          background: "#f8fafc",
+          border: "1px solid var(--line, #e2e8f0)",
+        }}
+      >
+        <span style={{ fontSize: "12px", color: "var(--muted, #64748b)", fontWeight: 500 }}>{label}</span>
+        <strong style={{ fontSize: "18px", letterSpacing: "normal", color: "var(--ink, #1e293b)", fontWeight: 700 }}>{value}</strong>
+      </div>
+    );
+  }
   return (
     <div className="metric">
       <span>{label}</span>
