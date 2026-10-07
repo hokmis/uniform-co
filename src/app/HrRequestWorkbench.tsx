@@ -1673,13 +1673,13 @@ export default function HrRequestWorkbench() {
                             key={dept}
                             style={{
                               display: "inline-block",
-                              fontSize: "11px",
-                              fontWeight: 700,
+                              fontSize: "13px",
+                              fontWeight: 400,
                               background: "var(--accent, #1a73e8)",
                               color: "#fff",
-                              padding: "1px 6px",
+                              padding: "2px 7px",
                               borderRadius: "4px",
-                              lineHeight: "1.4",
+                              lineHeight: "1.3",
                             }}
                           >
                             {dept}
@@ -1689,13 +1689,13 @@ export default function HrRequestWorkbench() {
                           <span
                             style={{
                               display: "inline-block",
-                              fontSize: "11px",
-                              fontWeight: 600,
+                              fontSize: "13px",
+                              fontWeight: 400,
                               background: "#f1f5f9",
                               color: "#64748b",
-                              padding: "1px 6px",
+                              padding: "2px 7px",
                               borderRadius: "4px",
-                              lineHeight: "1.4",
+                              lineHeight: "1.3",
                             }}
                           >
                             增庫
