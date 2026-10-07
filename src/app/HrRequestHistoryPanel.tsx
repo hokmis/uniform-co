@@ -1021,26 +1021,26 @@ export default function HrRequestHistoryPanel() {
           <span className={`status-pill ${selected.status === "SHIPPED" ? "success" : selected.status === "CANCELLED" ? "danger" : ""}`}>{hrRequestStatusLabel(selected.status)}</span>
         </div>
       </div>
-      <div className="metric-grid">
-        <div className="metric">
-          <span>{selected.requestType === "REPLENISHMENT" ? "申請日期" : "發放日期"}</span>
-          <strong>{selected.distributionDate}</strong>
+      <div className="metric-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px", marginBottom: "16px" }}>
+        <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
+          <span style={{ fontSize: "12px", color: "#64748b" }}>{selected.requestType === "REPLENISHMENT" ? "申請日期" : "發放日期"}</span>
+          <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>{selected.distributionDate}</strong>
         </div>
-        <div className="metric">
-          <span>{selected.requestType === "REPLENISHMENT" ? "增庫總量" : "有效預留"}</span>
-          <strong>
+        <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
+          <span style={{ fontSize: "12px", color: "#64748b" }}>發貨單</span>
+          <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>{selected.requestType === "REPLENISHMENT" ? "無（直接調撥增庫）" : (selected.shipmentNo ?? "—")}</strong>
+        </div>
+        <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
+          <span style={{ fontSize: "12px", color: "#64748b" }}>{selected.requestType === "REPLENISHMENT" ? "增庫總量" : "有效預留"}</span>
+          <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>
             {selected.requestType === "REPLENISHMENT"
               ? `${items.reduce((sum, item) => sum + numberValue(item.increase_quantity), 0)} 件`
-              : activeReserved}
+              : `${activeReserved} 件`}
           </strong>
         </div>
-        <div className="metric">
-          <span>發貨單</span>
-          <strong>{selected.requestType === "REPLENISHMENT" ? "無（直接調撥增庫）" : (selected.shipmentNo ?? "—")}</strong>
-        </div>
-        <div className="metric">
-          <span>資料版本</span>
-          <strong>{selected.rowVersion}</strong>
+        <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
+          <span style={{ fontSize: "12px", color: "#64748b" }}>資料版本</span>
+          <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>第 {selected.rowVersion} 版</strong>
         </div>
       </div>
       {selected.note ? (() => {
@@ -1077,12 +1077,19 @@ export default function HrRequestHistoryPanel() {
             <h4>增庫申請明細（額外補庫）</h4>
             <div className="summary-list">
               {items.map((item) => (
-                <div className="summary-row" key={item.id}>
-                  <span>
-                    <strong>{item.item_code_snapshot ?? item.item_id}</strong>
-                    <small>{item.item_name_snapshot ?? "補庫品項"}／{item.unit_snapshot ?? "件"}</small>
-                  </span>
-                  <strong>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
+                <div className="summary-row" key={item.id} style={{ padding: "10px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                    <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
+                      {item.item_code_snapshot ?? item.item_id}
+                    </strong>
+                    <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
+                      {item.item_name_snapshot ?? "補庫品項"}
+                    </strong>
+                    <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
+                      （{item.unit_snapshot ?? "件"}）
+                    </span>
+                  </div>
+                  <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0369a1" }}>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
                 </div>
               ))}
             </div>
@@ -1093,46 +1100,112 @@ export default function HrRequestHistoryPanel() {
         ) : (
           <>
             <h4>品號彙總</h4>
-            <div className="summary-list">{items.map((item) => <div className="summary-row" key={item.id}><span><strong>{item.item_code_snapshot ?? item.item_id}</strong><small>{item.item_name_snapshot ?? "制服品號"}／{item.unit_snapshot ?? "—"}</small></span><span>發放 {numberValue(item.issue_quantity)} ＋ 增庫 {numberValue(item.increase_quantity)}</span><strong>需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}</strong></div>)}</div>
+            <div className="summary-list">
+              {items.map((item) => (
+                <div className="summary-row" key={item.id} style={{ padding: "10px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                    <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
+                      {item.item_code_snapshot ?? item.item_id}
+                    </strong>
+                    <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
+                      {item.item_name_snapshot ?? "制服品號"}
+                    </strong>
+                    <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
+                      （{item.unit_snapshot ?? "件"}）
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                    <span style={{ fontSize: "0.95rem", color: "#64748b" }}>
+                      發放 <strong style={{ color: "#0f172a" }}>{numberValue(item.issue_quantity)}</strong> ＋ 增庫 <strong style={{ color: "#0f172a" }}>{numberValue(item.increase_quantity)}</strong>
+                    </span>
+                    <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#c65337" }}>
+                      需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}
+                    </strong>
+                  </div>
+                </div>
+              ))}
+            </div>
             {items.some((item) => numberValue(item.increase_quantity) > 0) ? (
               <>
                 <h4>增庫申請明細（隨單增庫）</h4>
                 <div className="summary-list">
                   {items.filter((item) => numberValue(item.increase_quantity) > 0).map((item) => (
-                    <div className="summary-row" key={`inc-${item.id}`}>
-                      <span>
-                        <strong>{item.item_code_snapshot ?? item.item_id}</strong>
-                        <small>{item.item_name_snapshot ?? "制服品號"}／{item.unit_snapshot ?? "件"}</small>
-                      </span>
-                      <strong>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
+                    <div className="summary-row" key={`inc-${item.id}`} style={{ padding: "10px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
+                          {item.item_code_snapshot ?? item.item_id}
+                        </strong>
+                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
+                          {item.item_name_snapshot ?? "制服品號"}
+                        </strong>
+                        <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
+                          （{item.unit_snapshot ?? "件"}）
+                        </span>
+                      </div>
+                      <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0369a1" }}>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
                     </div>
                   ))}
                 </div>
               </>
             ) : null}
             <h4>發放明細</h4>
-            <div className="summary-list">{issueLines.map((line) => {
-              const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
-              const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
-              const unitName = (selectedCode && orgMap.get(selectedCode))
-                || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
-                || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
-                || orgMap.get(unitCode)
-                || line.department_name_snapshot
-                || line.institution_name_snapshot
-                || "";
+            <div className="summary-list">
+              {issueLines.map((line) => {
+                const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
+                const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
+                const unitName = (selectedCode && orgMap.get(selectedCode))
+                  || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
+                  || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
+                  || orgMap.get(unitCode)
+                  || line.department_name_snapshot
+                  || line.institution_name_snapshot
+                  || "";
 
-              const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
-              return (
-                <div className="summary-row" key={line.id}>
-                  <span>
-                    <strong>{unitDisplay}</strong>
-                    <small>{[line.item_code_snapshot ?? "—", line.item_name_snapshot, line.size_snapshot].filter(Boolean).join(" ")}</small>
-                  </span>
-                  <strong>{numberValue(line.quantity)} {line.unit_snapshot ?? ""}</strong>
-                </div>
-              );
-            })}</div>
+                const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
+                return (
+                  <div className="summary-row" key={line.id} style={{ padding: "10px 14px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                      <span style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        padding: "3px 8px",
+                        background: "#f1f5f9",
+                        color: "#1e293b",
+                        borderRadius: 6,
+                        fontWeight: 700,
+                        fontSize: "0.95rem",
+                        border: "1px solid #cbd5e1"
+                      }}>
+                        {unitDisplay}
+                      </span>
+                      <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
+                        {line.item_code_snapshot ?? "—"}
+                      </strong>
+                      <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
+                        {line.item_name_snapshot ?? ""}
+                      </strong>
+                      {line.size_snapshot ? (
+                        <span style={{
+                          display: "inline-block",
+                          fontSize: "0.9rem",
+                          fontWeight: 600,
+                          color: "#475569",
+                          background: "#f8fafc",
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          border: "1px solid #e2e8f0"
+                        }}>
+                          {line.size_snapshot}
+                        </span>
+                      ) : null}
+                    </div>
+                    <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0f172a" }}>
+                      {numberValue(line.quantity)} {line.unit_snapshot ?? ""}
+                    </strong>
+                  </div>
+                );
+              })}
+            </div>
             <p className="muted">預留紀錄：{reservations.length} 筆；有效 {reservations.filter((row) => row.status === "ACTIVE").length} 筆，已關閉／釋放 {reservations.filter((row) => row.status !== "ACTIVE").length} 筆。</p>
           </>
         )

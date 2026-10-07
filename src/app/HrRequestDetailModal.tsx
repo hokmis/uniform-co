@@ -578,22 +578,14 @@ export default function HrRequestDetailModal({
         ) : header ? (
           <>
             {/* 指標方塊 */}
-            <div className="metric-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-              <div className="metric">
-                <span>{header.requestType === "REPLENISHMENT" ? "申請日期" : "發放日期"}</span>
-                <strong>{header.distributionDate || "—"}</strong>
+            <div className="metric-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px", marginBottom: "16px" }}>
+              <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
+                <span style={{ fontSize: "12px", color: "#64748b" }}>{header.requestType === "REPLENISHMENT" ? "申請日期" : "發放日期"}</span>
+                <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>{header.distributionDate || "—"}</strong>
               </div>
-              <div className="metric">
-                <span>{header.requestType === "REPLENISHMENT" ? "增庫總量" : "有效預留量"}</span>
-                <strong>
-                  {header.requestType === "REPLENISHMENT"
-                    ? `${items.reduce((sum, item) => sum + numberValue(item.increase_quantity), 0)} 件`
-                    : `${activeReserved} 件`}
-                </strong>
-              </div>
-              <div className="metric">
-                <span>關聯發貨單</span>
-                <strong>
+              <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
+                <span style={{ fontSize: "12px", color: "#64748b" }}>關聯發貨單</span>
+                <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>
                   {header.requestType === "REPLENISHMENT"
                     ? "無（調撥直入）"
                     : header.shipmentNo
@@ -601,9 +593,17 @@ export default function HrRequestDetailModal({
                       : "尚未發貨"}
                 </strong>
               </div>
-              <div className="metric">
-                <span>資料版本</span>
-                <strong>第 {header.rowVersion} 版</strong>
+              <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
+                <span style={{ fontSize: "12px", color: "#64748b" }}>{header.requestType === "REPLENISHMENT" ? "增庫總量" : "有效預留量"}</span>
+                <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>
+                  {header.requestType === "REPLENISHMENT"
+                    ? `${items.reduce((sum, item) => sum + numberValue(item.increase_quantity), 0)} 件`
+                    : `${activeReserved} 件`}
+                </strong>
+              </div>
+              <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
+                <span style={{ fontSize: "12px", color: "#64748b" }}>資料版本</span>
+                <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>第 {header.rowVersion} 版</strong>
               </div>
             </div>
 
@@ -628,20 +628,29 @@ export default function HrRequestDetailModal({
                   <p className="muted" style={{ padding: "8px 0" }}>尚無品號資料</p>
                 ) : (
                   items.map((item) => (
-                    <div className="summary-row" key={item.id}>
-                      <span>
-                        <strong>{item.item_code_snapshot ?? item.item_id}</strong>
-                        <small>{item.item_name_snapshot ?? "制服品項"}／{item.unit_snapshot ?? "件"}</small>
-                      </span>
-                      {header.requestType === "REPLENISHMENT" ? (
-                        <strong>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
-                      ) : (
-                        <span>
-                          發放 {numberValue(item.issue_quantity)} ＋ 增庫 {numberValue(item.increase_quantity)} ＝{" "}
-                          <strong style={{ color: "#c65337" }}>
-                            {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}
-                          </strong>
+                    <div className="summary-row" key={item.id} style={{ padding: "10px 14px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
+                          {item.item_code_snapshot ?? item.item_id}
+                        </strong>
+                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
+                          {item.item_name_snapshot ?? "制服品項"}
+                        </strong>
+                        <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
+                          （{item.unit_snapshot ?? "件"}）
                         </span>
+                      </div>
+                      {header.requestType === "REPLENISHMENT" ? (
+                        <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0369a1" }}>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
+                      ) : (
+                        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                          <span style={{ fontSize: "0.95rem", color: "#64748b" }}>
+                            發放 <strong style={{ color: "#0f172a" }}>{numberValue(item.issue_quantity)}</strong> ＋ 增庫 <strong style={{ color: "#0f172a" }}>{numberValue(item.increase_quantity)}</strong>
+                          </span>
+                          <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#c65337" }}>
+                            需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}
+                          </strong>
+                        </div>
                       )}
                     </div>
                   ))
@@ -657,12 +666,19 @@ export default function HrRequestDetailModal({
                   {items
                     .filter((item) => numberValue(item.increase_quantity) > 0)
                     .map((item) => (
-                      <div className="summary-row" key={`inc-${item.id}`}>
-                        <span>
-                          <strong>{item.item_code_snapshot ?? item.item_id}</strong>
-                          <small>{item.item_name_snapshot ?? "制服品項"}／{item.unit_snapshot ?? "件"}</small>
-                        </span>
-                        <strong>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
+                      <div className="summary-row" key={`inc-${item.id}`} style={{ padding: "10px 14px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                          <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
+                            {item.item_code_snapshot ?? item.item_id}
+                          </strong>
+                          <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
+                            {item.item_name_snapshot ?? "制服品項"}
+                          </strong>
+                          <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
+                            （{item.unit_snapshot ?? "件"}）
+                          </span>
+                        </div>
+                        <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0369a1" }}>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
                       </div>
                     ))}
                 </div>
@@ -709,8 +725,10 @@ export default function HrRequestDetailModal({
                               <td style={{ padding: "8px 10px", color: "#64748b" }}>{line.line_no || idx + 1}</td>
                               <td style={{ padding: "8px 10px", fontWeight: 600 }}>{unitDisplay}</td>
                               <td style={{ padding: "8px 10px" }}>
-                                <div><strong>{line.item_code_snapshot || "—"}</strong></div>
-                                <div style={{ fontSize: "0.8rem", color: "#64748b" }}>{line.item_name_snapshot}</div>
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                                  <strong style={{ fontSize: "0.95rem", fontWeight: 700, color: "#0f172a" }}>{line.item_code_snapshot || "—"}</strong>
+                                  <strong style={{ fontSize: "0.95rem", fontWeight: 700, color: "#1e293b" }}>{line.item_name_snapshot}</strong>
+                                </div>
                               </td>
                               <td style={{ padding: "8px 10px", textAlign: "center" }}>{line.size_snapshot || "—"}</td>
                               <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: "#1e293b" }}>
