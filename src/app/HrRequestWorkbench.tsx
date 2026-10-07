@@ -111,8 +111,6 @@ export const DEPARTMENT_BUTTON_ROWS: { code: string; name: string; display: stri
     { code: "D6", name: "照", display: "照" },
     { code: "D5", name: "風", display: "風" },
     { code: "D3", name: "景", display: "景" },
-  ],
-  [
     { code: "E8", name: "山", display: "山" },
     { code: "E7", name: "泉", display: "泉" },
     { code: "E6", name: "水", display: "水" },
@@ -904,8 +902,8 @@ export default function HrRequestWorkbench() {
                           disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
                           style={{
                             flex: "1 1 auto",
-                            minWidth: dept.display.length > 2 ? "68px" : "48px",
-                            padding: "8px 10px",
+                            minWidth: dept.display.length > 2 ? "58px" : "36px",
+                            padding: "7px 8px",
                             borderRadius: "8px",
                             border: isSelected ? "2px solid var(--accent, #d8744a)" : "1px solid #cbd5e1",
                             background: isSelected ? "var(--accent, #d8744a)" : stats?.itemCount ? "#fff7ed" : "#fff",
@@ -1641,36 +1639,90 @@ export default function HrRequestWorkbench() {
         ) : (
           <>
             <div className="summary-list" style={{ marginTop: 0, borderTop: "none" }}>
-              {result.summary?.summaries.map((summary) => (
-                <div
-                  className="summary-row"
-                  key={summary.item.itemId}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "stretch",
-                    gap: "4px",
-                    padding: "10px 0",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "8px" }}>
-                    <strong style={{ fontSize: "14px", color: "var(--ink)" }}>
-                      {summary.item.itemCode}
-                    </strong>
-                    <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                      發放 {summary.issueQuantity} ＋ 增庫 {summary.increaseQuantity}
-                    </span>
+              {result.summary?.summaries.map((summary) => {
+                const itemDeptLabels = Array.from(
+                  new Set(
+                    visibleLines
+                      .filter((l) => l.itemId === summary.item.itemId && l.quantity > 0 && l.departmentCode)
+                      .map((l) => {
+                        for (const row of DEPARTMENT_BUTTON_ROWS) {
+                          const found = row.find((d) => d.code === l.departmentCode);
+                          if (found) return found.display;
+                        }
+                        return resolveInstitutionInfo(l.departmentCode).shortName;
+                      })
+                  )
+                );
+
+                return (
+                  <div
+                    className="summary-row"
+                    key={summary.item.itemId}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "stretch",
+                      gap: "6px",
+                      padding: "10px 0",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+                        {itemDeptLabels.map((dept) => (
+                          <span
+                            key={dept}
+                            style={{
+                              display: "inline-block",
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              background: "var(--accent, #1a73e8)",
+                              color: "#fff",
+                              padding: "1px 6px",
+                              borderRadius: "4px",
+                              lineHeight: "1.4",
+                            }}
+                          >
+                            {dept}
+                          </span>
+                        ))}
+                        {itemDeptLabels.length === 0 && (
+                          <span
+                            style={{
+                              display: "inline-block",
+                              fontSize: "11px",
+                              fontWeight: 600,
+                              background: "#f1f5f9",
+                              color: "#64748b",
+                              padding: "1px 6px",
+                              borderRadius: "4px",
+                              lineHeight: "1.4",
+                            }}
+                          >
+                            增庫
+                          </span>
+                        )}
+                        <strong style={{ fontSize: "14px", color: "var(--ink)", fontWeight: 700 }}>
+                          {summary.item.itemCode}
+                        </strong>
+                        <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)" }}>
+                          {summary.item.itemName}
+                          <span style={{ fontSize: "12px", fontWeight: 400, color: "var(--muted)", marginLeft: "4px" }}>
+                            ／{summary.item.size || "不分尺寸"}
+                          </span>
+                        </span>
+                      </div>
+                      <span style={{ fontSize: "12px", color: "var(--muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                        發放 {summary.issueQuantity} ＋ 增庫 {summary.increaseQuantity}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "8px" }}>
+                      <strong style={{ fontSize: "12px", color: summary.requestedTransferQuantity > 0 ? "var(--accent)" : "inherit" }}>
+                        調庫 {summary.requestedTransferQuantity}／兩倉總可用 {summary.availableToRequest}
+                      </strong>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
-                    <small style={{ fontSize: "12px", color: "var(--muted)" }}>
-                      {summary.item.itemName}／{summary.item.size || "不分尺寸"}
-                    </small>
-                    <strong style={{ fontSize: "12px", color: summary.requestedTransferQuantity > 0 ? "var(--accent)" : "inherit" }}>
-                      調庫 {summary.requestedTransferQuantity}／兩倉總可用 {summary.availableToRequest}
-                    </strong>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <p className="success-note">
               {previewMode

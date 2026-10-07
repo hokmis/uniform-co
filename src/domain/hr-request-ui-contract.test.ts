@@ -42,10 +42,11 @@ describe("HR request UI flow", () => {
     expect(source).not.toContain("onClick={reloadOperationalData} disabled={loadingData || submitting}");
   });
 
-  it("organizes department options into 3 button rows and allows setting uniform issue quantities", () => {
+  it("organizes department options into 2 button rows and allows setting uniform issue quantities", () => {
     expect(source).toContain('setLines((current) => sameAccountSnapshot ? preserveHrRequestDraftLines(current, null) : [])');
     expect(source).toContain('if (dataReadBlocked || visibleItemOptions.length === 0) return;');
     expect(source).toContain('DEPARTMENT_BUTTON_ROWS');
+    expect(source).toContain('itemDeptLabels');
     expect(source).toContain('setDepartmentItemQuantity(selectedDeptCode, item.itemId, val)');
     expect(source).not.toContain('＋新增員工明細');
     expect(source).not.toContain('<span>員工／機構</span>');
