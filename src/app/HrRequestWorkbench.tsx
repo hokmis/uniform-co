@@ -99,6 +99,37 @@ function getUniformSeason(itemName: string): "SUMMER" | "WINTER" | "ALL_SEASON" 
   return "NONE";
 }
 
+export const DEPARTMENT_BUTTON_ROWS: { code: string; name: string; display: string }[][] = [
+  [
+    { code: "C8", name: "福", display: "福" },
+    { code: "C7", name: "氣", display: "氣" },
+    { code: "C6", name: "心", display: "心" },
+    { code: "C5", name: "平", display: "平" },
+    { code: "C3", name: "安", display: "安" },
+    { code: "D8", name: "春", display: "春" },
+    { code: "D7", name: "日", display: "日" },
+    { code: "D6", name: "照", display: "照" },
+    { code: "D5", name: "風", display: "風" },
+    { code: "D3", name: "景", display: "景" },
+  ],
+  [
+    { code: "E8", name: "山", display: "山" },
+    { code: "E7", name: "泉", display: "泉" },
+    { code: "E6", name: "水", display: "水" },
+    { code: "E5", name: "清", display: "清" },
+    { code: "E3", name: "涼", display: "涼" },
+    { code: "CD2", name: "護家", display: "護家" },
+    { code: "47091980", name: "含笑", display: "含笑" },
+  ],
+  [
+    { code: "L1", name: "法人", display: "法人" },
+    { code: "L67", name: "一館", display: "一館" },
+    { code: "L5", name: "二館", display: "二館" },
+    { code: "L23", name: "三館", display: "三館" },
+    { code: "B2", name: "幼", display: "幼兒園" },
+  ],
+];
+
 const previewEmployees: EmployeeSnapshot[] = [
   {
     employeeId: "employee-1",
@@ -171,6 +202,12 @@ export default function HrRequestWorkbench() {
   const [categoryFilter, setCategoryFilter] = useState<UniformCategoryKey>("ALL");
   const [genderFilter, setGenderFilter] = useState<GenderFilterKey>("ALL");
   const [seasonFilter, setSeasonFilter] = useState<SeasonFilterKey>("ALL");
+  const [selectedDeptCode, setSelectedDeptCode] = useState<string>("C8");
+  const [issuePage, setIssuePage] = useState(1);
+  const [issueSearch, setIssueSearch] = useState("");
+  const [issueCategoryFilter, setIssueCategoryFilter] = useState<UniformCategoryKey>("ALL");
+  const [issueGenderFilter, setIssueGenderFilter] = useState<GenderFilterKey>("ALL");
+  const [issueSeasonFilter, setIssueSeasonFilter] = useState<SeasonFilterKey>("ALL");
   const [dataMessage, setDataMessage] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
   const [loadingData, setLoadingData] = useState(() => Boolean(client));
@@ -283,6 +320,78 @@ export default function HrRequestWorkbench() {
     [currentIncreasePage, filteredIncreaseItems],
   );
 
+  const filteredIssueItems = useMemo(() => {
+    const q = issueSearch.trim().toLowerCase();
+    return visibleItemOptions.filter((item) => {
+      // 1. 分類頁籤
+      if (issueCategoryFilter !== "ALL") {
+        const cat = getUniformCategory(item.itemName, item.itemCode);
+        if (cat !== issueCategoryFilter) return false;
+      }
+      // 2. 性別篩選
+      if (issueGenderFilter !== "ALL") {
+        const g = getUniformGender(item.itemName, item.size);
+        if (g !== issueGenderFilter) return false;
+      }
+      // 3. 季節篩選
+      if (issueSeasonFilter !== "ALL") {
+        const s = getUniformSeason(item.itemName);
+        if (issueSeasonFilter === "SUMMER" && s !== "SUMMER" && s !== "ALL_SEASON") return false;
+        if (issueSeasonFilter === "WINTER" && s !== "WINTER" && s !== "ALL_SEASON") return false;
+      }
+      // 4. 文字搜尋
+      if (q) {
+        const matchCode = item.itemCode.toLowerCase().includes(q);
+        const matchName = item.itemName.toLowerCase().includes(q);
+        const matchSize = item.size && item.size.toLowerCase().includes(q);
+        if (!matchCode && !matchName && !matchSize) return false;
+      }
+      return true;
+    });
+  }, [issueCategoryFilter, issueGenderFilter, issueSearch, issueSeasonFilter, visibleItemOptions]);
+
+  const issuePageSize = 10;
+  const totalIssuePages = Math.max(1, Math.ceil(filteredIssueItems.length / issuePageSize));
+  const currentIssuePage = Math.min(Math.max(1, issuePage), totalIssuePages);
+  const pagedIssueItems = useMemo(
+    () => filteredIssueItems.slice((currentIssuePage - 1) * issuePageSize, currentIssuePage * issuePageSize),
+    [currentIssuePage, filteredIssueItems],
+  );
+
+  const departmentItemQtyMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const line of visibleLines) {
+      if (line.departmentCode && line.itemId) {
+        map[`${line.departmentCode}__${line.itemId}`] = line.quantity;
+      }
+    }
+    return map;
+  }, [visibleLines]);
+
+  const departmentSummaryMap = useMemo(() => {
+    const map: Record<string, { itemCount: number; totalPieces: number }> = {};
+    for (const line of visibleLines) {
+      if (line.departmentCode && line.quantity > 0) {
+        const cur = map[line.departmentCode] || { itemCount: 0, totalPieces: 0 };
+        map[line.departmentCode] = {
+          itemCount: cur.itemCount + 1,
+          totalPieces: cur.totalPieces + line.quantity,
+        };
+      }
+    }
+    return map;
+  }, [visibleLines]);
+
+  const selectedDept = useMemo(() => {
+    for (const row of DEPARTMENT_BUTTON_ROWS) {
+      const found = row.find((d) => d.code === selectedDeptCode);
+      if (found) return found;
+    }
+    return DEPARTMENT_BUTTON_ROWS[0][0];
+  }, [selectedDeptCode]);
+
+  const selectedDeptStats = departmentSummaryMap[selectedDeptCode] || { itemCount: 0, totalPieces: 0 };
+
   function markDraftChanged() {
     const operation = operationRef.current;
     if (operation) operationRef.current = rotateHrRequestDraftKeys(operation, () => crypto.randomUUID());
@@ -302,6 +411,12 @@ export default function HrRequestWorkbench() {
     setCategoryFilter("ALL");
     setGenderFilter("ALL");
     setSeasonFilter("ALL");
+    setIssuePage(1);
+    setIssueSearch("");
+    setIssueCategoryFilter("ALL");
+    setIssueGenderFilter("ALL");
+    setIssueSeasonFilter("ALL");
+    setSelectedDeptCode("C8");
   }
 
   function resetEntryAfterCancel() {
@@ -483,49 +598,41 @@ export default function HrRequestWorkbench() {
     }
   }, [dataReadBlocked, increases, visibleEmployeeOptions, visibleItemOptions, visibleLines]);
 
-  function updateLine(lineId: string, field: "employeeId" | "itemId" | "quantity" | "departmentCode", value: string) {
-    markDraftChanged();
-    setLines((current) =>
-      current.map((line) => {
-        if (line.lineId !== lineId) return line;
-        if (field === "quantity") {
-          return { ...line, quantity: Number(value) || 0 };
-        }
-        if (field === "departmentCode") {
-          const matchedEmp = findEmployeeForDepartment(visibleEmployeeOptions, value)
-            ?? visibleEmployeeOptions[0];
-          return {
-            ...line,
-            departmentCode: value,
-            employeeId: matchedEmp?.employeeId ?? "",
-          };
-        }
-        if (field === "employeeId") {
-          const selectedEmp = visibleEmployeeOptions.find((employee) => employee.employeeId === value);
-          return {
-            ...line,
-            employeeId: value,
-            departmentCode: selectedEmp?.institutionCode || line.departmentCode,
-          };
-        }
-        return { ...line, [field]: value };
-      }),
-    );
-  }
-
-  function addLine() {
-    const nextId = `line-${crypto.randomUUID()}`;
+  function setDepartmentItemQuantity(deptCode: string, itemId: string, qty: number) {
     if (dataReadBlocked || visibleItemOptions.length === 0) return;
     markDraftChanged();
-    setLines((current) => [
-      ...current,
-      { lineId: nextId, employeeId: "", itemId: "", quantity: 1, departmentCode: "" },
-    ]);
-  }
+    setLines((current) => {
+      const existingIndex = current.findIndex(
+        (line) => line.departmentCode === deptCode && line.itemId === itemId,
+      );
+      if (qty <= 0) {
+        if (existingIndex === -1) return current;
+        return current.filter((_, idx) => idx !== existingIndex);
+      }
+      const matchedEmp = findEmployeeForDepartment(visibleEmployeeOptions, deptCode)
+        ?? visibleEmployeeOptions[0];
+      const empId = matchedEmp?.employeeId ?? "";
 
-  function removeLine(lineId: string) {
-    markDraftChanged();
-    setLines((current) => current.filter((line) => line.lineId !== lineId));
+      if (existingIndex >= 0) {
+        const copy = [...current];
+        copy[existingIndex] = {
+          ...copy[existingIndex],
+          quantity: qty,
+          employeeId: copy[existingIndex].employeeId || empId,
+        };
+        return copy;
+      }
+      return [
+        ...current,
+        {
+          lineId: `line-${deptCode}-${itemId}`,
+          departmentCode: deptCode,
+          itemId,
+          quantity: qty,
+          employeeId: empId,
+        },
+      ];
+    });
   }
 
   async function submitRequest() {
@@ -759,66 +866,407 @@ export default function HrRequestWorkbench() {
           <div className="tab-pane request-tab-pane">
             <label className="field date-field"><span>發放日期</span><input type="date" value={distributionDate} onChange={(event) => { markDraftChanged(); setDistributionDate(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} required /></label>
             <label className="field"><span>備註（選填）</span><input value={requestNote.replace(/<!--unit_map:.*?-->/g, "").trim()} onChange={(event) => { markDraftChanged(); setRequestNote(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} maxLength={2000} placeholder="例如：新人報到／換季發放" /></label>
-            <div className="request-table" role="table" aria-label="發放明細">
-              <div className="request-table-row request-table-header" role="row">
-                <span>報局單位</span>
-                <span>制服品號</span>
-                <span>發放量</span>
-                <span aria-hidden="true" />
+
+            {/* 報局單位選擇（三排按鈕展開） */}
+            <div style={{ marginTop: "16px", marginBottom: "18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <span style={{ fontSize: "14px", fontWeight: 700, color: "var(--ink, #1e293b)" }}>
+                  報局單位選擇（請點選展開填寫需求）
+                </span>
+                {Object.keys(departmentSummaryMap).length > 0 ? (
+                  <span style={{ fontSize: "12px", color: "var(--accent, #d8744a)", fontWeight: 600 }}>
+                    已選擇 {Object.keys(departmentSummaryMap).length} 個單位有需求
+                  </span>
+                ) : null}
               </div>
-              {lines.map((line) => (
-                <div className="request-table-row" role="row" key={line.lineId}>
-                  <label className="field">
-                    <span className="sr-only">報局單位</span>
-                    <select
-                      value={line.departmentCode ?? ""}
-                      onChange={(event) => updateLine(line.lineId, "departmentCode", event.target.value)}
-                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                    >
-                      <option value="">請選擇報局單位</option>
-                      {visibleDepartmentOptions.map((dept) => (
-                        <option key={dept.code} value={dept.code}>
-                          {dept.name && dept.name !== dept.code ? `${dept.code}｜${dept.name}` : dept.code}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span className="sr-only">制服品號</span>
-                    <select
-                      value={line.itemId}
-                      onChange={(event) => updateLine(line.lineId, "itemId", event.target.value)}
-                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                    >
-                      <option value="">請選擇制服品號</option>
-                      {visibleItemOptions.map((item) => (
-                        <option key={item.itemId} value={item.itemId}>
-                          {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span className="sr-only">發放量</span>
-                    <input
-                      min={1}
-                      step={1}
-                      type="number"
-                      value={line.quantity}
-                      onChange={(event) => updateLine(line.lineId, "quantity", event.target.value)}
-                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                    />
-                  </label>
-                  <button className="text-button" type="button" onClick={() => removeLine(line.lineId)} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}>
-                    移除
-                  </button>
-                </div>
-              ))}
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                {DEPARTMENT_BUTTON_ROWS.map((row, rowIdx) => (
+                  <div
+                    key={`dept-row-${rowIdx}`}
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {row.map((dept) => {
+                      const isSelected = selectedDeptCode === dept.code;
+                      const stats = departmentSummaryMap[dept.code];
+                      return (
+                        <button
+                          key={dept.code}
+                          type="button"
+                          onClick={() => {
+                            setSelectedDeptCode(dept.code);
+                            setIssuePage(1);
+                          }}
+                          disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                          style={{
+                            flex: "1 1 auto",
+                            minWidth: dept.display.length > 2 ? "68px" : "48px",
+                            padding: "8px 10px",
+                            borderRadius: "8px",
+                            border: isSelected ? "2px solid var(--accent, #d8744a)" : "1px solid #cbd5e1",
+                            background: isSelected ? "var(--accent, #d8744a)" : stats?.itemCount ? "#fff7ed" : "#fff",
+                            color: isSelected ? "#fff" : stats?.itemCount ? "var(--accent, #d8744a)" : "#334155",
+                            fontWeight: isSelected ? 700 : stats?.itemCount ? 600 : 500,
+                            fontSize: "13px",
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: "4px",
+                            transition: "all 0.15s ease",
+                            boxShadow: isSelected ? "0 2px 6px rgba(216, 116, 74, 0.3)" : "none",
+                          }}
+                        >
+                          <span>{dept.display}</span>
+                          {stats?.itemCount ? (
+                            <span
+                              style={{
+                                fontSize: "10px",
+                                lineHeight: 1,
+                                padding: "2px 5px",
+                                borderRadius: "10px",
+                                background: isSelected ? "rgba(255, 255, 255, 0.35)" : "var(--accent, #d8744a)",
+                                color: "#fff",
+                                fontWeight: 700,
+                              }}
+                            >
+                              {stats.itemCount}
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <button className="secondary-button" type="button" onClick={addLine} disabled={submitting || submissionRecovering || dataReadBlocked || (Boolean(submittedRequestId) && !editingSubmitted)}>
-              ＋新增員工明細
-            </button>
+            {/* 展開之報局單位發放需求填寫介面（像品號彙總增庫量一樣） */}
+            <div
+              style={{
+                border: "1px solid var(--line, #e2e8f0)",
+                borderRadius: "12px",
+                padding: "16px",
+                background: "#fbfcfa",
+                marginBottom: "16px",
+              }}
+            >
+              {/* 當前單位標題與狀態 */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "8px",
+                  marginBottom: "14px",
+                  paddingBottom: "10px",
+                  borderBottom: "1px solid var(--line, #e5e9ef)",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "15px", fontWeight: 700, color: "var(--ink, #1e293b)" }}>
+                    目前填寫單位：<strong style={{ color: "var(--accent, #d8744a)" }}>{selectedDept.display}（{selectedDept.code}）</strong>
+                  </span>
+                  {selectedDeptStats.itemCount > 0 ? (
+                    <span style={{ fontSize: "12px", background: "var(--accent, #d8744a)", color: "#fff", padding: "2px 8px", borderRadius: "12px", fontWeight: 600 }}>
+                      已填寫 {selectedDeptStats.itemCount} 個品號／共 {selectedDeptStats.totalPieces} 件
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: "12px", color: "var(--muted, #64748b)" }}>
+                      （此單位尚未填寫需求件數）
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* 制服品項一級分類頁籤 */}
+              <div
+                role="tablist"
+                aria-label={`${selectedDept.display} 制服品項分類`}
+                style={{
+                  display: "flex",
+                  gap: "6px",
+                  flexWrap: "wrap",
+                  marginBottom: "12px",
+                  paddingBottom: "8px",
+                  borderBottom: "1px solid var(--line, #e5e9ef)",
+                }}
+              >
+                {categoryTabs.map((cat) => {
+                  const isActive = issueCategoryFilter === cat.key;
+                  return (
+                    <button
+                      key={`issue-cat-${cat.key}`}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => {
+                        setIssueCategoryFilter(cat.key);
+                        setIssuePage(1);
+                      }}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: "8px",
+                        border: isActive ? "1px solid var(--accent, #d8744a)" : "1px solid #e2e8f0",
+                        background: isActive ? "var(--accent, #d8744a)" : "#f8fafc",
+                        color: isActive ? "#fff" : "#475569",
+                        fontWeight: isActive ? 700 : 500,
+                        fontSize: "13px",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      <span>{cat.label}</span>
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          padding: "1px 5px",
+                          borderRadius: "10px",
+                          background: isActive ? "rgba(255, 255, 255, 0.25)" : "#e2e8f0",
+                          color: isActive ? "#fff" : "#64748b",
+                        }}
+                      >
+                        {cat.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* 次級篩選按鈕（性別、季節）與搜尋列 */}
+              <div
+                className="increase-filter-toolbar"
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: "10px",
+                  marginBottom: "14px",
+                  background: "#f8fafc",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                  border: "1px solid #e2e8f0",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+                  {/* 性別篩選按鈕群 */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>性別：</span>
+                    <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1" }}>
+                      {[
+                        { key: "ALL", label: "全部" },
+                        { key: "MALE", label: "男" },
+                        { key: "FEMALE", label: "女" },
+                      ].map((g) => {
+                        const active = issueGenderFilter === g.key;
+                        return (
+                          <button
+                            key={`issue-gender-${g.key}`}
+                            type="button"
+                            onClick={() => {
+                              setIssueGenderFilter(g.key as GenderFilterKey);
+                              setIssuePage(1);
+                            }}
+                            style={{
+                              padding: "3px 9px",
+                              fontSize: "12px",
+                              border: "none",
+                              borderRight: "1px solid #cbd5e1",
+                              background: active ? "var(--accent, #d8744a)" : "#fff",
+                              color: active ? "#fff" : "#334155",
+                              fontWeight: active ? 700 : 400,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {g.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 季節篩選按鈕群 */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>季節：</span>
+                    <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1" }}>
+                      {[
+                        { key: "ALL", label: "全部" },
+                        { key: "SUMMER", label: "夏季" },
+                        { key: "WINTER", label: "冬季" },
+                      ].map((s) => {
+                        const active = issueSeasonFilter === s.key;
+                        return (
+                          <button
+                            key={`issue-season-${s.key}`}
+                            type="button"
+                            onClick={() => {
+                              setIssueSeasonFilter(s.key as SeasonFilterKey);
+                              setIssuePage(1);
+                            }}
+                            style={{
+                              padding: "3px 9px",
+                              fontSize: "12px",
+                              border: "none",
+                              borderRight: "1px solid #cbd5e1",
+                              background: active ? "var(--accent, #d8744a)" : "#fff",
+                              color: active ? "#fff" : "#334155",
+                              fontWeight: active ? 700 : 400,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 文字搜尋框 */}
+                  <input
+                    type="search"
+                    placeholder="搜尋品號、品名或尺寸…"
+                    value={issueSearch}
+                    onChange={(e) => {
+                      setIssueSearch(e.target.value);
+                      setIssuePage(1);
+                    }}
+                    style={{
+                      padding: "4px 10px",
+                      fontSize: "12px",
+                      borderRadius: "6px",
+                      border: "1px solid #cbd5e1",
+                      width: "160px",
+                    }}
+                  />
+
+                  {/* 重設篩選按鈕 */}
+                  {issueCategoryFilter !== "ALL" || issueGenderFilter !== "ALL" || issueSeasonFilter !== "ALL" || issueSearch ? (
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => {
+                        setIssueCategoryFilter("ALL");
+                        setIssueGenderFilter("ALL");
+                        setIssueSeasonFilter("ALL");
+                        setIssueSearch("");
+                        setIssuePage(1);
+                      }}
+                      style={{ fontSize: "12px", padding: 0 }}
+                    >
+                      重設篩選
+                    </button>
+                  ) : null}
+                </div>
+
+                {/* 分頁微型控制 */}
+                {totalIssuePages > 1 ? (
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={currentIssuePage <= 1 || submitting || submissionRecovering}
+                      onClick={() => setIssuePage((p) => Math.max(1, p - 1))}
+                      style={{ padding: "3px 8px", fontSize: "12px" }}
+                    >
+                      上一頁
+                    </button>
+                    <span style={{ alignSelf: "center", fontSize: "12px", fontWeight: 600 }}>
+                      {currentIssuePage} / {totalIssuePages}
+                    </span>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={currentIssuePage >= totalIssuePages || submitting || submissionRecovering}
+                      onClick={() => setIssuePage((p) => Math.min(totalIssuePages, p + 1))}
+                      style={{ padding: "3px 8px", fontSize: "12px" }}
+                    >
+                      下一頁
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              {/* 明細清單 */}
+              <div className="subheading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "15px" }}>【{selectedDept.display}】制服發放需求量</h3>
+                  <span style={{ fontSize: "12px", color: "var(--muted, #666)" }}>
+                    尺寸選填；輸入此單位之發放件數{filteredIssueItems.length > 0 ? `（每頁 10 筆，目前篩選共 ${filteredIssueItems.length} 個品號）` : ""}
+                  </span>
+                </div>
+              </div>
+
+              {filteredIssueItems.length === 0 ? (
+                <p className="empty-state" style={{ padding: "16px 0", textAlign: "center" }}>
+                  查無符合目前分類或條件的品號；請調整分類頁籤、篩選條件或點擊「重設篩選」。
+                </p>
+              ) : null}
+              {pagedIssueItems.map((item) => {
+                const currentQty = departmentItemQtyMap[`${selectedDeptCode}__${item.itemId}`] ?? 0;
+                return (
+                  <label className="increase-row" key={`issue-${selectedDeptCode}-${item.itemId}`}>
+                    <span>
+                      {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
+                      <small>
+                        人資倉 {item.hrOnHand} ／總倉 {item.generalOnHand}／有效預留 {item.activeReserved}
+                      </small>
+                    </span>
+                    <input
+                      min={0}
+                      step={1}
+                      type="number"
+                      value={currentQty}
+                      onChange={(event) => {
+                        const val = Number(event.target.value) || 0;
+                        setDepartmentItemQuantity(selectedDeptCode, item.itemId, val);
+                      }}
+                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                      aria-label={`${selectedDept.display} ${item.itemCode} 發放量`}
+                    />
+                  </label>
+                );
+              })}
+
+              {totalIssuePages > 1 ? (
+                <div className="button-row pagination-controls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
+                  <span style={{ fontSize: "13px", color: "var(--muted, #666)" }}>
+                    顯示第 {(currentIssuePage - 1) * issuePageSize + 1} 至 {Math.min(currentIssuePage * issuePageSize, filteredIssueItems.length)} 筆，共 {filteredIssueItems.length} 筆
+                  </span>
+                  <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={currentIssuePage <= 1 || submitting || submissionRecovering}
+                      onClick={() => setIssuePage((p) => Math.max(1, p - 1))}
+                      style={{ padding: "4px 10px", fontSize: "13px" }}
+                    >
+                      上一頁
+                    </button>
+                    <span style={{ fontSize: "13px", fontWeight: 600 }}>
+                      第 {currentIssuePage} / {totalIssuePages} 頁
+                    </span>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      disabled={currentIssuePage >= totalIssuePages || submitting || submissionRecovering}
+                      onClick={() => setIssuePage((p) => Math.min(totalIssuePages, p + 1))}
+                      style={{ padding: "4px 10px", fontSize: "13px" }}
+                    >
+                      下一頁
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
             <WorkflowActionBar
               primary={{
                 onClick: () => void submitRequest(),

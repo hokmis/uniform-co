@@ -42,13 +42,13 @@ describe("HR request UI flow", () => {
     expect(source).not.toContain("onClick={reloadOperationalData} disabled={loadingData || submitting}");
   });
 
-  it("requires an explicit department and item before adding an issue line", () => {
+  it("organizes department options into 3 button rows and allows setting uniform issue quantities", () => {
     expect(source).toContain('setLines((current) => sameAccountSnapshot ? preserveHrRequestDraftLines(current, null) : [])');
     expect(source).toContain('if (dataReadBlocked || visibleItemOptions.length === 0) return;');
-    expect(source).toContain('<option value="">請選擇報局單位</option>');
-    expect(source).toContain('<option value="">請選擇制服品號</option>');
+    expect(source).toContain('DEPARTMENT_BUTTON_ROWS');
+    expect(source).toContain('setDepartmentItemQuantity(selectedDeptCode, item.itemId, val)');
+    expect(source).not.toContain('＋新增員工明細');
     expect(source).not.toContain('<span>員工／機構</span>');
-    expect(source).not.toContain('itemId: itemOptions[0].itemId');
   });
 
   it("submits new and draft requests through one adapter without component-level RPC capability state", () => {
