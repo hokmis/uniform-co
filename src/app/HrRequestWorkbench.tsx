@@ -851,7 +851,7 @@ export default function HrRequestWorkbench() {
               cursor: "pointer",
             }}
           >
-            品號彙總增庫量
+            隨需求單進行增庫
             {Object.values(increases).some((qty) => qty > 0) ? (
               <span style={{ marginLeft: "6px", fontSize: "12px", background: "color-mix(in srgb, var(--accent, #d8744a) 15%, transparent)", padding: "2px 6px", borderRadius: "10px" }}>
                 {Object.values(increases).filter((qty) => qty > 0).length}
@@ -943,7 +943,7 @@ export default function HrRequestWorkbench() {
               </div>
             </div>
 
-            {/* 展開之報局單位發放需求填寫介面（像品號彙總增庫量一樣） */}
+            {/* 展開之報局單位發放需求填寫介面（像隨需求單進行增庫一樣） */}
             <div
               style={{
                 border: "1px solid var(--line, #e2e8f0)",
@@ -1521,7 +1521,7 @@ export default function HrRequestWorkbench() {
 
               <div className="subheading" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "12px" }}>
                 <div>
-                  <h3 style={{ margin: 0, fontSize: "15px" }}>品號彙總增庫量</h3>
+                  <h3 style={{ margin: 0, fontSize: "15px" }}>隨需求單進行增庫</h3>
                   <span style={{ fontSize: "12px", color: "var(--muted, #666)" }}>
                     尺寸選填；庫存按品號獨立計算{filteredIncreaseItems.length > 0 ? `（每頁 10 筆，目前篩選共 ${filteredIncreaseItems.length} 個品號）` : ""}
                   </span>
