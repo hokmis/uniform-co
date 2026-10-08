@@ -174,9 +174,9 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toContain("庫增量");
     expect(sheetContent).toContain("<is><t>F</t></is>");
 
-    // 檢查表頭 G=B+F 與 I=C+E+G+H
+    // 檢查表頭 G=B+F 與 I=C+G+H
     expect(sheetContent).toContain("<is><t>G=B+F</t></is>");
-    expect(sheetContent).toContain("<is><t>I=C+E+G+H</t></is>");
+    expect(sheetContent).toContain("<is><t>I=C+G+H</t></is>");
 
     // 檢查品項與增庫量數值 15 與 20
     expect(sheetContent).toContain("REP9999");
@@ -187,7 +187,7 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toContain("<v>35</v>"); // 15 + 20
   });
 
-  it("exports ending quantity with formula I=C+E+G+H and issue quantity G=B+F", () => {
+  it("exports ending quantity with formula I=C+G+H and issue quantity G=B+F", () => {
     const lines: RawIssueLineInput[] = [
       { itemCode: "UNT0102", itemName: "短袖上衣", size: "L", institutionCodeOrName: "8C清福", quantity: 5 },
     ];
@@ -204,13 +204,13 @@ describe("hr-request-pivot-export", () => {
     const sheetContent = new TextDecoder().decode(unzipped["xl/worksheets/sheet1.xml"]);
 
     // 驗證期末量表頭（已移至 Row 5 符號列）
-    expect(sheetContent).toContain("<is><t>I=C+E+G+H</t></is>");
+    expect(sheetContent).toContain("<is><t>I=C+G+H</t></is>");
     expect(sheetContent).toContain("<is><t>G=B+F</t></is>");
 
-    // 驗證期末量實際公式包含 C + E + G + H 欄位相加 (Row 6)
+    // 驗證期末量實際公式包含 C + G + H 欄位相加 (Row 6)
     // 22 個機構 + 5 個左側欄位 = 第 27 欄 (AA) 為最後一個機構
     // sumCol (B) = AB, balanceCol (C) = AC, damageCol (D) = AD, estimateCol (E) = AE, remark = AF, replenishmentCol (F) = AG, issueCol (G) = AH, returnCol (H) = AI, finalCol (I) = AJ
-    expect(sheetContent).toContain("<f>AC6+AE6+AH6+AI6</f>");
+    expect(sheetContent).toContain("<f>AC6+AH6+AI6</f>");
     // 驗證期末量計算值 (100 - 5) + (5 + 20) = 120
     expect(sheetContent).toContain("<v>120</v>");
     // 驗證本次發放量公式 G=B+F (AB6+AG6)
@@ -323,7 +323,7 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toMatch(/<c r="E5" t="inlineStr" s="\d+"><is><t>A<\/t><\/is><\/c>/);
     expect(sheetContent).toMatch(/<c r="AB5" t="inlineStr" s="\d+"><is><t>B<\/t><\/is><\/c>/);
     expect(sheetContent).toMatch(/<c r="AC5" t="inlineStr" s="\d+"><is><t>C=A-B<\/t><\/is><\/c>/);
-    expect(sheetContent).toMatch(/<c r="AJ5" t="inlineStr" s="\d+"><is><t>I=C\+E\+G\+H<\/t><\/is><\/c>/);
+    expect(sheetContent).toMatch(/<c r="AJ5" t="inlineStr" s="\d+"><is><t>I=C\+G\+H<\/t><\/is><\/c>/);
 
     // 5. 資料列從 Row 6 開始
     expect(sheetContent).toMatch(/<c r="E6" s="\d+"><v>50<\/v><\/c>/);

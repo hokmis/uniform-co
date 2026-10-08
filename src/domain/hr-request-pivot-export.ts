@@ -911,7 +911,7 @@ export function generatePivotXlsx(
     <c r="${replenishmentColName}5" t="inlineStr" s="${replenishment5Style}"><is><t>F</t></is></c>
     <c r="${issueColName}5" t="inlineStr" s="${issue5Style}"><is><t>G=B+F</t></is></c>
     <c r="${returnColName}5" t="inlineStr" s="${return5Style}"><is><t>H</t></is></c>
-    <c r="${finalColName}5" t="inlineStr" s="${final5Style}"><is><t>I=C+E+G+H</t></is></c>
+    <c r="${finalColName}5" t="inlineStr" s="${final5Style}"><is><t>I=C+G+H</t></is></c>
   `;
 
   xmlRows.push(`  <row r="5" ht="20" customHeight="1">
@@ -976,7 +976,7 @@ export function generatePivotXlsx(
     const balanceFormula = `E${r}-${sumColName}${r}`;
     const estimateFormula = `${damageColName}${r}-${balanceColName}${r}`;
     const issueFormula = `${sumColName}${r}+${replenishmentColName}${r}`;
-    const finalFormula = `${balanceColName}${r}+${estimateColName}${r}+${issueColName}${r}+${returnColName}${r}`;
+    const finalFormula = `${balanceColName}${r}+${issueColName}${r}+${returnColName}${r}`;
 
     const totalIssuedVal = row.totalIssued;
     const onHandVal = row.onHand;
