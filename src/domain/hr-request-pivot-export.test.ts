@@ -216,6 +216,8 @@ describe("hr-request-pivot-export", () => {
     // 驗證本次發放量公式 G=B+F (AB6+AG6)
     expect(sheetContent).toContain("<f>AB6+AG6</f>");
     expect(sheetContent).toContain("<v>25</v>");
+    // 驗證抽盤差異公式 E=D-C (AD6-AC6)
+    expect(sheetContent).toContain("<f>AD6-AC6</f>");
   });
 
   it("exports all catalog items even when stock and issued quantities are zero", () => {
@@ -309,7 +311,7 @@ describe("hr-request-pivot-export", () => {
     expect(sheetContent).toMatch(/<c r="E2" t="inlineStr" s="\d+"><is><t>期&#10;初&#10;量<\/t><\/is><\/c>/);
     expect(sheetContent).toContain("<t>請領&#10;合計</t>");
     expect(sheetContent).toContain("<t>月結量&#10;(抽盤)</t>");
-    expect(sheetContent).toContain("<t>事務組&#10;偶數月&#10;抽盤</t>");
+    expect(sheetContent).toContain("<t>事務組&#10;偶數月&#10;抽盤量</t>");
     expect(sheetContent).toContain("<t>抽盤&#10;差異</t>");
     expect(sheetContent).toContain("<t>備註&#10;差異說明</t>");
     expect(sheetContent).toContain("<t>庫增量</t>");

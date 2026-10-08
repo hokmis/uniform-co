@@ -776,7 +776,7 @@ export function generatePivotXlsx(
   const rightGroupHeader = `
     <c r="${sumColName}2" t="inlineStr" s="${sumHdrStyle}"><is><t>請領&#10;合計</t></is></c>
     <c r="${balanceColName}2" t="inlineStr" s="${balanceHdrStyle}"><is><t>月結量&#10;(抽盤)</t></is></c>
-    <c r="${damageColName}2" t="inlineStr" s="${damageHdrStyle}"><is><t>事務組&#10;偶數月&#10;抽盤</t></is></c>
+    <c r="${damageColName}2" t="inlineStr" s="${damageHdrStyle}"><is><t>事務組&#10;偶數月&#10;抽盤量</t></is></c>
     <c r="${estimateColName}2" t="inlineStr" s="${estimateHdrStyle}"><is><t>抽盤&#10;差異</t></is></c>
     <c r="${remarkColName}2" t="inlineStr" s="${remarkHdrStyle}"><is><t>備註&#10;差異說明</t></is></c>
     <c r="${replenishmentColName}2" t="inlineStr" s="${replenishmentHdrStyle}"><is><t>庫增量</t></is></c>
@@ -974,6 +974,7 @@ export function generatePivotXlsx(
     // 公式
     const sumFormula = `SUM(${firstInstColName}${r}:${lastInstColName}${r})`;
     const balanceFormula = `E${r}-${sumColName}${r}`;
+    const estimateFormula = `${damageColName}${r}-${balanceColName}${r}`;
     const issueFormula = `${sumColName}${r}+${replenishmentColName}${r}`;
     const finalFormula = `${balanceColName}${r}+${estimateColName}${r}+${issueColName}${r}+${returnColName}${r}`;
 
@@ -994,7 +995,7 @@ export function generatePivotXlsx(
     <c r="${sumColName}${r}" s="${sumStyle}"><f>${sumFormula}</f><v>${totalIssuedVal}</v></c>
     <c r="${balanceColName}${r}" s="${balanceStyle}"><f>${balanceFormula}</f><v>${balanceVal}</v></c>
     <c r="${damageColName}${r}" s="${damageStyle}"/>
-    <c r="${estimateColName}${r}" s="${estimateStyle}"/>
+    <c r="${estimateColName}${r}" s="${estimateStyle}"><f>${estimateFormula}</f></c>
     <c r="${remarkColName}${r}" s="${remarkStyle}"/>
     <c r="${replenishmentColName}${r}" s="${replenishmentStyle}">${increaseVal > 0 ? `<v>${increaseVal}</v>` : ""}</c>
     <c r="${issueColName}${r}" s="${issueStyle}"><f>${issueFormula}</f><v>${issueVal}</v></c>
