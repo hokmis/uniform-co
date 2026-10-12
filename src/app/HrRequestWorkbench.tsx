@@ -32,6 +32,11 @@ import {
   HR_REQUEST_ALLOWED_DEPARTMENTS,
   resolveInstitutionInfo,
 } from "@/src/domain/hr-request-pivot-export";
+import {
+  STANDARD_UNIFORM_SIZES,
+  extractUniformSize,
+  compareUniformItems,
+} from "@/src/domain/uniform-size";
 import { useWorkspaceSession } from "./workspace-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import ReturnedHrRequestPicker from "./ReturnedHrRequestPicker";
@@ -200,12 +205,14 @@ export default function HrRequestWorkbench() {
   const [categoryFilter, setCategoryFilter] = useState<UniformCategoryKey>("ALL");
   const [genderFilter, setGenderFilter] = useState<GenderFilterKey>("ALL");
   const [seasonFilter, setSeasonFilter] = useState<SeasonFilterKey>("ALL");
+  const [sizeFilter, setSizeFilter] = useState<string>("ALL");
   const [selectedDeptCode, setSelectedDeptCode] = useState<string>("C8");
   const [issuePage, setIssuePage] = useState(1);
   const [issueSearch, setIssueSearch] = useState("");
   const [issueCategoryFilter, setIssueCategoryFilter] = useState<UniformCategoryKey>("ALL");
   const [issueGenderFilter, setIssueGenderFilter] = useState<GenderFilterKey>("ALL");
   const [issueSeasonFilter, setIssueSeasonFilter] = useState<SeasonFilterKey>("ALL");
+  const [issueSizeFilter, setIssueSizeFilter] = useState<string>("ALL");
   const [dataMessage, setDataMessage] = useState("");
   const [submitMessage, setSubmitMessage] = useState("");
   const [loadingData, setLoadingData] = useState(() => Boolean(client));
@@ -284,7 +291,7 @@ export default function HrRequestWorkbench() {
 
   const filteredIncreaseItems = useMemo(() => {
     const q = increaseSearch.trim().toLowerCase();
-    return visibleItemOptions.filter((item) => {
+    const items = visibleItemOptions.filter((item) => {
       // 1. 分類頁籤
       if (categoryFilter !== "ALL") {
         const cat = getUniformCategory(item.itemName, item.itemCode);
@@ -301,7 +308,12 @@ export default function HrRequestWorkbench() {
         if (seasonFilter === "SUMMER" && s !== "SUMMER" && s !== "ALL_SEASON") return false;
         if (seasonFilter === "WINTER" && s !== "WINTER" && s !== "ALL_SEASON") return false;
       }
-      // 4. 文字搜尋
+      // 4. 尺寸篩選
+      if (sizeFilter !== "ALL") {
+        const sz = extractUniformSize(item.size, item.itemName);
+        if (sz !== sizeFilter) return false;
+      }
+      // 5. 文字搜尋
       if (q) {
         const matchCode = item.itemCode.toLowerCase().includes(q);
         const matchName = item.itemName.toLowerCase().includes(q);
@@ -310,7 +322,8 @@ export default function HrRequestWorkbench() {
       }
       return true;
     });
-  }, [categoryFilter, genderFilter, increaseSearch, seasonFilter, visibleItemOptions]);
+    return items.sort(compareUniformItems);
+  }, [categoryFilter, genderFilter, increaseSearch, seasonFilter, sizeFilter, visibleItemOptions]);
 
   const increasePageSize = 10;
   const totalIncreasePages = Math.max(1, Math.ceil(filteredIncreaseItems.length / increasePageSize));
@@ -322,7 +335,7 @@ export default function HrRequestWorkbench() {
 
   const filteredIssueItems = useMemo(() => {
     const q = issueSearch.trim().toLowerCase();
-    return visibleItemOptions.filter((item) => {
+    const items = visibleItemOptions.filter((item) => {
       // 1. 分類頁籤
       if (issueCategoryFilter !== "ALL") {
         const cat = getUniformCategory(item.itemName, item.itemCode);
@@ -339,7 +352,12 @@ export default function HrRequestWorkbench() {
         if (issueSeasonFilter === "SUMMER" && s !== "SUMMER" && s !== "ALL_SEASON") return false;
         if (issueSeasonFilter === "WINTER" && s !== "WINTER" && s !== "ALL_SEASON") return false;
       }
-      // 4. 文字搜尋
+      // 4. 尺寸篩選
+      if (issueSizeFilter !== "ALL") {
+        const sz = extractUniformSize(item.size, item.itemName);
+        if (sz !== issueSizeFilter) return false;
+      }
+      // 5. 文字搜尋
       if (q) {
         const matchCode = item.itemCode.toLowerCase().includes(q);
         const matchName = item.itemName.toLowerCase().includes(q);
@@ -348,7 +366,8 @@ export default function HrRequestWorkbench() {
       }
       return true;
     });
-  }, [issueCategoryFilter, issueGenderFilter, issueSearch, issueSeasonFilter, visibleItemOptions]);
+    return items.sort(compareUniformItems);
+  }, [issueCategoryFilter, issueGenderFilter, issueSearch, issueSeasonFilter, issueSizeFilter, visibleItemOptions]);
 
   const issuePageSize = 10;
   const totalIssuePages = Math.max(1, Math.ceil(filteredIssueItems.length / issuePageSize));
@@ -412,11 +431,13 @@ export default function HrRequestWorkbench() {
     setCategoryFilter("ALL");
     setGenderFilter("ALL");
     setSeasonFilter("ALL");
+    setSizeFilter("ALL");
     setIssuePage(1);
     setIssueSearch("");
     setIssueCategoryFilter("ALL");
     setIssueGenderFilter("ALL");
     setIssueSeasonFilter("ALL");
+    setIssueSizeFilter("ALL");
     setSelectedDeptCode("C8");
   }
 
@@ -1167,6 +1188,41 @@ export default function HrRequestWorkbench() {
                     </div>
                   </div>
 
+                  {/* 尺寸篩選按鈕群 */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>尺寸：</span>
+                    <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1" }}>
+                      {[
+                        { key: "ALL", label: "全部" },
+                        ...STANDARD_UNIFORM_SIZES.map((sz) => ({ key: sz, label: sz })),
+                      ].map((s) => {
+                        const active = issueSizeFilter === s.key;
+                        return (
+                          <button
+                            key={`issue-size-${s.key}`}
+                            type="button"
+                            onClick={() => {
+                              setIssueSizeFilter(s.key);
+                              setIssuePage(1);
+                            }}
+                            style={{
+                              padding: "3px 7px",
+                              fontSize: "12px",
+                              border: "none",
+                              borderRight: "1px solid #cbd5e1",
+                              background: active ? "var(--accent, #d8744a)" : "#fff",
+                              color: active ? "#fff" : "#334155",
+                              fontWeight: active ? 700 : 400,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* 文字搜尋框 */}
                   <input
                     type="search"
@@ -1468,8 +1524,43 @@ export default function HrRequestWorkbench() {
                     </div>
                   </div>
 
+                  {/* 尺寸篩選按鈕群 */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>尺寸：</span>
+                    <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1" }}>
+                      {[
+                        { key: "ALL", label: "全部" },
+                        ...STANDARD_UNIFORM_SIZES.map((sz) => ({ key: sz, label: sz })),
+                      ].map((s) => {
+                        const active = sizeFilter === s.key;
+                        return (
+                          <button
+                            key={`increase-size-${s.key}`}
+                            type="button"
+                            onClick={() => {
+                              setSizeFilter(s.key);
+                              setIncreasePage(1);
+                            }}
+                            style={{
+                              padding: "3px 7px",
+                              fontSize: "12px",
+                              border: "none",
+                              borderRight: "1px solid #cbd5e1",
+                              background: active ? "var(--accent, #d8744a)" : "#fff",
+                              color: active ? "#fff" : "#334155",
+                              fontWeight: active ? 700 : 400,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   {/* 重設篩選 */}
-                  {categoryFilter !== "ALL" || genderFilter !== "ALL" || seasonFilter !== "ALL" || increaseSearch ? (
+                  {categoryFilter !== "ALL" || genderFilter !== "ALL" || seasonFilter !== "ALL" || sizeFilter !== "ALL" || increaseSearch ? (
                     <button
                       type="button"
                       className="text-button"
@@ -1477,6 +1568,7 @@ export default function HrRequestWorkbench() {
                         setCategoryFilter("ALL");
                         setGenderFilter("ALL");
                         setSeasonFilter("ALL");
+                        setSizeFilter("ALL");
                         setIncreaseSearch("");
                         setIncreasePage(1);
                       }}

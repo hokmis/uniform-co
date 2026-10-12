@@ -17,6 +17,11 @@ import {
   type InventoryAvailabilityStatus,
   type InventoryAvailabilityStatusFilter,
 } from "@/src/domain/inventory-availability";
+import {
+  STANDARD_UNIFORM_SIZES,
+  extractUniformSize,
+  compareUniformItems,
+} from "@/src/domain/uniform-size";
 import ManagementCatalogTable from "./ManagementCatalogTable";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
@@ -86,6 +91,7 @@ export default function InventoryAvailabilityPanel() {
   const [uniformCategory, setUniformCategory] = useState<UniformCategoryKey>("ALL");
   const [genderFilter, setGenderFilter] = useState<GenderFilterKey>("ALL");
   const [seasonFilter, setSeasonFilter] = useState<SeasonFilterKey>("ALL");
+  const [sizeFilter, setSizeFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState<InventoryAvailabilityStatusFilter>("ALL");
   const [sortKey, setSortKey] = useState<InventoryAvailabilitySortKey>("item_code");
   const [sortDirection, setSortDirection] = useState<InventoryAvailabilitySortDirection>("asc");
@@ -201,8 +207,18 @@ export default function InventoryAvailabilityPanel() {
       });
     }
 
+    if (sizeFilter !== "ALL") {
+      rows = rows.filter((row) => extractUniformSize(row.size, row.itemName) === sizeFilter);
+    }
+
+    // 預設依品號排序時，依制服款式與尺寸規則排序（XS -> S -> M -> L -> XL -> 2L -> 3L -> 4L -> 5L -> 6L）
+    if (sortKey === "item_code") {
+      const factor = sortDirection === "asc" ? 1 : -1;
+      return [...rows].sort((a, b) => compareUniformItems(a, b) * factor);
+    }
+
     return sortInventoryAvailability(rows, sortKey, sortDirection);
-  }, [category, genderFilter, query, seasonFilter, sortDirection, sortKey, statusFilter, uniformCategory, visibleRows]);
+  }, [category, genderFilter, query, seasonFilter, sizeFilter, sortDirection, sortKey, statusFilter, uniformCategory, visibleRows]);
 
   const availableCount = visibleRows.filter((row) => inventoryAvailabilityStatus(row) === "AVAILABLE").length;
   const attentionCount = visibleRows.filter((row) => ["OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row))).length;
@@ -222,7 +238,8 @@ export default function InventoryAvailabilityPanel() {
     statusFilter !== "ALL" ||
     uniformCategory !== "ALL" ||
     genderFilter !== "ALL" ||
-    seasonFilter !== "ALL"
+    seasonFilter !== "ALL" ||
+    sizeFilter !== "ALL"
   );
 
   function resetFilters() {
@@ -232,6 +249,7 @@ export default function InventoryAvailabilityPanel() {
     setUniformCategory("ALL");
     setGenderFilter("ALL");
     setSeasonFilter("ALL");
+    setSizeFilter("ALL");
     setPage(1);
   }
 
@@ -377,6 +395,44 @@ export default function InventoryAvailabilityPanel() {
                   }}
                   style={{
                     padding: "0 10px",
+                    fontSize: "13px",
+                    border: "none",
+                    borderRight: "1px solid #cbd5e1",
+                    background: active ? "var(--accent, #d8744a)" : "#fff",
+                    color: active ? "#fff" : "#334155",
+                    fontWeight: active ? 700 : 400,
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {s.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 尺寸篩選按鈕群 */}
+        <div className="field" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--muted, #64748b)" }}>尺寸</span>
+          <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1", height: "36px" }}>
+            {[
+              { key: "ALL", label: "全部" },
+              ...STANDARD_UNIFORM_SIZES.map((sz) => ({ key: sz, label: sz })),
+            ].map((s) => {
+              const active = sizeFilter === s.key;
+              return (
+                <button
+                  key={`inv-size-${s.key}`}
+                  type="button"
+                  onClick={() => {
+                    setSizeFilter(s.key);
+                    setPage(1);
+                  }}
+                  style={{
+                    padding: "0 8px",
                     fontSize: "13px",
                     border: "none",
                     borderRight: "1px solid #cbd5e1",
