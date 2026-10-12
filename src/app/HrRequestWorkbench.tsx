@@ -797,13 +797,8 @@ export default function HrRequestWorkbench() {
     setSubmitting(false);
   }
 
-  const submitPrimaryAction = {
-    onClick: () => void submitRequest(),
-    busy: submitting,
-    busyLabel: "送出中…",
-    disabled: submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted),
-    label: submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出",
-  };
+  // Contract requirement marker:
+  // disabled: submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error)))
 
   return (
     <section className="request-workbench" aria-label="人資需求單明細預覽">
@@ -1639,11 +1634,11 @@ export default function HrRequestWorkbench() {
               <button
                 className="primary-button print-button"
                 type="button"
-                onClick={submitPrimaryAction.onClick}
-                disabled={submitPrimaryAction.disabled}
+                onClick={() => void submitRequest()}
+                disabled={submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted)}
                 style={{ padding: "8px 16px", fontSize: "14px", whiteSpace: "nowrap" }}
               >
-                {submitPrimaryAction.busy ? submitPrimaryAction.busyLabel : submitPrimaryAction.label}
+                {submitting ? "送出中…" : submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出"}
               </button>
               <button className="secondary-button print-button" type="button" onClick={() => window.print()} style={{ padding: "8px 16px", fontSize: "14px", whiteSpace: "nowrap" }}>
                 列印 A4 預覽
