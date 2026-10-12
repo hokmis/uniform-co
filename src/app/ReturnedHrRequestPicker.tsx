@@ -56,9 +56,20 @@ export default function ReturnedHrRequestPicker({ disabled,onLoad,onLoadingChang
     } catch { if(token===sequence.current) setMessage("讀取失敗，未覆蓋目前表單。"); }
     finally { if(token===sequence.current) onLoadingChange(false); }
   }
-  return <div className="panel">
-    <label className="field"><span>退回待修改需求（保留原單號）</span><select value={rows.some(row=>row.id===selected)?selected:""} disabled={disabled || !ready} onChange={event=>{sequence.current++;onLoadingChange(false);setSelected(event.target.value);}}><option value="">請選擇退回需求</option>{rows.map(row=><option key={row.id} value={row.id}>{row.request_no}｜{row.return_reason}</option>)}</select></label>
-    <div className="button-row"><button type="button" className="secondary-button" disabled={disabled || !selected || !ready} onClick={()=>void loadSelected()}>載入退回需求修改</button><button type="button" className="secondary-button" disabled={disabled || !ready} onClick={()=>setReload(value=>value+1)}>重新整理退回需求</button></div>
-    <p role="status" aria-live="polite">{message}</p>
-  </div>;
+  return (
+    <div className="returned-request-section" style={{ marginTop: "24px", paddingTop: "16px", borderTop: "1px dashed var(--line, #e5e9ef)" }}>
+      <label className="field">
+        <span style={{ fontWeight: 600 }}>退回待修改需求（保留原單號）</span>
+        <select value={rows.some(row=>row.id===selected)?selected:""} disabled={disabled || !ready} onChange={event=>{sequence.current++;onLoadingChange(false);setSelected(event.target.value);}}>
+          <option value="">{rows.length > 0 ? "請選擇退回需求" : "目前無退回待修改的需求單"}</option>
+          {rows.map(row=><option key={row.id} value={row.id}>{row.request_no}｜{row.return_reason}</option>)}
+        </select>
+      </label>
+      <div className="button-row" style={{ marginTop: "8px" }}>
+        <button type="button" className="secondary-button" disabled={disabled || !selected || !ready} onClick={()=>void loadSelected()}>載入退回需求修改</button>
+        <button type="button" className="secondary-button" disabled={disabled || !ready} onClick={()=>setReload(value=>value+1)}>重新整理退回需求</button>
+      </div>
+      {message ? <p role="status" aria-live="polite" className="auth-message" style={{ marginTop: "8px" }}>{message}</p> : null}
+    </div>
+  );
 }

@@ -800,20 +800,6 @@ export default function HrRequestWorkbench() {
 
   return (
     <section className="request-workbench" aria-label="人資需求單明細預覽">
-      <ReturnedHrRequestPicker
-        disabled={submitting || returnedDraftLoading || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-        onLoadingChange={setReturnedDraftLoading}
-        onLoad={(draft) => {
-          resetEntryForm();
-          operationRef.current = { ...createHrRequestOperation(() => crypto.randomUUID()), draftId: draft.id };
-          setRequestEntryState({ kind: "draft", requestId: draft.id });
-          setDistributionDate(draft.distribution_date);
-          setRequestNote(draft.note ?? "");
-          setLines(draft.issueLines.map((line) => ({ lineId: crypto.randomUUID(), employeeId: line.employee_id, itemId: line.item_id, quantity: Number(line.quantity) })));
-          setIncreases(Object.fromEntries(draft.increases.map((item) => [item.item_id, Number(item.increase_quantity)])));
-          setSubmitMessage(`正在修改 ${draft.request_no}，退回原因：${draft.return_reason ?? "請查看退回紀錄"}。`);
-        }}
-      />
       <div className="panel">
         <div className="panel-heading">
           <div>
@@ -1629,6 +1615,21 @@ export default function HrRequestWorkbench() {
             {submissionRecovering ? <p className="auth-message" role="status">伺服器結果尚未確認；為避免重複建立，欄位暫時鎖定。請按「以相同資料查回／重試送出」。</p> : null}
           </div>
         )}
+
+        <ReturnedHrRequestPicker
+          disabled={submitting || returnedDraftLoading || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+          onLoadingChange={setReturnedDraftLoading}
+          onLoad={(draft) => {
+            resetEntryForm();
+            operationRef.current = { ...createHrRequestOperation(() => crypto.randomUUID()), draftId: draft.id };
+            setRequestEntryState({ kind: "draft", requestId: draft.id });
+            setDistributionDate(draft.distribution_date);
+            setRequestNote(draft.note ?? "");
+            setLines(draft.issueLines.map((line) => ({ lineId: crypto.randomUUID(), employeeId: line.employee_id, itemId: line.item_id, quantity: Number(line.quantity) })));
+            setIncreases(Object.fromEntries(draft.increases.map((item) => [item.item_id, Number(item.increase_quantity)])));
+            setSubmitMessage(`正在修改 ${draft.request_no}，退回原因：${draft.return_reason ?? "請查看退回紀錄"}。`);
+          }}
+        />
       </div>
 
       <div className="panel result-panel">
