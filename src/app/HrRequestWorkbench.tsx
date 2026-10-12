@@ -34,7 +34,6 @@ import {
 } from "@/src/domain/hr-request-pivot-export";
 import { useWorkspaceSession } from "./workspace-session";
 import { usePanelActivity } from "./RetainedPanelSet";
-import WorkflowActionBar from "./WorkflowActionBar";
 import ReturnedHrRequestPicker from "./ReturnedHrRequestPicker";
 
 type LineState = HrRequestLineSelection & {
@@ -798,6 +797,14 @@ export default function HrRequestWorkbench() {
     setSubmitting(false);
   }
 
+  const submitPrimaryAction = {
+    onClick: () => void submitRequest(),
+    busy: submitting,
+    busyLabel: "送出中…",
+    disabled: submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted),
+    label: submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出",
+  };
+
   return (
     <section className="request-workbench" aria-label="人資需求單明細預覽">
       <div className="panel">
@@ -1268,23 +1275,16 @@ export default function HrRequestWorkbench() {
                 </div>
               ) : null}
             </div>
-            <WorkflowActionBar
-              primary={{
-                onClick: () => void submitRequest(),
-                busy: submitting,
-                busyLabel: "送出中…",
-                disabled: submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted),
-                label: submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出",
-              }}
-              secondary={submittedRequestId && !editingSubmitted || hasDraftOperation ? <>
+            {submittedRequestId && !editingSubmitted || hasDraftOperation ? (
+              <div className="button-row" style={{ marginTop: "16px" }}>
                 {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
                 {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
                 {hasDraftOperation ? <div className="workflow-secondary-form">
                   <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
                   <button className="secondary-button" type="button" onClick={() => void cancelRequest()} disabled={submitting || submissionRecovering}>取消本張需求</button>
                 </div> : null}
-              </> : null}
-            />
+              </div>
+            ) : null}
             {dataMessage ? <p className="auth-message" role="status">{dataMessage}</p> : null}
             {submitMessage ? <p className={submitMessage.includes("已送出") || submitMessage.includes("已取消") ? "success-note" : "error-box"} role="status">{submitMessage}</p> : null}
             {submissionRecovering ? <p className="auth-message" role="status">伺服器結果尚未確認；為避免重複建立，欄位暫時鎖定。請按「以相同資料查回／重試送出」。</p> : null}
@@ -1593,23 +1593,16 @@ export default function HrRequestWorkbench() {
               ) : null}
             </div>
 
-            <WorkflowActionBar
-              primary={{
-                onClick: () => void submitRequest(),
-                busy: submitting,
-                busyLabel: "送出中…",
-                disabled: submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted),
-                label: submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出",
-              }}
-              secondary={submittedRequestId && !editingSubmitted || hasDraftOperation ? <>
+            {submittedRequestId && !editingSubmitted || hasDraftOperation ? (
+              <div className="button-row" style={{ marginTop: "16px" }}>
                 {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
                 {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
                 {hasDraftOperation ? <div className="workflow-secondary-form">
                   <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
                   <button className="secondary-button" type="button" onClick={() => void cancelRequest()} disabled={submitting || submissionRecovering}>取消本張需求</button>
                 </div> : null}
-              </> : null}
-            />
+              </div>
+            ) : null}
             {dataMessage ? <p className="auth-message" role="status">{dataMessage}</p> : null}
             {submitMessage ? <p className={submitMessage.includes("已送出") || submitMessage.includes("已取消") ? "success-note" : "error-box"} role="status">{submitMessage}</p> : null}
             {submissionRecovering ? <p className="auth-message" role="status">伺服器結果尚未確認；為避免重複建立，欄位暫時鎖定。請按「以相同資料查回／重試送出」。</p> : null}
@@ -1638,15 +1631,31 @@ export default function HrRequestWorkbench() {
             <p className="eyebrow">04 / ITEM SUMMARY</p>
             <h2>送出前品號檢查</h2>
           </div>
-          <div className="heading-actions">
+          <div className="heading-actions" style={{ alignItems: "flex-end", gap: "8px" }}>
             <span className={`status-pill ${dataReadBlocked || result.error ? "danger" : "success"}`}>
               {dataReadBlocked ? "等待主檔資料" : result.error ? "不可送出" : "可送出預覽"}
             </span>
-            <button className="secondary-button print-button" type="button" onClick={() => window.print()}>
-              列印 A4 預覽
-            </button>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <button
+                className="primary-button print-button"
+                type="button"
+                onClick={submitPrimaryAction.onClick}
+                disabled={submitPrimaryAction.disabled}
+                style={{ padding: "8px 16px", fontSize: "14px", whiteSpace: "nowrap" }}
+              >
+                {submitPrimaryAction.busy ? submitPrimaryAction.busyLabel : submitPrimaryAction.label}
+              </button>
+              <button className="secondary-button print-button" type="button" onClick={() => window.print()} style={{ padding: "8px 16px", fontSize: "14px", whiteSpace: "nowrap" }}>
+                列印 A4 預覽
+              </button>
+            </div>
           </div>
         </div>
+        {submitMessage ? (
+          <p className={submitMessage.includes("已送出") || submitMessage.includes("已取消") ? "success-note" : "auth-message"} role="status" style={{ marginBottom: "14px" }}>
+            {submitMessage}
+          </p>
+        ) : null}
         {dataReadBlocked ? (
           <p className="empty-state">主檔資料載入後，這裡會顯示需求量、可用庫存與品號彙總。</p>
         ) : result.error ? (
