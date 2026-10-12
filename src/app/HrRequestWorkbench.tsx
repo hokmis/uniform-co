@@ -27,7 +27,7 @@ import {
 import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import { shouldPreserveReadSnapshot, staleReadSnapshotMessage } from "@/src/domain/read-refresh";
 import { invalidateMasterDataCache, loadHrRequestMasterData, loadOrganizationMasterData, safeHrRequestMasterDataErrorMessage } from "@/src/lib/master-data-cache";
-import { isSupabaseSessionSyncError, retrySupabaseQueriesAfterSessionRefresh, safeSupabaseMutationErrorMessage } from "@/src/lib/supabase-session";
+import { isSupabaseSessionSyncError, retrySupabaseQueriesAfterSessionRefresh, retrySupabaseRpcAfterSessionRefresh, safeSupabaseMutationErrorMessage } from "@/src/lib/supabase-session";
 import {
   HR_REQUEST_ALLOWED_DEPARTMENTS,
   resolveInstitutionInfo,
@@ -657,16 +657,19 @@ export default function HrRequestWorkbench() {
     const operation = operationRef.current ?? createHrRequestOperation(() => crypto.randomUUID());
     operationRef.current = operation;
     const submissionRoute = resolveHrRequestSubmissionRoute(operation.draftId, requestEntryState);
-    const issuePayload = visibleLines.map((line) => {
-      const resolvedEmpId = line.employeeId
-        || (line.departmentCode ? findEmployeeForDepartment(visibleEmployeeOptions, line.departmentCode)?.employeeId : undefined)
-        || visibleEmployeeOptions[0]?.employeeId
-        || "";
-      return { employeeId: resolvedEmpId, itemId: line.itemId, quantity: line.quantity };
-    });
+    const issuePayload = visibleLines
+      .filter((line) => line.quantity > 0 && Boolean(line.itemId))
+      .map((line) => {
+        const resolvedEmpId = line.employeeId
+          || (line.departmentCode ? findEmployeeForDepartment(visibleEmployeeOptions, line.departmentCode)?.employeeId : undefined)
+          || visibleEmployeeOptions[0]?.employeeId
+          || "";
+        return { employeeId: resolvedEmpId, itemId: line.itemId, quantity: line.quantity };
+      })
+      .filter((line) => Boolean(line.employeeId));
     const increasePayload = visibleItemOptions
       .map((item) => ({ itemId: item.itemId, quantity: increases[item.itemId] ?? 0 }))
-      .filter((line) => line.quantity > 0);
+      .filter((line) => line.quantity > 0 && Boolean(line.itemId));
     const unitMap: Record<number, string> = {};
     visibleLines.forEach((line, index) => {
       if (line.departmentCode) {
@@ -693,7 +696,12 @@ export default function HrRequestWorkbench() {
       return;
     }
     if (submissionRoute.kind === "submitted") {
-      const updateResult = await client.rpc("update_hr_request", {
+      if (issuePayload.length === 0 && increasePayload.length === 0) {
+        setSubmitMessage("需求單至少需要填寫一筆員工領用或增庫數量。");
+        setSubmitting(false);
+        return;
+      }
+      const updateResult = await retrySupabaseRpcAfterSessionRefresh(client, async () => await client.rpc("update_hr_request", {
         p_request_id: submissionRoute.requestId,
         p_distribution_date: distributionDate,
         p_note: normalizedNote,
@@ -701,7 +709,7 @@ export default function HrRequestWorkbench() {
         p_increase_lines: increasePayload,
         p_idempotency_key: `UPDATE-${operation.updateKey}`,
         p_request_fingerprint: JSON.stringify({ requestId: submissionRoute.requestId, issuePayload, increasePayload, distributionDate, requestNote: normalizedNote }),
-      });
+      }));
       const updated = updateResult.data;
       if (!updateResult.error && updated?.id) {
         if (Object.keys(unitMap).length > 0 && typeof window !== "undefined") {
@@ -714,7 +722,24 @@ export default function HrRequestWorkbench() {
         setSubmitMessage(`已更新 ${updated.request_no ?? "本張需求"}，庫存預留已重新驗證。`);
         window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
       } else {
-        setSubmitMessage(safeSupabaseMutationErrorMessage(updateResult.error, "更新失敗或結果未知；請使用相同資料重試。"));
+        const rawError = updateResult.error?.message;
+        let friendlyMessage = "更新失敗或結果未知；請使用相同資料重試。";
+        if (rawError) {
+          if (rawError.includes("exceeds available stock")) {
+            friendlyMessage = "需求量或增庫量已超過目前可用庫存，請減少數量後再重試。";
+          } else if (rawError.includes("Invalid HR issue line")) {
+            friendlyMessage = "需求明細格式有誤或數量不可為零，請確認後重試。";
+          } else if (rawError.includes("Only pre-shipment HR requests can be updated")) {
+            friendlyMessage = "此需求單狀態已變更（非待發貨狀態），不可再修改。";
+          } else if (rawError.includes("idempotency key conflicts")) {
+            friendlyMessage = "操作衝突或資料已被更新，請重新載入後再試。";
+          } else if (rawError.includes("Only the request owner")) {
+            friendlyMessage = "僅建立此需求單的使用者可修改內容。";
+          } else {
+            friendlyMessage = `更新失敗：${rawError}`;
+          }
+        }
+        setSubmitMessage(safeSupabaseMutationErrorMessage(updateResult.error, friendlyMessage));
       }
       setSubmitting(false);
       return;
@@ -736,7 +761,7 @@ export default function HrRequestWorkbench() {
     };
     const submissionInput = submissionRecovery?.input ?? nextSubmissionInput;
     const submission = await submitHrRequestOperation(
-      (functionName, args) => client.rpc(functionName, args),
+      (functionName, args) => retrySupabaseRpcAfterSessionRefresh(client, async () => await client.rpc(functionName, args)),
       submissionInput,
       client,
     );
