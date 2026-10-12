@@ -865,6 +865,16 @@ export default function HrRequestWorkbench() {
           </div>
           <div className="heading-actions">
             {!client ? <span className="status-pill">測試資料預覽</span> : null}
+            {submittedRequestId && !editingSubmitted ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={startNextRequest}
+                disabled={submitting}
+              >
+                建立下一筆需求
+              </button>
+            ) : null}
             {client ? <button className="secondary-button" type="button" onClick={reloadOperationalData} disabled={submitting}>{loadingData ? "讀取中…" : "重新載入資料"}</button> : null}
           </div>
         </div>
@@ -1360,10 +1370,9 @@ export default function HrRequestWorkbench() {
                 </div>
               ) : null}
             </div>
-            {submittedRequestId && !editingSubmitted || hasDraftOperation ? (
+            {(submittedRequestId && !editingSubmitted && !submittedEarlyIssue) || hasDraftOperation ? (
               <div className="button-row" style={{ marginTop: "16px" }}>
                 {submittedRequestId && !editingSubmitted && !submittedEarlyIssue ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
-                {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
                 {hasDraftOperation ? <div className="workflow-secondary-form">
                   <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
                   <button className="secondary-button" type="button" onClick={() => void cancelRequest()} disabled={submitting || submissionRecovering}>取消本張需求</button>
@@ -1714,10 +1723,9 @@ export default function HrRequestWorkbench() {
               ) : null}
             </div>
 
-            {submittedRequestId && !editingSubmitted || hasDraftOperation ? (
+            {(submittedRequestId && !editingSubmitted && !submittedEarlyIssue) || hasDraftOperation ? (
               <div className="button-row" style={{ marginTop: "16px" }}>
                 {submittedRequestId && !editingSubmitted && !submittedEarlyIssue ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
-                {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
                 {hasDraftOperation ? <div className="workflow-secondary-form">
                   <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
                   <button className="secondary-button" type="button" onClick={() => void cancelRequest()} disabled={submitting || submissionRecovering}>取消本張需求</button>
