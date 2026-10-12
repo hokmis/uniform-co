@@ -863,7 +863,7 @@ export default function HrRequestWorkbench() {
             <p className="eyebrow">03 / HR REQUEST</p>
             <h2>新增員工制服需求單</h2>
           </div>
-          <div className="heading-actions">
+          <div className="heading-actions" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "8px" }}>
             {!client ? <span className="status-pill">測試資料預覽</span> : null}
             {submittedRequestId && !editingSubmitted ? (
               <button
@@ -871,11 +871,22 @@ export default function HrRequestWorkbench() {
                 type="button"
                 onClick={startNextRequest}
                 disabled={submitting}
+                style={{ margin: 0, height: "38px", display: "inline-flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" }}
               >
                 建立下一筆需求
               </button>
             ) : null}
-            {client ? <button className="secondary-button" type="button" onClick={reloadOperationalData} disabled={submitting}>{loadingData ? "讀取中…" : "重新載入資料"}</button> : null}
+            {client ? (
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={reloadOperationalData}
+                disabled={submitting}
+                style={{ margin: 0, height: "38px", display: "inline-flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" }}
+              >
+                {loadingData ? "讀取中…" : "重新載入資料"}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -1770,11 +1781,36 @@ export default function HrRequestWorkbench() {
                 type="button"
                 onClick={() => void submitRequest()}
                 disabled={submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted)}
-                style={{ padding: "8px 16px", fontSize: "14px", whiteSpace: "nowrap" }}
+                style={{
+                  margin: 0,
+                  padding: "8px 16px",
+                  fontSize: "14px",
+                  whiteSpace: "nowrap",
+                  height: "38px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxSizing: "border-box",
+                }}
               >
                 {submitting ? "送出中…" : submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? submittedEarlyIssue ? "已送出並扣人資倉" : "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出"}
               </button>
-              <button className="secondary-button print-button" type="button" onClick={() => window.print()} style={{ padding: "8px 16px", fontSize: "14px", whiteSpace: "nowrap" }}>
+              <button
+                className="secondary-button print-button"
+                type="button"
+                onClick={() => window.print()}
+                style={{
+                  margin: 0,
+                  padding: "8px 16px",
+                  fontSize: "14px",
+                  whiteSpace: "nowrap",
+                  height: "38px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxSizing: "border-box",
+                }}
+              >
                 列印 A4 預覽
               </button>
             </div>
