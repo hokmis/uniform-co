@@ -35,6 +35,7 @@ import {
 import { useWorkspaceSession } from "./workspace-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import WorkflowActionBar from "./WorkflowActionBar";
+import ReturnedHrRequestPicker from "./ReturnedHrRequestPicker";
 
 type LineState = HrRequestLineSelection & {
   departmentCode?: string;
@@ -212,6 +213,7 @@ export default function HrRequestWorkbench() {
   const [dataReloadToken, setDataReloadToken] = useState(0);
   const [dataReady, setDataReady] = useState(previewMode);
   const [submitting, setSubmitting] = useState(false);
+  const [returnedDraftLoading, setReturnedDraftLoading] = useState(false);
   const [requestEntryState, setRequestEntryState] = useState<HrRequestEntryState>({ kind: "new" });
   const [submissionRecovery, setSubmissionRecovery] = useState<{
     input: HrRequestSubmissionInput;
@@ -634,6 +636,7 @@ export default function HrRequestWorkbench() {
   }
 
   async function submitRequest() {
+    if (returnedDraftLoading) return;
     if (!client) {
       setSubmitMessage("預覽模式：設定 Supabase env 並登入 HR 帳號後才能建立草稿與送出預留。");
       return;
@@ -797,6 +800,20 @@ export default function HrRequestWorkbench() {
 
   return (
     <section className="request-workbench" aria-label="人資需求單明細預覽">
+      <ReturnedHrRequestPicker
+        disabled={submitting || returnedDraftLoading || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+        onLoadingChange={setReturnedDraftLoading}
+        onLoad={(draft) => {
+          resetEntryForm();
+          operationRef.current = { ...createHrRequestOperation(() => crypto.randomUUID()), draftId: draft.id };
+          setRequestEntryState({ kind: "draft", requestId: draft.id });
+          setDistributionDate(draft.distribution_date);
+          setRequestNote(draft.note ?? "");
+          setLines(draft.issueLines.map((line) => ({ lineId: crypto.randomUUID(), employeeId: line.employee_id, itemId: line.item_id, quantity: Number(line.quantity) })));
+          setIncreases(Object.fromEntries(draft.increases.map((item) => [item.item_id, Number(item.increase_quantity)])));
+          setSubmitMessage(`正在修改 ${draft.request_no}，退回原因：${draft.return_reason ?? "請查看退回紀錄"}。`);
+        }}
+      />
       <div className="panel">
         <div className="panel-heading">
           <div>

@@ -15,6 +15,13 @@ export function getBrowserOperationStorage(): BrowserStorage | null {
   }
 }
 
+/** Per-tab recovery survives reload without overwriting another tab's operation. */
+export function getBrowserSessionOperationStorage(): BrowserStorage | null {
+  if (typeof window === "undefined") return null;
+  try { return window.sessionStorage; } catch { return null; }
+}
+
+
 export function readBrowserStorageEntries(
   keys: readonly string[],
   storage: BrowserStorage | null = getBrowserOperationStorage(),

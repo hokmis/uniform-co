@@ -15,6 +15,7 @@ import { createReadRequestController, type ReadRequestController } from "@/src/d
 import { useWorkspaceSession } from "./workspace-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import WorkflowActionBar from "./WorkflowActionBar";
+import HrRequestReturnAction from "./HrRequestReturnAction";
 
 type ShipmentLine = WarehouseShipmentLineEdit & {
   item_id: string;
@@ -48,6 +49,7 @@ export default function WarehouseShipmentPanel() {
   const [reasons, setReasons] = useState<Reason[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [returnPending, setReturnPending] = useState(false);
   const [posted, setPosted] = useState(false);
   const [draftDirty, setDraftDirty] = useState(false);
   const [queueQuery, setQueueQuery] = useState("");
@@ -183,7 +185,7 @@ export default function WarehouseShipmentPanel() {
   }
 
   async function chooseRequest(nextRequestKey: string) {
-    if (busy) return;
+    if (busy || returnPending) return;
     if (nextRequestKey === requestKey) return;
     if (nextRequestKey !== requestKey && draftDirty) {
       setMessage("目前理貨明細有尚未保存的變更；請先確認完成，再切換其他需求。");
@@ -508,16 +510,16 @@ export default function WarehouseShipmentPanel() {
                   { id: "request", label: "來源單據", locked: true, render: (row) => <><strong>{row.requestNo}</strong><span className="table-secondary">{row.source === "REPLENISHMENT" ? "額外補庫" : "人資發貨"}／日期 {row.distributionDate}</span></>, sortKey: "request_no" },
                   { id: "status", label: "狀態", render: (row) => <span className={`status-pill ${row.shipmentStatus === "POSTED" ? "success" : row.shipmentStatus === "DRAFT" ? "danger" : ""}`}>{row.shipmentStatus === "POSTED" ? "已完成" : row.shipmentStatus === "DRAFT" ? "已有草稿" : "待建立"}</span> },
                   { id: "version", label: "來源版本", render: (row) => row.rowVersion, sortKey: "row_version", className: "numeric-cell" },
-                  { id: "action", label: "操作", locked: true, render: (row) => <button className="text-button" type="button" onClick={() => void chooseRequest(row.id)} disabled={busy || (draftDirty && row.id !== requestKey)}>{row.id === requestKey ? "目前作業中" : row.shipmentStatus === "DRAFT" ? "恢復草稿" : "選取"}</button> },
+                  { id: "action", label: "操作", locked: true, render: (row) => <button className="text-button" type="button" onClick={() => void chooseRequest(row.id)} disabled={busy || returnPending || (draftDirty && row.id !== requestKey)}>{row.id === requestKey ? "目前作業中" : row.shipmentStatus === "DRAFT" ? "恢復草稿" : "選取"}</button> },
                 ] satisfies readonly ManagementCatalogColumn<WarehouseShipmentQueueRow, WarehouseShipmentSortKey>[]}
               />}
         </div>
         <div className="warehouse-shipment-editor">
           <div className="panel-heading"><div><p className="eyebrow">PICK & COMPLETE</p><h3>理貨工作區</h3></div></div>
           <div className="metric"><span>已選來源單據</span><strong>{selectedRequest?.request_no ?? "請從左側選取"}</strong><small>{selectedRequest ? `${selectedRequest.source === "REPLENISHMENT" ? "送出日" : "發放日"} ${selectedRequest.distribution_date}／來源版本 ${selectedRequest.row_version}` : "尚未載入需求"}</small></div>
-          {selectedRequest?.source === "HR_REQUEST" ? <label className="field"><span>發貨單號（選填）</span><input value={shipmentNo} onChange={(event) => setShipmentNo(event.target.value)} disabled={Boolean(shipmentId) || busy || detailsLoading} placeholder="SHIP-20260812-001" /></label> : selectedRequest?.source === "REPLENISHMENT" ? <p className="auth-message">補庫單不需要另建發貨草稿；請直接核對調庫量後確認完成，系統會在同一筆交易內重新鎖定總倉庫存。</p> : null}
+          {selectedRequest?.source === "HR_REQUEST" ? <label className="field"><span>發貨單號（選填）</span><input value={shipmentNo} onChange={(event) => setShipmentNo(event.target.value)} disabled={Boolean(shipmentId) || busy || returnPending || detailsLoading} placeholder="SHIP-20260812-001" /></label> : selectedRequest?.source === "REPLENISHMENT" ? <p className="auth-message">補庫單不需要另建發貨草稿；請直接核對調庫量後確認完成，系統會在同一筆交易內重新鎖定總倉庫存。</p> : null}
           {lines.length > 0
-            ? <div className="summary-list">{lines.map((line) => <div className="summary-row" key={line.id}><span><strong>{line.item_code_snapshot ?? line.item_id}｜{line.item_name_snapshot ?? "制服品號"}</strong><small>總倉調庫需求 {line.requested_transfer_quantity_snapshot}／總倉當下上限 {line.maximum_transfer_quantity_snapshot}／單位 {line.unit_snapshot ?? "—"}</small></span><label className="field"><span className="sr-only">實際調庫量</span><input type="number" min={0} max={line.maximum_transfer_quantity_snapshot} value={line.actual_transfer_quantity} disabled={posted || busy || detailsLoading || !canEditShipment} onChange={(event) => updateLine(line.id, "actual_transfer_quantity", event.target.value)} /></label><label className="field"><span className="sr-only">短發原因</span><select value={line.short_ship_reason_code ?? ""} disabled={posted || busy || detailsLoading || !canEditShipment || line.actual_transfer_quantity >= line.requested_transfer_quantity_snapshot} onChange={(event) => updateLine(line.id, "short_ship_reason_code", event.target.value)}><option value="">短發原因</option>{reasons.map((reason) => <option key={reason.code} value={reason.code}>{reason.label}</option>)}</select></label></div>)}</div>
+            ? <div className="summary-list">{lines.map((line) => <div className="summary-row" key={line.id}><span><strong>{line.item_code_snapshot ?? line.item_id}｜{line.item_name_snapshot ?? "制服品號"}</strong><small>總倉調庫需求 {line.requested_transfer_quantity_snapshot}／總倉當下上限 {line.maximum_transfer_quantity_snapshot}／單位 {line.unit_snapshot ?? "—"}</small></span><label className="field"><span className="sr-only">實際調庫量</span><input type="number" min={0} max={line.maximum_transfer_quantity_snapshot} value={line.actual_transfer_quantity} disabled={posted || busy || returnPending || detailsLoading || !canEditShipment} onChange={(event) => updateLine(line.id, "actual_transfer_quantity", event.target.value)} /></label><label className="field"><span className="sr-only">短發原因</span><select value={line.short_ship_reason_code ?? ""} disabled={posted || busy || returnPending || detailsLoading || !canEditShipment || line.actual_transfer_quantity >= line.requested_transfer_quantity_snapshot} onChange={(event) => updateLine(line.id, "short_ship_reason_code", event.target.value)}><option value="">短發原因</option>{reasons.map((reason) => <option key={reason.code} value={reason.code}>{reason.label}</option>)}</select></label></div>)}</div>
             : <p className="empty-state">請先從左側選取需求並建立或恢復理貨草稿。</p>}
           {!canEditShipment && shipmentId ? <p className="auth-message">此草稿由其他倉庫帳號建立，明細為唯讀；若數量已核對完成，仍可依權限確認完成。</p> : null}
           <WorkflowActionBar
@@ -525,12 +527,23 @@ export default function WarehouseShipmentPanel() {
               onClick: () => void completeShipment(),
               busy,
               busyLabel: "處理中…",
-              disabled: busy || detailsLoading || posted || !selectedRequest || (selectedRequest.source === "REPLENISHMENT" && lines.length === 0),
+              disabled: busy || returnPending || detailsLoading || posted || !selectedRequest || (selectedRequest.source === "REPLENISHMENT" && lines.length === 0),
               label: selectedRequest?.source === "REPLENISHMENT" ? "確認完成補庫" : shipmentId ? "確認完成發貨" : "建立並完成發貨",
             }}
             secondary={selectedRequest?.source === "HR_REQUEST" && !shipmentId
-              ? <button className="secondary-button" type="button" onClick={() => void createDraft()} disabled={busy || detailsLoading || Boolean(shipmentId) || !requestKey}>{busy ? "建立中…" : detailsLoading ? "載入明細中…" : "建立理貨草稿"}</button>
-              : posted ? <button className="secondary-button" type="button" onClick={startNextShipment} disabled={busy}>處理下一筆</button> : null}
+              ? <button className="secondary-button" type="button" onClick={() => void createDraft()} disabled={busy || returnPending || detailsLoading || Boolean(shipmentId) || !requestKey}>{busy ? "建立中…" : detailsLoading ? "載入明細中…" : "建立理貨草稿"}</button>
+              : posted ? <button className="secondary-button" type="button" onClick={startNextShipment} disabled={busy || returnPending}>處理下一筆</button> : null}
+          />
+          <HrRequestReturnAction
+            request={selectedRequest?.source === "HR_REQUEST" && !posted ? { id: selectedRequest.id, requestNo: selectedRequest.request_no, version: selectedRequest.row_version } : null}
+            disabled={busy || returnPending || detailsLoading || posted}
+            onPendingChange={setReturnPending}
+            onReturned={() => {
+              setRequestKey(""); setShipmentId(""); setShipmentNo(""); setShipmentOwnerId("");
+              setLines([]); persistedLinesRef.current = []; setDraftDirty(false); postKeyRef.current = null;
+              setQueueReloadToken((value) => value + 1);
+              notifyInventoryDataChanged(); window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
+            }}
           />
         </div>
       </div>
