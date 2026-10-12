@@ -15,6 +15,13 @@ import {
 import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
 import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
+import { getDefaultHrRequestDateRange } from "@/src/domain/hr-request-history";
+import {
+  generateInventoryAuditXlsx,
+  downloadInventoryAuditXlsx,
+  type InventoryAuditRow,
+  type InventoryAuditExportOptions,
+} from "@/src/domain/inventory-audit-export";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 import HrRequestDetailModal from "./HrRequestDetailModal";
@@ -113,6 +120,189 @@ export default function InventoryMovementHistoryPanel() {
       setMessage(`讀取進出貨紀錄異常：${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(false);
+    }
+  }
+
+  const [exportingAudit, setExportingAudit] = useState(false);
+
+  async function handleExportAuditTable() {
+    if (!client) {
+      setMessage("預覽模式：尚未連接資料庫，無法匯出。");
+      return;
+    }
+    setExportingAudit(true);
+    setMessage("正在計算指定區間之制服庫存簽核表資料…");
+
+    try {
+      // 1. 決定日期區間
+      const defaultRange = getDefaultHrRequestDateRange();
+      const effectiveStartDate = startDate || defaultRange.startDate;
+      const effectiveEndDate = endDate || defaultRange.endDate;
+
+      // 解析年度與月份（以結束日期之年月為簽核表基準）
+      const endParts = effectiveEndDate.split("-");
+      const curYear = parseInt(endParts[0], 10) || new Date().getFullYear();
+      const curMonth = parseInt(endParts[1], 10) || (new Date().getMonth() + 1);
+      const prevMonth = curMonth === 1 ? 12 : curMonth - 1;
+
+      // 2. 查詢全量啟用品項與當前兩倉現存量 (v_item_availability)
+      //    以及指定區間內的未取消需求單 (hr_requests) 與補庫單 (replenishment_requests)
+      const [availRes, hrReqsRes, repReqsRes] = await retrySupabaseQueriesAfterSessionRefresh(
+        client,
+        () => Promise.all([
+          client
+            .from("v_item_availability")
+            .select("item_id, item_code, item_name, size, unit, hr_on_hand_quantity, general_on_hand_quantity")
+            .limit(2000),
+          client
+            .from("hr_requests")
+            .select("id, status, distribution_date, created_at")
+            .neq("status", "CANCELLED")
+            .gte("distribution_date", effectiveStartDate)
+            .lte("distribution_date", effectiveEndDate)
+            .limit(2000),
+          client
+            .from("replenishment_requests")
+            .select("id, status, created_at")
+            .neq("status", "CANCELLED")
+            .gte("created_at", `${effectiveStartDate}T00:00:00`)
+            .lte("created_at", `${effectiveEndDate}T23:59:59`)
+            .limit(2000),
+        ]),
+      );
+
+      if (availRes.error) {
+        setMessage(`讀取制服品項庫存失敗：${safeSupabaseReadErrorMessage(availRes.error)}`);
+        setExportingAudit(false);
+        return;
+      }
+
+      const activeItems = (availRes.data ?? []) as Array<{
+        item_id: string;
+        item_code: string;
+        item_name: string;
+        size: string | null;
+        unit: string | null;
+        hr_on_hand_quantity: number | null;
+        general_on_hand_quantity: number | null;
+      }>;
+
+      // 3. 抓取區間內需求單之發放量 (hr_issue_lines) 與增庫量 (hr_request_items)
+      const validHrReqIds = ((hrReqsRes?.data ?? []) as Array<{ id: string }>).map((r) => r.id);
+      const validRepReqIds = ((repReqsRes?.data ?? []) as Array<{ id: string }>).map((r) => r.id);
+
+      const issueQtyByItem = new Map<string, number>();
+      const increaseQtyByItem = new Map<string, number>();
+      const replenishQtyByItem = new Map<string, number>();
+
+      if (validHrReqIds.length > 0) {
+        const [linesRes, itemsRes] = await retrySupabaseQueriesAfterSessionRefresh(
+          client,
+          () => Promise.all([
+            client
+              .from("hr_issue_lines")
+              .select("item_id, quantity")
+              .in("request_id", validHrReqIds),
+            client
+              .from("hr_request_items")
+              .select("item_id, increase_quantity")
+              .in("request_id", validHrReqIds),
+          ]),
+        );
+
+        for (const line of (linesRes?.data ?? []) as Array<{ item_id: string; quantity: number | null }>) {
+          if (!line.item_id) continue;
+          const prev = issueQtyByItem.get(line.item_id) || 0;
+          issueQtyByItem.set(line.item_id, prev + (Number(line.quantity) || 0));
+        }
+
+        for (const it of (itemsRes?.data ?? []) as Array<{ item_id: string; increase_quantity: number | null }>) {
+          if (!it.item_id) continue;
+          const prev = increaseQtyByItem.get(it.item_id) || 0;
+          increaseQtyByItem.set(it.item_id, prev + (Number(it.increase_quantity) || 0));
+        }
+      }
+
+      // 4. 抓取區間內補庫單之補貨量 (replenishment_request_lines)
+      if (validRepReqIds.length > 0) {
+        const [repLinesRes] = await retrySupabaseQueriesAfterSessionRefresh(
+          client,
+          () => Promise.all([
+            client
+              .from("replenishment_request_lines")
+              .select("item_id, requested_quantity, actual_transfer_quantity")
+              .in("request_id", validRepReqIds),
+          ]),
+        );
+
+        for (const rLine of (repLinesRes?.data ?? []) as Array<{
+          item_id: string;
+          requested_quantity: number | null;
+          actual_transfer_quantity: number | null;
+        }>) {
+          if (!rLine.item_id) continue;
+          const prev = replenishQtyByItem.get(rLine.item_id) || 0;
+          // 若有 actual_transfer_quantity 則以實際調撥為準，否則以 requested_quantity 為準
+          const qty = Number(rLine.actual_transfer_quantity ?? rLine.requested_quantity) || 0;
+          replenishQtyByItem.set(rLine.item_id, prev + qty);
+        }
+      }
+
+      // 5. 組裝 InventoryAuditRow
+      const auditRows: InventoryAuditRow[] = activeItems.map((item) => {
+        const itemId = item.item_id;
+        const hrOnHand = Number(item.hr_on_hand_quantity) || 0;
+        const genOnHand = Number(item.general_on_hand_quantity) || 0;
+        const issueQty = issueQtyByItem.get(itemId) || 0;
+        const increaseQty = increaseQtyByItem.get(itemId) || 0;
+        const replenishQty = replenishQtyByItem.get(itemId) || 0;
+
+        // 期初反推：
+        // 人資期初 + 增庫量 + 補貨量 - 發放量 = 人資現存 => 人資期初 = 人資現存 + 發放量 - 增庫量 - 補貨量
+        const hrOpening = hrOnHand + issueQty - increaseQty - replenishQty;
+        // 總倉發貨量 = 增庫量 + 補貨量
+        const genIssueQty = increaseQty + replenishQty;
+        // 總倉期初 - 總倉發貨量 = 總倉現存 => 總倉期初 = 總倉現存 + 總倉發貨量
+        const genOpening = genOnHand + genIssueQty;
+        const combinedOnHand = hrOnHand + genOnHand;
+        const erpOnHand = combinedOnHand;
+
+        return {
+          itemId,
+          itemCode: item.item_code || "",
+          itemName: item.item_name || "",
+          size: item.size || "",
+          unit: item.unit || "件",
+          hrOpening,
+          issueQty,
+          increaseQty,
+          replenishQty,
+          hrOnHand,
+          genOpening,
+          genIssueQty,
+          genOnHand,
+          combinedOnHand,
+          erpOnHand,
+        };
+      });
+
+      const options: InventoryAuditExportOptions = {
+        year: curYear,
+        month: curMonth,
+        prevMonth,
+        startDate: effectiveStartDate,
+        endDate: effectiveEndDate,
+      };
+
+      const xlsxBytes = generateInventoryAuditXlsx(auditRows, options);
+      const filename = `${curYear}年${curMonth}月-制服庫存簽核表.xlsx`;
+      downloadInventoryAuditXlsx(xlsxBytes, filename);
+
+      setMessage(`已成功匯出 ${filename}（共 ${auditRows.length} 個品項，統計區間：${effectiveStartDate} ～ ${effectiveEndDate}）`);
+    } catch (err) {
+      setMessage(`匯出制服庫存簽核表異常：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setExportingAudit(false);
     }
   }
 
@@ -250,9 +440,18 @@ export default function InventoryMovementHistoryPanel() {
             aria-label="依結束年月日查詢"
           />
         </label>
-        <div className="inventory-toolbar-action">
+        <div className="inventory-toolbar-action" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <button className="secondary-button" type="button" onClick={() => void loadData()}>
             {loading ? "讀取中…" : "重新整理"}
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={() => void handleExportAuditTable()}
+            disabled={exportingAudit || !identityReady}
+            title="依指定區間（預設與需求單查詢相同）匯出包含兩倉期初、發放量、增庫量、補貨量與期末簽核表"
+          >
+            {exportingAudit ? "稽核表匯出中…" : "匯出制服領用稽核表(Excel)"}
           </button>
         </div>
       </div>
