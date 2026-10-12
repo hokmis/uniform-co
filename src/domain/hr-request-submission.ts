@@ -25,6 +25,7 @@ export type HrRequestSubmissionRecord = {
   id: string;
   request_no: string;
   status: "DRAFT" | "SUBMITTED" | "INVENTORY_REVIEW_REQUIRED" | "SHIPPED" | "CANCELLED";
+  inventory_policy?: "ISSUE_ON_SUBMIT" | "LEGACY";
 };
 
 export type HrRequestSubmissionInput = {
@@ -59,7 +60,14 @@ function requestRecord(value: unknown): HrRequestSubmissionRecord | null {
       && row.status !== "INVENTORY_REVIEW_REQUIRED" && row.status !== "SHIPPED"
       && row.status !== "CANCELLED")
   ) return null;
-  return { id: row.id, request_no: row.request_no, status: row.status };
+  return {
+    id: row.id,
+    request_no: row.request_no,
+    status: row.status,
+    ...(row.inventory_policy === "LEGACY" || row.inventory_policy === "ISSUE_ON_SUBMIT"
+      ? { inventory_policy: row.inventory_policy }
+      : {}),
+  };
 }
 
 function rpcLines(input: HrRequestSubmissionInput) {

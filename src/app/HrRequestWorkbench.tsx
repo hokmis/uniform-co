@@ -213,6 +213,7 @@ export default function HrRequestWorkbench() {
   const [dataReady, setDataReady] = useState(previewMode);
   const [submitting, setSubmitting] = useState(false);
   const [returnedDraftLoading, setReturnedDraftLoading] = useState(false);
+  const [submittedEarlyIssue, setSubmittedEarlyIssue] = useState(false);
   const [requestEntryState, setRequestEntryState] = useState<HrRequestEntryState>({ kind: "new" });
   const [submissionRecovery, setSubmissionRecovery] = useState<{
     input: HrRequestSubmissionInput;
@@ -397,6 +398,7 @@ export default function HrRequestWorkbench() {
   }
 
   function resetEntryForm() {
+    setSubmittedEarlyIssue(false);
     operationRef.current = null;
     setRequestEntryState({ kind: "new" });
     setSubmissionRecovery(null);
@@ -725,7 +727,9 @@ export default function HrRequestWorkbench() {
         const rawError = updateResult.error?.message;
         let friendlyMessage = "更新失敗或結果未知；請使用相同資料重試。";
         if (rawError) {
-          if (rawError.includes("exceeds available stock")) {
+          if (rawError.includes("HR_REQUEST_REQUIRES_WAREHOUSE_RETURN")) {
+            friendlyMessage = "此需求單人資倉已扣庫發放，系統禁止直接修改；如需調整請由倉庫端執行『退回人資』，或在下方載入退回需求修改。";
+          } else if (rawError.includes("exceeds available stock")) {
             friendlyMessage = "需求量或增庫量已超過目前可用庫存，請減少數量後再重試。";
           } else if (rawError.includes("Invalid HR issue line")) {
             friendlyMessage = "需求明細格式有誤或數量不可為零，請確認後重試。";
@@ -768,6 +772,7 @@ export default function HrRequestWorkbench() {
     setSubmissionRecovery(submission.outcomeUnknown ? { input: submissionInput } : null);
     const request = submission.request;
     if (request?.id) {
+      setSubmittedEarlyIssue(request.inventory_policy === "ISSUE_ON_SUBMIT");
       if (Object.keys(unitMap).length > 0 && typeof window !== "undefined") {
         try {
           localStorage.setItem(`hr_request_units_${request.id}`, JSON.stringify(unitMap));
@@ -782,7 +787,11 @@ export default function HrRequestWorkbench() {
       }
     }
     if (!submission.error && submission.failureStage === null && request?.status === "SUBMITTED") {
-      setSubmitMessage(`已送出 ${request.request_no}，庫存預留已由伺服器重算。`);
+      setSubmitMessage(
+        request.inventory_policy === "ISSUE_ON_SUBMIT"
+          ? `已送出 ${request.request_no}，人資倉發放量已即時扣庫；增庫量等待倉庫調入。如需修改請由倉庫退回或在下方載入修改。`
+          : `已送出 ${request.request_no}，庫存預留已由伺服器重算。`
+      );
       window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
     } else {
       const fallbackMessage = submission.failureStage === "create" || submission.failureStage === "update"
@@ -1297,7 +1306,7 @@ export default function HrRequestWorkbench() {
             </div>
             {submittedRequestId && !editingSubmitted || hasDraftOperation ? (
               <div className="button-row" style={{ marginTop: "16px" }}>
-                {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
+                {submittedRequestId && !editingSubmitted && !submittedEarlyIssue ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
                 {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
                 {hasDraftOperation ? <div className="workflow-secondary-form">
                   <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
@@ -1615,7 +1624,7 @@ export default function HrRequestWorkbench() {
 
             {submittedRequestId && !editingSubmitted || hasDraftOperation ? (
               <div className="button-row" style={{ marginTop: "16px" }}>
-                {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
+                {submittedRequestId && !editingSubmitted && !submittedEarlyIssue ? <button className="secondary-button" type="button" onClick={() => { markDraftChanged(); setRequestEntryState((current) => current.kind === "submitted" ? { ...current, editing: true } : current); setSubmitMessage(""); }} disabled={submitting}>修改本張需求</button> : null}
                 {submittedRequestId && !editingSubmitted ? <button className="secondary-button" type="button" onClick={startNextRequest} disabled={submitting}>建立下一筆需求</button> : null}
                 {hasDraftOperation ? <div className="workflow-secondary-form">
                   <label className="field"><span>取消原因（必填）</span><input value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} disabled={submitting || submissionRecovering} maxLength={2000} placeholder="例如：資料重複／需求取消" /></label>
@@ -1663,7 +1672,7 @@ export default function HrRequestWorkbench() {
                 disabled={submitting || (!submissionRecovering && (dataReadBlocked || Boolean(result.error))) || (Boolean(submittedRequestId) && !editingSubmitted)}
                 style={{ padding: "8px 16px", fontSize: "14px", whiteSpace: "nowrap" }}
               >
-                {submitting ? "送出中…" : submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出"}
+                {submitting ? "送出中…" : submissionRecovering ? "以相同資料查回／重試送出" : submittedRequestId && !editingSubmitted ? submittedEarlyIssue ? "已送出並扣人資倉" : "已送出並預留" : editingSubmitted ? "保存修改並重新驗證" : hasDraftOperation ? "重試送出（先保存草稿修改）" : "建立草稿並送出"}
               </button>
               <button className="secondary-button print-button" type="button" onClick={() => window.print()} style={{ padding: "8px 16px", fontSize: "14px", whiteSpace: "nowrap" }}>
                 列印 A4 預覽
