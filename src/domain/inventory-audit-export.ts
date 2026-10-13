@@ -67,19 +67,19 @@ export function generateInventoryAuditXlsx(
   // L: 合併庫存
   // M: ERP庫存
   const headerDefs = [
-    { text: "品   號", style: 20 },
-    { text: "品   名", style: 20 },
-    { text: "規格", style: 20 },
-    { text: `人資庫存&#10;(${options.prevMonth}月末存)`, style: 21 },
-    { text: `${options.month}月發放量&#10;(人資表)&#10;(鼎新值)&#10;(貼上值)`, style: 22 },
-    { text: `${options.month}月增庫量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 22 },
-    { text: `${options.month}月補貨量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 22 },
-    { text: `人資庫存&#10;(${options.month}月末存)`, style: 21 },
-    { text: `總倉庫存&#10;(${options.prevMonth}月末存)&#10;(盤點值)`, style: 20 },
-    { text: `${options.month}月發貨量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 22 },
-    { text: `總倉庫存&#10;(${options.month}月末存)&#10;(盤點值)`, style: 21 },
-    { text: "合併庫存", style: 20 },
-    { text: "ERP庫存", style: 20 },
+    { text: "品   號", style: 8 },
+    { text: "品   名", style: 8 },
+    { text: "規格", style: 8 },
+    { text: `人資庫存&#10;(${options.prevMonth}月末存)`, style: 9 },
+    { text: `${options.month}月發放量&#10;(人資表)&#10;(鼎新值)&#10;(貼上值)`, style: 10 },
+    { text: `${options.month}月增庫量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 10 },
+    { text: `${options.month}月補貨量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 10 },
+    { text: `人資庫存&#10;(${options.month}月末存)`, style: 9 },
+    { text: `總倉庫存&#10;(${options.prevMonth}月末存)&#10;(盤點值)`, style: 8 },
+    { text: `${options.month}月發貨量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 10 },
+    { text: `總倉庫存&#10;(${options.month}月末存)&#10;(盤點值)`, style: 9 },
+    { text: "合併庫存", style: 8 },
+    { text: "ERP庫存", style: 8 },
   ];
 
   const colLetters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
@@ -90,7 +90,7 @@ export function generateInventoryAuditXlsx(
   // Row 1: 標題列（合併 A1:M1）
   sheetRows.push(
     `    <row r="1" ht="36" customHeight="1">` +
-    `<c r="A1" s="1" t="inlineStr"><is><t>${escapeXml(title)}</t></is></c>` +
+    `<c r="A1" s="1" t="inlineStr"><is><t xml:space="preserve">${escapeXml(title)}</t></is></c>` +
     colLetters.slice(1).map((col) => `<c r="${col}1" s="1"/>`).join("") +
     `</row>`
   );
@@ -98,7 +98,7 @@ export function generateInventoryAuditXlsx(
   // Row 2: 表頭列
   sheetRows.push(
     `    <row r="2" ht="62" customHeight="1">` +
-    headerDefs.map((h, i) => `<c r="${colLetters[i]}2" s="${h.style}" t="inlineStr"><is><t>${h.text}</t></is></c>`).join("") +
+    headerDefs.map((h, i) => `<c r="${colLetters[i]}2" s="${h.style}" t="inlineStr"><is><t xml:space="preserve">${h.text}</t></is></c>`).join("") +
     `</row>`
   );
 
@@ -108,31 +108,31 @@ export function generateInventoryAuditXlsx(
     const rowIdx = currentRow;
     const cells: string[] = [
       // A: 品號
-      `<c r="A${rowIdx}" s="3" t="inlineStr"><is><t>${escapeXml(r.itemCode)}</t></is></c>`,
+      `<c r="A${rowIdx}" s="2" t="inlineStr"><is><t xml:space="preserve">${escapeXml(r.itemCode)}</t></is></c>`,
       // B: 品名
-      `<c r="B${rowIdx}" s="4" t="inlineStr"><is><t>${escapeXml(r.itemName)}</t></is></c>`,
+      `<c r="B${rowIdx}" s="3" t="inlineStr"><is><t xml:space="preserve">${escapeXml(r.itemName)}</t></is></c>`,
       // C: 規格
-      `<c r="C${rowIdx}" s="3" t="inlineStr"><is><t>${escapeXml(r.size || "—")}</t></is></c>`,
+      `<c r="C${rowIdx}" s="2" t="inlineStr"><is><t xml:space="preserve">${escapeXml(r.size || "—")}</t></is></c>`,
       // D: 人資庫存((上月)月末存)
-      `<c r="D${rowIdx}" s="5"><v>${r.hrOpening}</v></c>`,
+      `<c r="D${rowIdx}" s="4"><v>${r.hrOpening}</v></c>`,
       // E: (本月)月發放量
-      `<c r="E${rowIdx}" s="5"><v>${r.issueQty}</v></c>`,
+      `<c r="E${rowIdx}" s="4"><v>${r.issueQty}</v></c>`,
       // F: (本月)月增庫量
-      `<c r="F${rowIdx}" s="5"><v>${r.increaseQty}</v></c>`,
+      `<c r="F${rowIdx}" s="4"><v>${r.increaseQty}</v></c>`,
       // G: (本月)月補貨量
-      `<c r="G${rowIdx}" s="5"><v>${r.replenishQty}</v></c>`,
+      `<c r="G${rowIdx}" s="4"><v>${r.replenishQty}</v></c>`,
       // H: 人資庫存((本月)月末存) = D - E + F + G
-      `<c r="H${rowIdx}" s="5"><f>D${rowIdx}-E${rowIdx}+F${rowIdx}+G${rowIdx}</f><v>${r.hrOnHand}</v></c>`,
+      `<c r="H${rowIdx}" s="4"><f>D${rowIdx}-E${rowIdx}+F${rowIdx}+G${rowIdx}</f><v>${r.hrOnHand}</v></c>`,
       // I: 總倉庫存((上月)月末存)
-      `<c r="I${rowIdx}" s="5"><v>${r.genOpening}</v></c>`,
+      `<c r="I${rowIdx}" s="4"><v>${r.genOpening}</v></c>`,
       // J: (本月)月發貨量 = F + G
-      `<c r="J${rowIdx}" s="5"><f>F${rowIdx}+G${rowIdx}</f><v>${r.genIssueQty}</v></c>`,
+      `<c r="J${rowIdx}" s="4"><f>F${rowIdx}+G${rowIdx}</f><v>${r.genIssueQty}</v></c>`,
       // K: 總倉庫存((本月)月末存) = I - J
-      `<c r="K${rowIdx}" s="5"><f>I${rowIdx}-J${rowIdx}</f><v>${r.genOnHand}</v></c>`,
+      `<c r="K${rowIdx}" s="4"><f>I${rowIdx}-J${rowIdx}</f><v>${r.genOnHand}</v></c>`,
       // L: 合併庫存 = H + K
-      `<c r="L${rowIdx}" s="6"><f>H${rowIdx}+K${rowIdx}</f><v>${r.combinedOnHand}</v></c>`,
+      `<c r="L${rowIdx}" s="5"><f>H${rowIdx}+K${rowIdx}</f><v>${r.combinedOnHand}</v></c>`,
       // M: ERP庫存 = L
-      `<c r="M${rowIdx}" s="6"><f>L${rowIdx}</f><v>${r.erpOnHand}</v></c>`,
+      `<c r="M${rowIdx}" s="5"><f>L${rowIdx}</f><v>${r.erpOnHand}</v></c>`,
     ];
     sheetRows.push(`    <row r="${rowIdx}" ht="20" customHeight="1">${cells.join("")}</row>`);
     currentRow++;
@@ -142,31 +142,32 @@ export function generateInventoryAuditXlsx(
   const totalRow = currentRow;
   const lastDataRow = totalRow - 1;
   const totalCells: string[] = [
-    `<c r="A${totalRow}" s="7" t="inlineStr"><is><t>合計</t></is></c>`,
-    `<c r="B${totalRow}" s="7"/>`,
-    `<c r="C${totalRow}" s="7"/>`,
+    `<c r="A${totalRow}" s="6" t="inlineStr"><is><t xml:space="preserve">合計</t></is></c>`,
+    `<c r="B${totalRow}" s="6"/>`,
+    `<c r="C${totalRow}" s="6"/>`,
   ];
 
   for (let c = 3; c < colLetters.length; c++) {
     const col = colLetters[c];
     if (sortedRows.length > 0) {
-      totalCells.push(`<c r="${col}${totalRow}" s="8"><f>SUM(${col}3:${col}${lastDataRow})</f></c>`);
+      totalCells.push(`<c r="${col}${totalRow}" s="7"><f>SUM(${col}3:${col}${lastDataRow})</f></c>`);
     } else {
-      totalCells.push(`<c r="${col}${totalRow}" s="8"><v>0</v></c>`);
+      totalCells.push(`<c r="${col}${totalRow}" s="7"><v>0</v></c>`);
     }
   }
   sheetRows.push(`    <row r="${totalRow}" ht="22" customHeight="1">${totalCells.join("")}</row>`);
 
   const mergeCells = [
-    `    <mergeCell ref="A1:M1"/>`,
-    `    <mergeCell ref="A${totalRow}:C${totalRow}"/>`,
+    `A1:M1`,
+    `A${totalRow}:C${totalRow}`,
   ];
 
   const sheetXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetViews>
     <sheetView tabSelected="1" workbookViewId="0">
       <pane ySplit="2" topLeftCell="A3" activePane="bottomLeft" state="frozen"/>
+      <selection pane="bottomLeft" activeCell="A3" sqref="A3"/>
     </sheetView>
   </sheetViews>
   <sheetFormatPr defaultRowHeight="20"/>
@@ -189,7 +190,7 @@ export function generateInventoryAuditXlsx(
 ${sheetRows.join("\n")}
   </sheetData>
   <mergeCells count="${mergeCells.length}">
-${mergeCells.join("\n")}
+    ${mergeCells.map((m) => `<mergeCell ref="${m}"/>`).join("\n    ")}
   </mergeCells>
 </worksheet>`;
 
@@ -198,27 +199,28 @@ ${mergeCells.join("\n")}
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="4">
     <font><sz val="11"/><name val="微軟正黑體"/></font>
-    <font><b/><sz val="15"/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
-    <font><sz val="11"/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
-    <font><b/><sz val="11"/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
+    <font><sz val="15"/><b/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
+    <font><sz val="10"/><b/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
+    <font><sz val="11"/><b/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
   </fonts>
   <fills count="7">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/></fgColor></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/></fgColor></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></fgColor></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/></fgColor></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></fgColor></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></patternFill></fill>
   </fills>
-  <borders count="4">
-    <border><left/><right/><top/><bottom/></border>
+  <borders count="3">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
     <!-- 1: Data cell thin border (black) -->
     <border>
       <left style="thin"><color rgb="FF000000"/></left>
       <right style="thin"><color rgb="FF000000"/></right>
       <top style="thin"><color rgb="FF000000"/></top>
       <bottom style="thin"><color rgb="FF000000"/></bottom>
+      <diagonal/>
     </border>
     <!-- 2: Total bottom double border -->
     <border>
@@ -226,74 +228,49 @@ ${mergeCells.join("\n")}
       <right style="thin"><color rgb="FF000000"/></right>
       <top style="thin"><color rgb="FF000000"/></top>
       <bottom style="double"><color rgb="FF000000"/></bottom>
-    </border>
-    <!-- 3: Outer/Header border -->
-    <border>
-      <left style="thin"><color rgb="FF000000"/></left>
-      <right style="thin"><color rgb="FF000000"/></right>
-      <top style="thin"><color rgb="FF000000"/></top>
-      <bottom style="thin"><color rgb="FF000000"/></bottom>
+      <diagonal/>
     </border>
   </borders>
-  <cellStyleXfs count="1">
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
-  </cellStyleXfs>
-  <cellXfs count="23">
+  <cellXfs count="11">
     <!-- 0: default -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
     <!-- 1: Title (A1) -->
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 2: Old Header (Row 2 legacy) -->
-    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
-      <alignment horizontal="center" vertical="center" wrapText="1"/>
-    </xf>
-    <!-- 3: Data text center -->
+    <!-- 2: Data text center -->
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 4: Data text left -->
+    <!-- 3: Data text left -->
     <xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="left" vertical="center"/>
     </xf>
-    <!-- 5: Data number right -->
+    <!-- 4: Data number right -->
     <xf numFmtId="1" fontId="0" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="right" vertical="center"/>
     </xf>
-    <!-- 6: Data number bold right (合併庫存, ERP庫存) -->
+    <!-- 5: Data number bold right (合併庫存, ERP庫存) -->
     <xf numFmtId="1" fontId="3" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="right" vertical="center"/>
     </xf>
-    <!-- 7: Total label center -->
+    <!-- 6: Total label center -->
     <xf numFmtId="0" fontId="3" fillId="6" borderId="2" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 8: Total number right -->
+    <!-- 7: Total number right -->
     <xf numFmtId="1" fontId="3" fillId="6" borderId="2" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="right" vertical="center"/>
     </xf>
-    <!-- 9~19: reserved -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-    <!-- 20: Header White background (A, B, C, I, L, M) -->
+    <!-- 8: Header White background (A, B, C, I, L, M) -->
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center" wrapText="1"/>
     </xf>
-    <!-- 21: Header Light Blue background (D, H, K: #DDEBF7) -->
+    <!-- 9: Header Light Blue background (D, H, K: #DDEBF7) -->
     <xf numFmtId="0" fontId="2" fillId="3" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center" wrapText="1"/>
     </xf>
-    <!-- 22: Header Light Yellow background (E, F, G, J: #FFF2CC) -->
+    <!-- 10: Header Light Yellow background (E, F, G, J: #FFF2CC) -->
     <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center" wrapText="1"/>
     </xf>

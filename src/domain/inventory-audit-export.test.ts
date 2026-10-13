@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { unzipSync, strFromU8 } from "fflate";
 import { generateInventoryAuditXlsx, type InventoryAuditRow, type InventoryAuditExportOptions } from "./inventory-audit-export";
 
 describe("generateInventoryAuditXlsx", () => {
@@ -55,5 +56,26 @@ describe("generateInventoryAuditXlsx", () => {
     // 檢查 ZIP PK 檔頭
     expect(result[0]).toBe(0x50); // P
     expect(result[1]).toBe(0x4b); // K
+
+    // 解壓縮驗證內部 XML 結構與標籤正確性
+    const unzipped = unzipSync(result);
+    expect(unzipped["xl/styles.xml"]).toBeDefined();
+    expect(unzipped["xl/worksheets/sheet1.xml"]).toBeDefined();
+    expect(unzipped["xl/workbook.xml"]).toBeDefined();
+    expect(unzipped["[Content_Types].xml"]).toBeDefined();
+
+    const stylesXml = strFromU8(unzipped["xl/styles.xml"]);
+    const sheetXml = strFromU8(unzipped["xl/worksheets/sheet1.xml"]);
+
+    // 驗證 styles.xml 不存在語法損毀的 </fgColor></fill> 標籤
+    expect(stylesXml).not.toContain("</fgColor></fill>");
+    expect(stylesXml).toContain('<fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/></patternFill></fill>');
+    expect(stylesXml).toContain('<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill>');
+
+    // 驗證工作表包含表頭顏色樣式參照 (s="8", s="9", s="10")
+    expect(sheetXml).toContain('s="8"');
+    expect(sheetXml).toContain('s="9"');
+    expect(sheetXml).toContain('s="10"');
+    expect(sheetXml).toContain('xml:space="preserve"');
   });
 });
