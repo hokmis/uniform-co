@@ -72,7 +72,8 @@ describe("generateInventoryAuditXlsx", () => {
     expect(stylesXml).toContain('<fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/></patternFill></fill>');
     expect(stylesXml).toContain('<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill>');
 
-    // 驗證所有字體大小均為 12pt
+    // 驗證標題字型大小為 14pt，其餘字型為 12pt
+    expect(stylesXml).toContain('<sz val="14"/>');
     expect(stylesXml).toContain('<sz val="12"/>');
     expect(stylesXml).not.toContain('<sz val="11"/>');
     expect(stylesXml).not.toContain('<sz val="15"/>');
@@ -80,6 +81,21 @@ describe("generateInventoryAuditXlsx", () => {
 
     // 驗證外框線包含 medium 粗外框
     expect(stylesXml).toContain('style="medium"');
+
+    // 驗證 C 欄寬度為 4.5
+    expect(sheetXml).toContain('<col min="3" max="3" width="4.5" customWidth="1"/>');
+
+    // 驗證 D2 欄位文字已改為總倉庫存
+    expect(sheetXml).toContain('總倉庫存&#10;(9月末存)&#10;(盤點值)');
+
+    // 驗證合計處改為總計
+    expect(sheetXml).toContain('總計');
+
+    // 驗證事務組簽核與簽章欄位
+    expect(sheetXml).toContain('事務組簽核');
+    expect(sheetXml).toContain('主管簽章：');
+    expect(sheetXml).toContain('覆核簽章：');
+    expect(sheetXml).toContain('經辦簽章：');
 
     // 驗證工作表包含表頭樣式參照 (s="8", s="9", s="10", s="11", s="12")
     expect(sheetXml).toContain('s="8"');  // A2 (白底左上角)
