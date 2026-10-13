@@ -49,22 +49,37 @@ export function generateInventoryAuditXlsx(
   options: InventoryAuditExportOptions,
 ): Uint8Array {
   const sortedRows = [...rows].sort(compareUniformItems);
-  const title = `${options.year}年${options.month}月-制服庫存簽核表`;
+  const rocYear = options.year > 1911 ? options.year - 1911 : options.year;
+  const title = `${rocYear}年${options.month} 月-制服庫存簽核表`;
 
-  const headers = [
-    "品號",
-    "品名",
-    "規格",
-    `人資庫存((${options.prevMonth}月)月末存)`,
-    `(${options.month}月)月發放量`,
-    `(${options.month}月)月增庫量`,
-    `(${options.month}月)月補貨量`,
-    `人資庫存((${options.month}月)月末存)`,
-    `總倉庫存((${options.prevMonth}月)月末存)`,
-    `(${options.month}月)月發貨量`,
-    `總倉庫存((${options.month}月)月末存)`,
-    "合併庫存",
-    "ERP庫存",
+  // 表頭定義：
+  // A: 品   號
+  // B: 品   名
+  // C: 規格
+  // D: 人資庫存&#10;(${options.prevMonth}月末存)
+  // E: ${options.month}月發放量&#10;(人資表)&#10;(鼎新值)&#10;(貼上值)
+  // F: ${options.month}月增庫量&#10;(含增額)&#10;(人資表)&#10;(貼上值)
+  // G: ${options.month}月補貨量&#10;(含增額)&#10;(人資表)&#10;(貼上值)
+  // H: 人資庫存&#10;(${options.month}月末存)
+  // I: 總倉庫存&#10;(${options.prevMonth}月末存)&#10;(盤點值)
+  // J: ${options.month}月發貨量&#10;(含增額)&#10;(人資表)&#10;(貼上值)
+  // K: 總倉庫存&#10;(${options.month}月末存)&#10;(盤點值)
+  // L: 合併庫存
+  // M: ERP庫存
+  const headerDefs = [
+    { text: "品   號", style: 20 },
+    { text: "品   名", style: 20 },
+    { text: "規格", style: 20 },
+    { text: `人資庫存&#10;(${options.prevMonth}月末存)`, style: 21 },
+    { text: `${options.month}月發放量&#10;(人資表)&#10;(鼎新值)&#10;(貼上值)`, style: 22 },
+    { text: `${options.month}月增庫量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 22 },
+    { text: `${options.month}月補貨量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 22 },
+    { text: `人資庫存&#10;(${options.month}月末存)`, style: 21 },
+    { text: `總倉庫存&#10;(${options.prevMonth}月末存)&#10;(盤點值)`, style: 20 },
+    { text: `${options.month}月發貨量&#10;(含增額)&#10;(人資表)&#10;(貼上值)`, style: 22 },
+    { text: `總倉庫存&#10;(${options.month}月末存)&#10;(盤點值)`, style: 21 },
+    { text: "合併庫存", style: 20 },
+    { text: "ERP庫存", style: 20 },
   ];
 
   const colLetters = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M"];
@@ -82,8 +97,8 @@ export function generateInventoryAuditXlsx(
 
   // Row 2: 表頭列
   sheetRows.push(
-    `    <row r="2" ht="26" customHeight="1">` +
-    headers.map((h, i) => `<c r="${colLetters[i]}2" s="2" t="inlineStr"><is><t>${escapeXml(h)}</t></is></c>`).join("") +
+    `    <row r="2" ht="62" customHeight="1">` +
+    headerDefs.map((h, i) => `<c r="${colLetters[i]}2" s="${h.style}" t="inlineStr"><is><t>${h.text}</t></is></c>`).join("") +
     `</row>`
   );
 
@@ -159,16 +174,16 @@ export function generateInventoryAuditXlsx(
     <col min="1" max="1" width="14" customWidth="1"/>
     <col min="2" max="2" width="26" customWidth="1"/>
     <col min="3" max="3" width="9" customWidth="1"/>
-    <col min="4" max="4" width="18" customWidth="1"/>
+    <col min="4" max="4" width="14" customWidth="1"/>
     <col min="5" max="5" width="14" customWidth="1"/>
     <col min="6" max="6" width="14" customWidth="1"/>
     <col min="7" max="7" width="14" customWidth="1"/>
-    <col min="8" max="8" width="18" customWidth="1"/>
-    <col min="9" max="9" width="18" customWidth="1"/>
+    <col min="8" max="8" width="14" customWidth="1"/>
+    <col min="9" max="9" width="14" customWidth="1"/>
     <col min="10" max="10" width="14" customWidth="1"/>
-    <col min="11" max="11" width="18" customWidth="1"/>
-    <col min="12" max="12" width="14" customWidth="1"/>
-    <col min="13" max="13" width="14" customWidth="1"/>
+    <col min="11" max="11" width="14" customWidth="1"/>
+    <col min="12" max="12" width="12" customWidth="1"/>
+    <col min="13" max="13" width="12" customWidth="1"/>
   </cols>
   <sheetData>
 ${sheetRows.join("\n")}
@@ -183,44 +198,55 @@ ${mergeCells.join("\n")}
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="4">
     <font><sz val="11"/><name val="微軟正黑體"/></font>
-    <font><b/><sz val="15"/><name val="微軟正黑體"/><color rgb="FF1F2937"/></font>
-    <font><b/><sz val="11"/><name val="微軟正黑體"/><color rgb="FF374151"/></font>
-    <font><b/><sz val="11"/><name val="微軟正黑體"/><color rgb="FF111827"/></font>
+    <font><b/><sz val="15"/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
+    <font><sz val="11"/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
+    <font><b/><sz val="11"/><name val="微軟正黑體"/><color rgb="FF000000"/></font>
   </fonts>
-  <fills count="5">
+  <fills count="7">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFF1F5F9"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFFFFF"/></fgColor></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/></fgColor></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></fgColor></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF8FAFC"/></fgColor></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFEF3C7"/></fgColor></fill>
   </fills>
-  <borders count="3">
+  <borders count="4">
     <border><left/><right/><top/><bottom/></border>
+    <!-- 1: Data cell thin border (black) -->
     <border>
-      <left style="thin"><color rgb="FFE2E8F0"/></left>
-      <right style="thin"><color rgb="FFE2E8F0"/></right>
-      <top style="thin"><color rgb="FFE2E8F0"/></top>
-      <bottom style="thin"><color rgb="FFE2E8F0"/></bottom>
+      <left style="thin"><color rgb="FF000000"/></left>
+      <right style="thin"><color rgb="FF000000"/></right>
+      <top style="thin"><color rgb="FF000000"/></top>
+      <bottom style="thin"><color rgb="FF000000"/></bottom>
     </border>
+    <!-- 2: Total bottom double border -->
     <border>
-      <left style="thin"><color rgb="FFCBD5E1"/></left>
-      <right style="thin"><color rgb="FFCBD5E1"/></right>
-      <top style="thin"><color rgb="FFCBD5E1"/></top>
-      <bottom style="double"><color rgb="FF475569"/></bottom>
+      <left style="thin"><color rgb="FF000000"/></left>
+      <right style="thin"><color rgb="FF000000"/></right>
+      <top style="thin"><color rgb="FF000000"/></top>
+      <bottom style="double"><color rgb="FF000000"/></bottom>
+    </border>
+    <!-- 3: Outer/Header border -->
+    <border>
+      <left style="thin"><color rgb="FF000000"/></left>
+      <right style="thin"><color rgb="FF000000"/></right>
+      <top style="thin"><color rgb="FF000000"/></top>
+      <bottom style="thin"><color rgb="FF000000"/></bottom>
     </border>
   </borders>
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="9">
+  <cellXfs count="23">
     <!-- 0: default -->
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <!-- 1: Title (A1) -->
     <xf numFmtId="0" fontId="1" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 2: Header (Row 2) -->
-    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+    <!-- 2: Old Header (Row 2 legacy) -->
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center" wrapText="1"/>
     </xf>
     <!-- 3: Data text center -->
@@ -240,12 +266,36 @@ ${mergeCells.join("\n")}
       <alignment horizontal="right" vertical="center"/>
     </xf>
     <!-- 7: Total label center -->
-    <xf numFmtId="0" fontId="3" fillId="4" borderId="2" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+    <xf numFmtId="0" fontId="3" fillId="6" borderId="2" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
     <!-- 8: Total number right -->
-    <xf numFmtId="1" fontId="3" fillId="4" borderId="2" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+    <xf numFmtId="1" fontId="3" fillId="6" borderId="2" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="right" vertical="center"/>
+    </xf>
+    <!-- 9~19: reserved -->
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <!-- 20: Header White background (A, B, C, I, L, M) -->
+    <xf numFmtId="0" fontId="2" fillId="2" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+      <alignment horizontal="center" vertical="center" wrapText="1"/>
+    </xf>
+    <!-- 21: Header Light Blue background (D, H, K: #DDEBF7) -->
+    <xf numFmtId="0" fontId="2" fillId="3" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+      <alignment horizontal="center" vertical="center" wrapText="1"/>
+    </xf>
+    <!-- 22: Header Light Yellow background (E, F, G, J: #FFF2CC) -->
+    <xf numFmtId="0" fontId="2" fillId="4" borderId="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+      <alignment horizontal="center" vertical="center" wrapText="1"/>
     </xf>
   </cellXfs>
 </styleSheet>`;
