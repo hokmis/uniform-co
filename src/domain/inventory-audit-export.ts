@@ -161,7 +161,7 @@ export function generateInventoryAuditXlsx(
   } else {
     totalCells.push(`<c r="M${totalRow}" s="16"><v>0</v></c>`);
   }
-  sheetRows.push(`    <row r="${totalRow}" ht="24" customHeight="1">${totalCells.join("")}</row>`);
+  sheetRows.push(`    <row r="${totalRow}" ht="26" customHeight="1">${totalCells.join("")}</row>`);
 
   // 總計下方空白間隔列
   const blankRow = totalRow + 1;
@@ -244,18 +244,18 @@ export function generateInventoryAuditXlsx(
   <sheetFormatPr defaultRowHeight="22"/>
   <cols>
     <col min="1" max="1" width="16" customWidth="1"/>
-    <col min="2" max="2" width="28" customWidth="1"/>
+    <col min="2" max="2" width="20.6" customWidth="1"/>
     <col min="3" max="3" width="4.5" customWidth="1"/>
-    <col min="4" max="4" width="15" customWidth="1"/>
-    <col min="5" max="5" width="15" customWidth="1"/>
-    <col min="6" max="6" width="15" customWidth="1"/>
-    <col min="7" max="7" width="15" customWidth="1"/>
-    <col min="8" max="8" width="15" customWidth="1"/>
-    <col min="9" max="9" width="15" customWidth="1"/>
-    <col min="10" max="10" width="15" customWidth="1"/>
-    <col min="11" max="11" width="15" customWidth="1"/>
-    <col min="12" max="12" width="14" customWidth="1"/>
-    <col min="13" max="13" width="14" customWidth="1"/>
+    <col min="4" max="4" width="10.6" customWidth="1"/>
+    <col min="5" max="5" width="10.6" customWidth="1"/>
+    <col min="6" max="6" width="10.6" customWidth="1"/>
+    <col min="7" max="7" width="10.6" customWidth="1"/>
+    <col min="8" max="8" width="10.6" customWidth="1"/>
+    <col min="9" max="9" width="10.6" customWidth="1"/>
+    <col min="10" max="10" width="10.6" customWidth="1"/>
+    <col min="11" max="11" width="10.6" customWidth="1"/>
+    <col min="12" max="12" width="10.6" customWidth="1"/>
+    <col min="13" max="13" width="10.6" customWidth="1"/>
   </cols>
   <sheetData>
 ${sheetRows.join("\n")}
@@ -470,20 +470,20 @@ ${sheetRows.join("\n")}
     <xf numFmtId="0" fontId="2" fillId="3" borderId="6" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center" wrapText="1"/>
     </xf>
-    <!-- 13: Total label center - left edge -->
-    <xf numFmtId="0" fontId="3" fillId="6" borderId="7" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+    <!-- 13: Total label center - left edge (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="6" borderId="7" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 14: Total label center - middle -->
-    <xf numFmtId="0" fontId="3" fillId="6" borderId="8" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
+    <!-- 14: Total label center - middle (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="6" borderId="8" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 15: Total number right - middle -->
-    <xf numFmtId="1" fontId="3" fillId="6" borderId="8" applyFont="1" applyBorder="1" applyAlignment="1">
+    <!-- 15: Total number right - middle (14pt bold) -->
+    <xf numFmtId="1" fontId="1" fillId="6" borderId="8" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="right" vertical="center"/>
     </xf>
-    <!-- 16: Total number right - right edge -->
-    <xf numFmtId="1" fontId="3" fillId="6" borderId="9" applyFont="1" applyBorder="1" applyAlignment="1">
+    <!-- 16: Total number right - right edge (14pt bold) -->
+    <xf numFmtId="1" fontId="1" fillId="6" borderId="9" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="right" vertical="center"/>
     </xf>
     <!-- 17: Blank row A (left medium, bottom medium) -->
@@ -492,32 +492,32 @@ ${sheetRows.join("\n")}
     <xf numFmtId="0" fontId="0" fillId="0" borderId="11" applyBorder="1"/>
     <!-- 19: Blank row M (right medium, bottom medium) -->
     <xf numFmtId="0" fontId="0" fillId="0" borderId="12" applyBorder="1"/>
-    <!-- 20: Sig block A (sigRow1: top medium, left medium, right/bottom thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="4" applyFont="1" applyBorder="1" applyAlignment="1">
+    <!-- 20: Sig block A (sigRow1: top medium, left medium, right/bottom thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="4" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 21: Sig block B~L (sigRow1: top medium, bottom/left/right thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="13" applyFont="1" applyBorder="1" applyAlignment="1">
+    <!-- 21: Sig block B~L (sigRow1: top medium, bottom/left/right thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="13" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 22: Sig block M (sigRow1: top medium, right medium, left/bottom thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="14" applyBorder="1"/>
-    <!-- 23: Sig block A (sigRow2: left medium, right/top/bottom thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="2" applyBorder="1"/>
-    <!-- 24: Sig block B~L (sigRow2: all thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1">
+    <!-- 22: Sig block M (sigRow1: top medium, right medium, left/bottom thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="14" applyFont="1" applyBorder="1"/>
+    <!-- 23: Sig block A (sigRow2: left medium, right/top/bottom thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="2" applyFont="1" applyBorder="1"/>
+    <!-- 24: Sig block B~L (sigRow2: all thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="1" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 25: Sig block M (sigRow2: right medium, left/top/bottom thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="3" applyBorder="1"/>
-    <!-- 26: Sig block A (sigRow3: left medium, bottom medium, right/top thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="10" applyBorder="1"/>
-    <!-- 27: Sig block B~L (sigRow3: bottom medium, top/left/right thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="15" applyFont="1" applyBorder="1" applyAlignment="1">
+    <!-- 25: Sig block M (sigRow2: right medium, left/top/bottom thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="3" applyFont="1" applyBorder="1"/>
+    <!-- 26: Sig block A (sigRow3: left medium, bottom medium, right/top thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="10" applyFont="1" applyBorder="1"/>
+    <!-- 27: Sig block B~L (sigRow3: bottom medium, top/left/right thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="15" applyFont="1" applyBorder="1" applyAlignment="1">
       <alignment horizontal="center" vertical="center"/>
     </xf>
-    <!-- 28: Sig block M (sigRow3: bottom medium, right medium, top/left thin) -->
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="16" applyBorder="1"/>
+    <!-- 28: Sig block M (sigRow3: bottom medium, right medium, top/left thin) (14pt bold) -->
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="16" applyFont="1" applyBorder="1"/>
   </cellXfs>
 </styleSheet>`;
 

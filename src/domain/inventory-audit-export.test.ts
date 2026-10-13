@@ -82,8 +82,11 @@ describe("generateInventoryAuditXlsx", () => {
     // 驗證外框線包含 medium 粗外框
     expect(stylesXml).toContain('style="medium"');
 
-    // 驗證 C 欄寬度為 4.5
+    // 驗證欄寬設定 (B欄: 20.6, C欄: 4.5, D~M欄: 10.6)
+    expect(sheetXml).toContain('<col min="2" max="2" width="20.6" customWidth="1"/>');
     expect(sheetXml).toContain('<col min="3" max="3" width="4.5" customWidth="1"/>');
+    expect(sheetXml).toContain('<col min="4" max="4" width="10.6" customWidth="1"/>');
+    expect(sheetXml).toContain('<col min="13" max="13" width="10.6" customWidth="1"/>');
 
     // 驗證 D2 欄位文字已改為總倉庫存
     expect(sheetXml).toContain('總倉庫存&#10;(9月末存)&#10;(盤點值)');
@@ -96,6 +99,13 @@ describe("generateInventoryAuditXlsx", () => {
     expect(sheetXml).toContain('主管簽章：');
     expect(sheetXml).toContain('覆核簽章：');
     expect(sheetXml).toContain('經辦簽章：');
+
+    // 驗證總計列與簽核列使用 fontId="1" (14pt bold)
+    expect(stylesXml).toMatch(/<!-- 13: Total label[\s\S]*?fontId="1"/);
+    expect(stylesXml).toMatch(/<!-- 20: Sig block A[\s\S]*?fontId="1"/);
+    expect(stylesXml).toMatch(/<!-- 21: Sig block B~L[\s\S]*?fontId="1"/);
+    expect(stylesXml).toMatch(/<!-- 24: Sig block B~L[\s\S]*?fontId="1"/);
+    expect(stylesXml).toMatch(/<!-- 27: Sig block B~L[\s\S]*?fontId="1"/);
 
     // 驗證工作表包含表頭樣式參照 (s="8", s="9", s="10", s="11", s="12")
     expect(sheetXml).toContain('s="8"');  // A2 (白底左上角)
