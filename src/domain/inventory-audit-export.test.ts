@@ -72,10 +72,21 @@ describe("generateInventoryAuditXlsx", () => {
     expect(stylesXml).toContain('<fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/></patternFill></fill>');
     expect(stylesXml).toContain('<fill><patternFill patternType="solid"><fgColor rgb="FFFFF2CC"/></patternFill></fill>');
 
-    // 驗證工作表包含表頭顏色樣式參照 (s="8", s="9", s="10")
-    expect(sheetXml).toContain('s="8"');
-    expect(sheetXml).toContain('s="9"');
-    expect(sheetXml).toContain('s="10"');
+    // 驗證所有字體大小均為 12pt
+    expect(stylesXml).toContain('<sz val="12"/>');
+    expect(stylesXml).not.toContain('<sz val="11"/>');
+    expect(stylesXml).not.toContain('<sz val="15"/>');
+    expect(stylesXml).not.toContain('<sz val="10"/>');
+
+    // 驗證外框線包含 medium 粗外框
+    expect(stylesXml).toContain('style="medium"');
+
+    // 驗證工作表包含表頭樣式參照 (s="8", s="9", s="10", s="11", s="12")
+    expect(sheetXml).toContain('s="8"');  // A2 (白底左上角)
+    expect(sheetXml).toContain('s="9"');  // B2, C2 (白底頂部中間)
+    expect(sheetXml).toContain('s="10"'); // D2, H2, I2, K2, L2 (粉藍底頂部中間)
+    expect(sheetXml).toContain('s="11"'); // E2, F2, G2, J2 (粉黃底頂部中間)
+    expect(sheetXml).toContain('s="12"'); // M2 (粉藍底右上角)
     expect(sheetXml).toContain('xml:space="preserve"');
   });
 });
