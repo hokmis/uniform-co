@@ -108,10 +108,18 @@ export default function HrIssueCorrectionPanel() {
     if (!sourceSnapshotReady) return;
     const recoveredLineId = recoveredLineIdRef.current;
     setLineId((current) => {
-      if (recoveredLineId && lines.some((line) => line.id === recoveredLineId)) return recoveredLineId;
-      return lines.some((line) => line.id === current) ? current : "";
+      const nextId = (recoveredLineId && lines.some((line) => line.id === recoveredLineId))
+        ? recoveredLineId
+        : (lines.some((line) => line.id === current) ? current : "");
+      if (nextId && !correction) {
+        const targetLine = lines.find((line) => line.id === nextId);
+        if (targetLine) {
+          setCorrectionNo((prev) => prev || targetLine.request_no);
+        }
+      }
+      return nextId;
     });
-  }, [lines, sourceSnapshotReady]);
+  }, [correction, lines, sourceSnapshotReady]);
 
   useEffect(() => {
     if (!panelActive || !client || !hasSession || identityLoading || identityError || !accountId) return;
@@ -138,6 +146,7 @@ export default function HrIssueCorrectionPanel() {
       if (data?.id) {
         const recovered = data as Correction;
         setCorrection(recovered);
+        setCorrectionNo(recovered.correction_no);
         setCompletionUnresolved(false);
         window.localStorage.setItem(`${STORAGE_PREFIX}:id`, recovered.id);
         const [lineResult] = await retrySupabaseQueriesAfterSessionRefresh(
@@ -190,7 +199,10 @@ export default function HrIssueCorrectionPanel() {
   function chooseLine(nextId: string) {
     recoveredLineIdRef.current = null;
     resetKeys(); window.localStorage.removeItem(`${STORAGE_PREFIX}:id`);
-    setLineId(nextId); setCorrection(null); setCorrectionNo(""); setReason(""); setDelta(0);
+    setLineId(nextId); setCorrection(null);
+    const targetLine = lines.find((line) => line.id === nextId);
+    setCorrectionNo(targetLine?.request_no ?? "");
+    setReason(""); setDelta(0);
   }
   async function createDraft(keepBusy = false): Promise<Correction | null> {
     if (!client || !selectedLine) { setMessage("請先選擇已 SHIPPED 的人資發放明細。"); return null; }
