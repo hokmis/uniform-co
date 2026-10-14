@@ -1,4 +1,8 @@
-export type StockMovementPostingKind = "WAREHOUSE_SHIPMENT" | "REPLENISHMENT" | "HR_REQUEST_RESERVATION";
+export type StockMovementPostingKind =
+  | "WAREHOUSE_SHIPMENT"
+  | "REPLENISHMENT"
+  | "HR_REQUEST_RESERVATION"
+  | "HR_ISSUE_CORRECTION";
 
 export type StockMovementRow = {
   id: string; // posting_id + "_" + item_id
@@ -44,6 +48,7 @@ export function postingKindToLabel(kind: string): string {
   if (kind === "WAREHOUSE_SHIPMENT") return "員工需求發貨";
   if (kind === "REPLENISHMENT") return "額外補庫調撥";
   if (kind === "HR_REQUEST_RESERVATION") return "需求預留(待發貨)";
+  if (kind === "HR_ISSUE_CORRECTION" || kind === "CORRECTION") return "人資發放更正";
   return kind;
 }
 
@@ -118,13 +123,23 @@ export function aggregateStockMovements(
     });
   }
 
-  // 2. 處理不可變發貨與補庫流水
+  // 2. 處理不可變發貨、補庫與發放更正流水
   for (const h of historyRows) {
-    const postingKind = String(h.posting_kind ?? "");
-    // 僅處理「員工制服需求發貨」與「額外補庫」
-    if (postingKind !== "WAREHOUSE_SHIPMENT" && postingKind !== "REPLENISHMENT") {
+    const rawPostingKind = String(h.posting_kind ?? "");
+    const movementKind = String(h.movement_kind ?? "");
+
+    // 處理「員工制服需求發貨」、「額外補庫」與「人資發放更正」
+    const isWarehouseShipment = rawPostingKind === "WAREHOUSE_SHIPMENT";
+    const isReplenishment = rawPostingKind === "REPLENISHMENT";
+    const isHrIssueCorrection = rawPostingKind === "CORRECTION" || movementKind === "HR_ISSUE_CORRECTION";
+
+    if (!isWarehouseShipment && !isReplenishment && !isHrIssueCorrection) {
       continue;
     }
+
+    const postingKind: StockMovementPostingKind = isHrIssueCorrection
+      ? "HR_ISSUE_CORRECTION"
+      : (rawPostingKind as StockMovementPostingKind);
 
     const postingId = String(h.posting_id ?? "");
     const itemId = String(h.item_id ?? "");
@@ -151,7 +166,7 @@ export function aggregateStockMovements(
       row = {
         id: groupKey,
         postingId,
-        postingKind: postingKind as StockMovementPostingKind,
+        postingKind,
         postingKindLabel: postingKindToLabel(postingKind),
         sourceNo,
         occurredOn,

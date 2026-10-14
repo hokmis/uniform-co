@@ -87,7 +87,7 @@ export default function InventoryMovementHistoryPanel() {
           client
             .from("v_inventory_history")
             .select("ledger_entry_id,posting_id,line_no,warehouse_id,warehouse_code,warehouse_name,warehouse_purpose,item_id,item_code,item_name,unit,posting_kind,movement_kind,quantity_delta,occurred_on,source_no,posted_by_name,posted_at,current_on_hand_quantity")
-            .in("posting_kind", ["WAREHOUSE_SHIPMENT", "REPLENISHMENT"])
+            .in("posting_kind", ["WAREHOUSE_SHIPMENT", "REPLENISHMENT", "CORRECTION"])
             .order("posted_at", { ascending: false })
             .limit(1000),
           client
@@ -115,7 +115,7 @@ export default function InventoryMovementHistoryPanel() {
 
       const aggregated = aggregateStockMovements(historyData, availabilityData, pendingData);
       setRows(aggregated);
-      setMessage(`已載入 ${aggregated.length} 筆進出貨異動紀錄（含待發貨預留、發貨與補庫過帳）`);
+      setMessage(`已載入 ${aggregated.length} 筆進出貨異動紀錄（含待發貨預留、發貨、補庫與發放更正過帳）`);
     } catch (err) {
       setMessage(`讀取進出貨紀錄異常：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -220,6 +220,32 @@ export default function InventoryMovementHistoryPanel() {
           if (!it.item_id) continue;
           const prev = increaseQtyByItem.get(it.item_id) || 0;
           increaseQtyByItem.set(it.item_id, prev + (Number(it.increase_quantity) || 0));
+        }
+      }
+
+      // 3.1 抓取區間內已過帳之人資發放更正 (issue_correction_lines)，並納入發放量計算
+      const [correctionsRes] = await retrySupabaseQueriesAfterSessionRefresh(
+        client,
+        () => Promise.all([
+          client
+            .from("correction_notes")
+            .select("id, status, posted_at, issue_correction_lines(item_id, issue_quantity_delta)")
+            .eq("correction_kind", "HR_ISSUE")
+            .eq("status", "POSTED")
+            .gte("posted_at", `${effectiveStartDate}T00:00:00`)
+            .lte("posted_at", `${effectiveEndDate}T23:59:59`)
+            .limit(2000),
+        ]),
+      );
+
+      if (correctionsRes?.data) {
+        for (const note of (correctionsRes.data as Array<Record<string, unknown>>)) {
+          const cLines = (note.issue_correction_lines ?? []) as Array<{ item_id: string; issue_quantity_delta: number | null }>;
+          for (const cl of cLines) {
+            if (!cl.item_id) continue;
+            const prev = issueQtyByItem.get(cl.item_id) || 0;
+            issueQtyByItem.set(cl.item_id, prev + (Number(cl.issue_quantity_delta) || 0));
+          }
         }
       }
 
@@ -386,7 +412,7 @@ export default function InventoryMovementHistoryPanel() {
         <span className="status-pill">流水紀錄</span>
       </div>
       <p className="auth-message">
-        即時追蹤依據「新增員工制服需求單（發貨）」與「額外補庫申請（調撥入庫）」造成的兩倉即時庫存異動，包含各品項規格、人資倉與總倉增減量及人資倉與總倉剩餘量。
+        即時追蹤依據「新增員工制服需求單（發貨）」、「額外補庫申請（調撥入庫）」與「人資發放更正」造成的兩倉即時庫存異動，包含各品項規格、人資倉與總倉增減量及人資倉與總倉剩餘量。
       </p>
 
       <div className="inventory-toolbar hr-request-history-toolbar">
@@ -414,6 +440,7 @@ export default function InventoryMovementHistoryPanel() {
             <option value="HR_REQUEST_RESERVATION">需求預留(待發貨)</option>
             <option value="WAREHOUSE_SHIPMENT">員工需求發貨</option>
             <option value="REPLENISHMENT">額外補庫調撥</option>
+            <option value="HR_ISSUE_CORRECTION">人資發放更正</option>
           </select>
         </label>
         <label className="field">
@@ -512,13 +539,17 @@ export default function InventoryMovementHistoryPanel() {
                           ? "#f3e8ff"
                           : row.postingKind === "REPLENISHMENT"
                             ? "#e0f2fe"
-                            : "#fef3c7",
+                            : row.postingKind === "HR_ISSUE_CORRECTION"
+                              ? "#ffedd5"
+                              : "#fef3c7",
                       color:
                         row.postingKind === "HR_REQUEST_RESERVATION"
                           ? "#7e22ce"
                           : row.postingKind === "REPLENISHMENT"
                             ? "#0369a1"
-                            : "#92400e",
+                            : row.postingKind === "HR_ISSUE_CORRECTION"
+                              ? "#c2410c"
+                              : "#92400e",
                     }}
                   >
                     {row.postingKindLabel}

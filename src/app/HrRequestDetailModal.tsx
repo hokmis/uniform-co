@@ -169,6 +169,20 @@ export default function HrRequestDetailModal({
           }
         }
 
+        // 若為人資發放更正單（CORR-...），先查詢關聯之 original_hr_request_id
+        if (postingKind === "HR_ISSUE_CORRECTION" || sourceNo.startsWith("CORR")) {
+          const { data: corrData, error: corrError } = await client
+            .from("correction_notes")
+            .select("id, correction_no, original_hr_request_id, status")
+            .or(`id.eq.${actualRequestId || "00000000-0000-0000-0000-000000000000"},correction_no.eq.${sourceNo}`)
+            .limit(1)
+            .maybeSingle();
+
+          if (!corrError && corrData?.original_hr_request_id) {
+            actualRequestId = String(corrData.original_hr_request_id);
+          }
+        }
+
         // 處理額外補庫單
         if (isReplenishment) {
           const [repRes, itemsRes] = await retrySupabaseQueriesAfterSessionRefresh(client, () =>
