@@ -110,10 +110,18 @@ export default function ReturnCorrectionPanel() {
     if (!sourceSnapshotReady) return;
     const recovered = recoveredLineIdRef.current;
     setLineId((current) => {
-      if (recovered && lines.some((line) => line.id === recovered)) return recovered;
-      return lines.some((line) => line.id === current) ? current : "";
+      const nextId = (recovered && lines.some((line) => line.id === recovered))
+        ? recovered
+        : (lines.some((line) => line.id === current) ? current : "");
+      if (nextId && !correction) {
+        const targetLine = lines.find((line) => line.id === nextId);
+        if (targetLine) {
+          setCorrectionNo((prev) => prev || targetLine.return_no);
+        }
+      }
+      return nextId;
     });
-  }, [lines, sourceSnapshotReady]);
+  }, [correction, lines, sourceSnapshotReady]);
 
   useEffect(() => {
     if (!identityReady || !client) return;
@@ -138,7 +146,9 @@ export default function ReturnCorrectionPanel() {
       if (statusResult.error) { setMessage(`退回更正結果尚未確認：${safeSupabaseReadErrorMessage(statusResult.error)}`); setCompletionUnresolved(true); return; }
       if (statusResult.data?.id) {
         setCompletionUnresolved(false);
-        setCorrection(statusResult.data as Correction);
+        const recoveredCorrection = statusResult.data as Correction;
+        setCorrection(recoveredCorrection);
+        setCorrectionNo(recoveredCorrection.correction_no);
         window.localStorage.setItem(`${STORAGE_PREFIX}:id`, String(statusResult.data.id));
         const [sourceResult] = await retrySupabaseQueriesAfterSessionRefresh(
           supabase,
@@ -190,7 +200,10 @@ export default function ReturnCorrectionPanel() {
     if (correction) return;
     recoveredLineIdRef.current = null;
     resetKeys(); window.localStorage.removeItem(`${STORAGE_PREFIX}:id`);
-    setLineId(nextId); setDelta(0); setReason(""); setNote("");
+    setLineId(nextId);
+    const targetLine = lines.find((line) => line.id === nextId);
+    setCorrectionNo(targetLine?.return_no ?? "");
+    setDelta(0); setReason(""); setNote("");
   }
   async function createDraft(keepBusy = false): Promise<Correction | null> {
     if (!client || !selectedLine || !correctionNo.trim() || validationError) {
