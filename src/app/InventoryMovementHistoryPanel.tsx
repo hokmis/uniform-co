@@ -53,6 +53,39 @@ function formatTaipeiDateTime(postedAt: string, occurredOn: string): string {
   }).format(date).replace(/\//g, "-");
 }
 
+function getPostingBadgeStyle(kind: StockMovementPostingKind): { background: string; color: string } {
+  switch (kind) {
+    case "HR_REQUEST_RESERVATION":
+      return { background: "#f3e8ff", color: "#7e22ce" };
+    case "WAREHOUSE_SHIPMENT":
+      return { background: "#fef3c7", color: "#92400e" };
+    case "REPLENISHMENT":
+      return { background: "#e0f2fe", color: "#0369a1" };
+    case "HR_ISSUE_CORRECTION":
+      return { background: "#ffedd5", color: "#c2410c" };
+    case "RETURN":
+      return { background: "#dcfce7", color: "#15803d" };
+    case "RETURN_CORRECTION":
+      return { background: "#ccfbf1", color: "#0f766e" };
+    case "RECEIPT":
+      return { background: "#dbeafe", color: "#1e40af" };
+    case "PURCHASE_RECEIPT_CORRECTION":
+      return { background: "#e0e7ff", color: "#3730a3" };
+    case "STOCKTAKE":
+      return { background: "#fce7f3", color: "#9d174d" };
+    case "STOCKTAKE_CORRECTION":
+      return { background: "#ffe4e6", color: "#9f1239" };
+    case "ADJUSTMENT":
+      return { background: "#f1f5f9", color: "#334155" };
+    case "TRANSFER_CORRECTION":
+      return { background: "#ede9fe", color: "#5b21b6" };
+    case "OPENING":
+      return { background: "#ecfccb", color: "#3f6212" };
+    default:
+      return { background: "#f1f5f9", color: "#475569" };
+  }
+}
+
 export default function InventoryMovementHistoryPanel() {
   const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
   const panelActive = usePanelActivity();
@@ -87,9 +120,18 @@ export default function InventoryMovementHistoryPanel() {
           client
             .from("v_inventory_history")
             .select("ledger_entry_id,posting_id,line_no,warehouse_id,warehouse_code,warehouse_name,warehouse_purpose,item_id,item_code,item_name,unit,posting_kind,movement_kind,quantity_delta,occurred_on,source_no,posted_by_name,posted_at,current_on_hand_quantity")
-            .in("posting_kind", ["WAREHOUSE_SHIPMENT", "REPLENISHMENT", "CORRECTION"])
+            .in("posting_kind", [
+              "WAREHOUSE_SHIPMENT",
+              "REPLENISHMENT",
+              "CORRECTION",
+              "RETURN",
+              "RECEIPT",
+              "STOCKTAKE",
+              "ADJUSTMENT",
+              "OPENING",
+            ])
             .order("posted_at", { ascending: false })
-            .limit(1000),
+            .limit(2000),
           client
             .from("v_item_availability")
             .select("item_id,item_code,item_name,size,unit,hr_on_hand_quantity,general_on_hand_quantity")
@@ -115,7 +157,7 @@ export default function InventoryMovementHistoryPanel() {
 
       const aggregated = aggregateStockMovements(historyData, availabilityData, pendingData);
       setRows(aggregated);
-      setMessage(`已載入 ${aggregated.length} 筆進出貨異動紀錄（含待發貨預留、發貨、補庫與發放更正過帳）`);
+      setMessage(`已載入 ${aggregated.length} 筆進出貨異動紀錄（包含全流程發貨、補庫、退回、採購入庫、盤點、庫存調整與更正單據）`);
     } catch (err) {
       setMessage(`讀取進出貨紀錄異常：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -412,7 +454,7 @@ export default function InventoryMovementHistoryPanel() {
         <span className="status-pill">流水紀錄</span>
       </div>
       <p className="auth-message">
-        即時追蹤依據「新增員工制服需求單（發貨）」、「額外補庫申請（調撥入庫）」與「人資發放更正」造成的兩倉即時庫存異動，包含各品項規格、人資倉與總倉增減量及人資倉與總倉剩餘量。
+        即時追蹤全系統所有影響兩倉數量的進出貨與庫存異動，包含員工需求發貨、額外補庫調撥、需求預留、制服退回、廠商採購入庫、倉庫盤點盈虧、庫存調整及各類更正作業。
       </p>
 
       <div className="inventory-toolbar hr-request-history-toolbar">
@@ -436,11 +478,20 @@ export default function InventoryMovementHistoryPanel() {
               setPage(1);
             }}
           >
-            <option value="ALL">全部單據</option>
+            <option value="ALL">全部單據類型</option>
             <option value="HR_REQUEST_RESERVATION">需求預留(待發貨)</option>
             <option value="WAREHOUSE_SHIPMENT">員工需求發貨</option>
             <option value="REPLENISHMENT">額外補庫調撥</option>
             <option value="HR_ISSUE_CORRECTION">人資發放更正</option>
+            <option value="RETURN">員工制服退回</option>
+            <option value="RETURN_CORRECTION">退回更正</option>
+            <option value="RECEIPT">廠商採購入庫</option>
+            <option value="PURCHASE_RECEIPT_CORRECTION">採購驗收更正</option>
+            <option value="STOCKTAKE">倉庫盤點盈虧</option>
+            <option value="STOCKTAKE_CORRECTION">盤點更正</option>
+            <option value="ADJUSTMENT">庫存調整</option>
+            <option value="TRANSFER_CORRECTION">調撥更正</option>
+            <option value="OPENING">期初開帳導入</option>
           </select>
         </label>
         <label className="field">
@@ -527,33 +578,24 @@ export default function InventoryMovementHistoryPanel() {
             render: (row) => (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      fontSize: "0.75rem",
-                      padding: "1px 6px",
-                      borderRadius: 4,
-                      fontWeight: 600,
-                      background:
-                        row.postingKind === "HR_REQUEST_RESERVATION"
-                          ? "#f3e8ff"
-                          : row.postingKind === "REPLENISHMENT"
-                            ? "#e0f2fe"
-                            : row.postingKind === "HR_ISSUE_CORRECTION"
-                              ? "#ffedd5"
-                              : "#fef3c7",
-                      color:
-                        row.postingKind === "HR_REQUEST_RESERVATION"
-                          ? "#7e22ce"
-                          : row.postingKind === "REPLENISHMENT"
-                            ? "#0369a1"
-                            : row.postingKind === "HR_ISSUE_CORRECTION"
-                              ? "#c2410c"
-                              : "#92400e",
-                    }}
-                  >
-                    {row.postingKindLabel}
-                  </span>
+                  {(() => {
+                    const badgeStyle = getPostingBadgeStyle(row.postingKind);
+                    return (
+                      <span
+                        style={{
+                          display: "inline-block",
+                          fontSize: "0.75rem",
+                          padding: "1px 6px",
+                          borderRadius: 4,
+                          fontWeight: 600,
+                          background: badgeStyle.background,
+                          color: badgeStyle.color,
+                        }}
+                      >
+                        {row.postingKindLabel}
+                      </span>
+                    );
+                  })()}
                   <button
                     type="button"
                     style={{

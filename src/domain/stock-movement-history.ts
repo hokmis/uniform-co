@@ -2,7 +2,16 @@ export type StockMovementPostingKind =
   | "WAREHOUSE_SHIPMENT"
   | "REPLENISHMENT"
   | "HR_REQUEST_RESERVATION"
-  | "HR_ISSUE_CORRECTION";
+  | "HR_ISSUE_CORRECTION"
+  | "RETURN"
+  | "RETURN_CORRECTION"
+  | "RECEIPT"
+  | "PURCHASE_RECEIPT_CORRECTION"
+  | "STOCKTAKE"
+  | "STOCKTAKE_CORRECTION"
+  | "ADJUSTMENT"
+  | "TRANSFER_CORRECTION"
+  | "OPENING";
 
 export type StockMovementRow = {
   id: string; // posting_id + "_" + item_id
@@ -45,11 +54,38 @@ export type StockMovementSortKey =
 export type StockMovementSortDirection = "asc" | "desc";
 
 export function postingKindToLabel(kind: string): string {
-  if (kind === "WAREHOUSE_SHIPMENT") return "員工需求發貨";
-  if (kind === "REPLENISHMENT") return "額外補庫調撥";
-  if (kind === "HR_REQUEST_RESERVATION") return "需求預留(待發貨)";
-  if (kind === "HR_ISSUE_CORRECTION" || kind === "CORRECTION") return "人資發放更正";
-  return kind;
+  switch (kind) {
+    case "WAREHOUSE_SHIPMENT":
+      return "員工需求發貨";
+    case "REPLENISHMENT":
+      return "額外補庫調撥";
+    case "HR_REQUEST_RESERVATION":
+      return "需求預留(待發貨)";
+    case "HR_ISSUE_CORRECTION":
+      return "人資發放更正";
+    case "RETURN":
+      return "員工制服退回";
+    case "RETURN_CORRECTION":
+      return "退回更正";
+    case "RECEIPT":
+      return "廠商採購入庫";
+    case "PURCHASE_RECEIPT_CORRECTION":
+      return "採購驗收更正";
+    case "STOCKTAKE":
+      return "倉庫盤點盈虧";
+    case "STOCKTAKE_CORRECTION":
+      return "盤點更正";
+    case "ADJUSTMENT":
+      return "庫存調整";
+    case "TRANSFER_CORRECTION":
+      return "調撥更正";
+    case "OPENING":
+      return "期初開帳導入";
+    case "CORRECTION":
+      return "更正作業";
+    default:
+      return kind;
+  }
 }
 
 /**
@@ -123,23 +159,43 @@ export function aggregateStockMovements(
     });
   }
 
-  // 2. 處理不可變發貨、補庫與發放更正流水
+  // 2. 處理全系統所有影響兩倉數量的不可變過帳流水
   for (const h of historyRows) {
     const rawPostingKind = String(h.posting_kind ?? "");
     const movementKind = String(h.movement_kind ?? "");
 
-    // 處理「員工制服需求發貨」、「額外補庫」與「人資發放更正」
-    const isWarehouseShipment = rawPostingKind === "WAREHOUSE_SHIPMENT";
-    const isReplenishment = rawPostingKind === "REPLENISHMENT";
-    const isHrIssueCorrection = rawPostingKind === "CORRECTION" || movementKind === "HR_ISSUE_CORRECTION";
+    let postingKind: StockMovementPostingKind;
 
-    if (!isWarehouseShipment && !isReplenishment && !isHrIssueCorrection) {
+    if (rawPostingKind === "CORRECTION" || movementKind.includes("CORRECTION")) {
+      if (movementKind === "RETURN_CORRECTION") {
+        postingKind = "RETURN_CORRECTION";
+      } else if (movementKind === "PURCHASE_RECEIPT_CORRECTION") {
+        postingKind = "PURCHASE_RECEIPT_CORRECTION";
+      } else if (movementKind === "STOCKTAKE_CORRECTION") {
+        postingKind = "STOCKTAKE_CORRECTION";
+      } else if (movementKind === "TRANSFER_CORRECTION") {
+        postingKind = "TRANSFER_CORRECTION";
+      } else {
+        // 預設 HR_ISSUE_CORRECTION 或一般更正
+        postingKind = "HR_ISSUE_CORRECTION";
+      }
+    } else if (rawPostingKind === "WAREHOUSE_SHIPMENT") {
+      postingKind = "WAREHOUSE_SHIPMENT";
+    } else if (rawPostingKind === "REPLENISHMENT") {
+      postingKind = "REPLENISHMENT";
+    } else if (rawPostingKind === "RETURN") {
+      postingKind = "RETURN";
+    } else if (rawPostingKind === "RECEIPT") {
+      postingKind = "RECEIPT";
+    } else if (rawPostingKind === "STOCKTAKE") {
+      postingKind = "STOCKTAKE";
+    } else if (rawPostingKind === "ADJUSTMENT") {
+      postingKind = "ADJUSTMENT";
+    } else if (rawPostingKind === "OPENING") {
+      postingKind = "OPENING";
+    } else {
       continue;
     }
-
-    const postingKind: StockMovementPostingKind = isHrIssueCorrection
-      ? "HR_ISSUE_CORRECTION"
-      : (rawPostingKind as StockMovementPostingKind);
 
     const postingId = String(h.posting_id ?? "");
     const itemId = String(h.item_id ?? "");

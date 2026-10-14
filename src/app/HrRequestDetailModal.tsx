@@ -14,7 +14,7 @@ import {
   type RawIssueLineInput,
   type ItemStockInfo,
 } from "@/src/domain/hr-request-pivot-export";
-import type { StockMovementPostingKind } from "@/src/domain/stock-movement-history";
+import { postingKindToLabel, type StockMovementPostingKind } from "@/src/domain/stock-movement-history";
 
 type RequestItem = {
   id: string;
@@ -97,6 +97,7 @@ export default function HrRequestDetailModal({
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [orgMap, setOrgMap] = useState<Map<string, string>>(new Map());
   const [exporting, setExporting] = useState(false);
+  const [docNotice, setDocNotice] = useState<{ kindLabel: string; isWarehouseOnly: boolean } | null>(null);
 
   // 鍵盤 Esc 關閉
   useEffect(() => {
@@ -146,6 +147,7 @@ export default function HrRequestDetailModal({
       if (!client) return;
       setLoading(true);
       setErrorMsg("");
+      setDocNotice(null);
       setHeader(null);
       setItems([]);
       setIssueLines([]);
@@ -180,6 +182,45 @@ export default function HrRequestDetailModal({
 
           if (!corrError && corrData?.original_hr_request_id) {
             actualRequestId = String(corrData.original_hr_request_id);
+          }
+        }
+
+        // 若為退回單（RET-...），查詢關聯之 original_hr_request_id
+        if (postingKind === "RETURN" || sourceNo.startsWith("RET")) {
+          const { data: returnData, error: returnError } = await client
+            .from("return_notes")
+            .select("id, return_no, original_hr_request_id, status")
+            .or(`id.eq.${actualRequestId || "00000000-0000-0000-0000-000000000000"},return_no.eq.${sourceNo}`)
+            .limit(1)
+            .maybeSingle();
+
+          if (!returnError && returnData?.original_hr_request_id) {
+            actualRequestId = String(returnData.original_hr_request_id);
+          }
+        }
+
+        // 若為退回更正單
+        if (postingKind === "RETURN_CORRECTION") {
+          const { data: corrData, error: corrError } = await client
+            .from("correction_notes")
+            .select("id, correction_no, original_return_note_id, original_hr_request_id, status")
+            .or(`id.eq.${actualRequestId || "00000000-0000-0000-0000-000000000000"},correction_no.eq.${sourceNo}`)
+            .limit(1)
+            .maybeSingle();
+
+          if (!corrError && corrData) {
+            if (corrData.original_hr_request_id) {
+              actualRequestId = String(corrData.original_hr_request_id);
+            } else if (corrData.original_return_note_id) {
+              const { data: retData } = await client
+                .from("return_notes")
+                .select("id, original_hr_request_id")
+                .eq("id", corrData.original_return_note_id)
+                .maybeSingle();
+              if (retData?.original_hr_request_id) {
+                actualRequestId = String(retData.original_hr_request_id);
+              }
+            }
           }
         }
 
@@ -269,7 +310,24 @@ export default function HrRequestDetailModal({
         if (!active) return;
 
         if (!headData) {
-          setErrorMsg("查無此需求單資料。");
+          const kindLabel = postingKindToLabel(postingKind || "");
+          const isWarehouseOnly = [
+            "RECEIPT",
+            "PURCHASE_RECEIPT_CORRECTION",
+            "STOCKTAKE",
+            "STOCKTAKE_CORRECTION",
+            "ADJUSTMENT",
+            "TRANSFER_CORRECTION",
+            "OPENING",
+            "RETURN",
+            "RETURN_CORRECTION",
+          ].includes(postingKind || "");
+
+          if (isWarehouseOnly) {
+            setDocNotice({ kindLabel, isWarehouseOnly: true });
+          } else {
+            setErrorMsg("查無此需求單資料。");
+          }
           setLoading(false);
           return;
         }
@@ -527,14 +585,14 @@ export default function HrRequestDetailModal({
                   padding: "2px 8px",
                   borderRadius: 4,
                   fontWeight: 700,
-                  backgroundColor: header?.requestType === "REPLENISHMENT" ? "#e0f2fe" : "#f3e8ff",
-                  color: header?.requestType === "REPLENISHMENT" ? "#0369a1" : "#7e22ce",
+                  backgroundColor: header?.requestType === "REPLENISHMENT" ? "#e0f2fe" : docNotice ? "#fef3c7" : "#f3e8ff",
+                  color: header?.requestType === "REPLENISHMENT" ? "#0369a1" : docNotice ? "#92400e" : "#7e22ce",
                 }}
               >
-                {header?.requestType === "REPLENISHMENT" ? "額外補庫單" : "員工制服需求單"}
+                {header?.requestType === "REPLENISHMENT" ? "額外補庫單" : docNotice ? docNotice.kindLabel : "員工制服需求單"}
               </span>
               <p className="eyebrow" style={{ margin: 0 }}>
-                {header?.requestType === "REPLENISHMENT" ? "REPLENISHMENT DETAILS" : "HR UNIFORM REQUEST"}
+                {header?.requestType === "REPLENISHMENT" ? "REPLENISHMENT DETAILS" : docNotice ? "INVENTORY MOVEMENT" : "HR UNIFORM REQUEST"}
               </p>
             </div>
             <h2 id="request-modal-title" style={{ margin: 0, fontSize: "1.35rem", display: "flex", alignItems: "center", gap: 10 }}>
@@ -761,6 +819,44 @@ export default function HrRequestDetailModal({
               </div>
             )}
           </>
+        ) : null}
+
+        {/* 倉庫獨立單據說明（無關聯需求單時友善提示） */}
+        {docNotice?.isWarehouseOnly && !loading && !header ? (
+          <div
+            style={{
+              padding: "24px",
+              background: "#f8fafc",
+              border: "1px solid #e2e8f0",
+              borderRadius: "8px",
+              marginTop: "8px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: "12px" }}>
+              <span
+                style={{
+                  display: "inline-block",
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  fontSize: "0.85rem",
+                  fontWeight: 700,
+                  background: "#dbeafe",
+                  color: "#1e40af",
+                }}
+              >
+                {docNotice.kindLabel}
+              </span>
+              <h3 style={{ margin: 0, fontSize: "1.1rem", color: "#1e293b" }}>
+                單號：{sourceNo}
+              </h3>
+            </div>
+            <p style={{ margin: "0 0 10px", color: "#334155", fontSize: "0.95rem", lineHeight: 1.6 }}>
+              此單據為「<strong>{docNotice.kindLabel}</strong>」，屬於倉庫獨立之庫存異動作業單據（無直接對應之員工需求申請單）。
+            </p>
+            <p style={{ margin: 0, color: "#64748b", fontSize: "0.875rem", lineHeight: 1.6 }}>
+              本單據的庫存數量增減與異動紀錄已完整登載於「進出貨紀錄」總表與倉庫流水帳中，您可於進出貨紀錄總表直接查看該單據對應品項之「人資倉」與「總倉」異動數量及即時庫存。
+            </p>
+          </div>
         ) : null}
 
         {/* Modal 底部關閉按鈕 */}
