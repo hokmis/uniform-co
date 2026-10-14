@@ -36,9 +36,26 @@ export type StockMovementRow = {
 export type StockMovementFilter = {
   query?: string;
   postingKind?: StockMovementPostingKind | "ALL";
+  postingKinds?: StockMovementPostingKind[];
   startDate?: string;
   endDate?: string;
 };
+
+export const ALL_POSTING_KINDS: Array<{ kind: StockMovementPostingKind; label: string }> = [
+  { kind: "HR_REQUEST_RESERVATION", label: "需求預留(待發貨)" },
+  { kind: "WAREHOUSE_SHIPMENT", label: "員工需求發貨" },
+  { kind: "REPLENISHMENT", label: "額外補庫調撥" },
+  { kind: "HR_ISSUE_CORRECTION", label: "人資發放更正" },
+  { kind: "RETURN", label: "員工制服退回" },
+  { kind: "RETURN_CORRECTION", label: "退回更正" },
+  { kind: "RECEIPT", label: "廠商採購入庫" },
+  { kind: "PURCHASE_RECEIPT_CORRECTION", label: "採購驗收更正" },
+  { kind: "STOCKTAKE", label: "倉庫盤點盈虧" },
+  { kind: "STOCKTAKE_CORRECTION", label: "盤點更正" },
+  { kind: "ADJUSTMENT", label: "庫存調整" },
+  { kind: "TRANSFER_CORRECTION", label: "調撥更正" },
+  { kind: "OPENING", label: "期初開帳導入" },
+];
 
 export type StockMovementSortKey =
   | "posted_at"
@@ -261,12 +278,20 @@ export function filterStockMovements(
   filter: StockMovementFilter,
 ): StockMovementRow[] {
   const query = filter.query?.trim().toLowerCase() ?? "";
+  const selectedKinds =
+    filter.postingKinds && filter.postingKinds.length > 0
+      ? new Set(filter.postingKinds)
+      : null;
   const postingKind = filter.postingKind ?? "ALL";
   const startDate = filter.startDate?.trim() ?? "";
   const endDate = filter.endDate?.trim() ?? "";
 
   return rows.filter((row) => {
-    if (postingKind !== "ALL" && row.postingKind !== postingKind) {
+    if (selectedKinds) {
+      if (!selectedKinds.has(row.postingKind)) {
+        return false;
+      }
+    } else if (postingKind !== "ALL" && row.postingKind !== postingKind) {
       return false;
     }
 

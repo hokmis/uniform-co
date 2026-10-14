@@ -6,6 +6,7 @@ import {
   aggregateStockMovements,
   filterStockMovements,
   sortStockMovements,
+  ALL_POSTING_KINDS,
   type StockMovementFilter,
   type StockMovementPostingKind,
   type StockMovementRow,
@@ -91,9 +92,17 @@ export default function InventoryMovementHistoryPanel() {
   const panelActive = usePanelActivity();
   const [rows, setRows] = useState<StockMovementRow[]>([]);
   const [query, setQuery] = useState("");
-  const [postingKindFilter, setPostingKindFilter] = useState<StockMovementPostingKind | "ALL">("ALL");
+  const [selectedPostingKinds, setSelectedPostingKinds] = useState<StockMovementPostingKind[]>([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+
+  const kindCounts = useMemo(() => {
+    const counts: Partial<Record<StockMovementPostingKind, number>> = {};
+    for (const r of rows) {
+      counts[r.postingKind] = (counts[r.postingKind] || 0) + 1;
+    }
+    return counts;
+  }, [rows]);
   const [sortKey, setSortKey] = useState<StockMovementSortKey>("posted_at");
   const [sortDirection, setSortDirection] = useState<StockMovementSortDirection>("desc");
   const [page, setPage] = useState(1);
@@ -408,12 +417,12 @@ export default function InventoryMovementHistoryPanel() {
   const filteredRows = useMemo(() => {
     const filter: StockMovementFilter = {
       query,
-      postingKind: postingKindFilter,
+      postingKinds: selectedPostingKinds,
       startDate,
       endDate,
     };
     return filterStockMovements(rows, filter);
-  }, [endDate, postingKindFilter, query, rows, startDate]);
+  }, [endDate, query, rows, selectedPostingKinds, startDate]);
 
   const sortedRows = useMemo(() => {
     return sortStockMovements(filteredRows, sortKey, sortDirection);
@@ -472,13 +481,29 @@ export default function InventoryMovementHistoryPanel() {
         <label className="field">
           <span>單據類型</span>
           <select
-            value={postingKindFilter}
+            value={
+              selectedPostingKinds.length === 0
+                ? "ALL"
+                : selectedPostingKinds.length === 1
+                  ? selectedPostingKinds[0]
+                  : "MULTI"
+            }
             onChange={(event) => {
-              setPostingKindFilter(event.target.value as StockMovementPostingKind | "ALL");
+              const val = event.target.value;
+              if (val === "ALL") {
+                setSelectedPostingKinds([]);
+              } else if (val !== "MULTI") {
+                setSelectedPostingKinds([val as StockMovementPostingKind]);
+              }
               setPage(1);
             }}
           >
             <option value="ALL">全部單據類型</option>
+            {selectedPostingKinds.length > 1 && (
+              <option value="MULTI" disabled>
+                已選取多標籤 ({selectedPostingKinds.length})
+              </option>
+            )}
             <option value="HR_REQUEST_RESERVATION">需求預留(待發貨)</option>
             <option value="WAREHOUSE_SHIPMENT">員工需求發貨</option>
             <option value="REPLENISHMENT">額外補庫調撥</option>
@@ -534,17 +559,158 @@ export default function InventoryMovementHistoryPanel() {
         </div>
       </div>
 
+      {/* 13 種庫存異動標籤化篩選區塊 */}
+      <div
+        className="stock-movement-tag-filter"
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+          margin: "12px 0 6px",
+          padding: "10px 14px",
+          background: "#f8fafc",
+          borderRadius: "8px",
+          border: "1px solid #e2e8f0",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b" }}>
+              單據標籤篩選：
+            </span>
+            <span style={{ fontSize: "0.8rem", color: "#64748b" }}>
+              {selectedPostingKinds.length === 0
+                ? "（目前顯示全部單據，點選任一標籤可單選或多選組合篩選）"
+                : `（已選取 ${selectedPostingKinds.length} 個標籤）`}
+            </span>
+          </div>
+          {selectedPostingKinds.length > 0 && (
+            <button
+              type="button"
+              style={{
+                border: "none",
+                background: "none",
+                color: "#2563eb",
+                fontSize: "0.8rem",
+                cursor: "pointer",
+                padding: 0,
+                textDecoration: "underline",
+                fontWeight: 600,
+              }}
+              onClick={() => {
+                setSelectedPostingKinds([]);
+                setPage(1);
+              }}
+            >
+              重設為全部標籤
+            </button>
+          )}
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" }}>
+          {/* 全部標籤按鈕 */}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedPostingKinds([]);
+              setPage(1);
+            }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 10px",
+              borderRadius: "16px",
+              fontSize: "0.8rem",
+              fontWeight: selectedPostingKinds.length === 0 ? 700 : 500,
+              cursor: "pointer",
+              border: selectedPostingKinds.length === 0 ? "1.5px solid #0f172a" : "1px solid #cbd5e1",
+              background: selectedPostingKinds.length === 0 ? "#0f172a" : "#ffffff",
+              color: selectedPostingKinds.length === 0 ? "#ffffff" : "#475569",
+              transition: "all 0.15s ease",
+            }}
+          >
+            全部 ({rows.length})
+          </button>
+
+          {/* 13 種庫存異動標籤 */}
+          {ALL_POSTING_KINDS.map(({ kind, label }) => {
+            const isSelected = selectedPostingKinds.includes(kind);
+            const style = getPostingBadgeStyle(kind);
+            const count = kindCounts[kind] || 0;
+
+            return (
+              <button
+                key={kind}
+                type="button"
+                onClick={() => {
+                  setPage(1);
+                  setSelectedPostingKinds((prev) => {
+                    if (prev.includes(kind)) {
+                      return prev.filter((k) => k !== kind);
+                    }
+                    return [...prev, kind];
+                  });
+                }}
+                title={`點擊${isSelected ? "取消篩選" : "篩選"} ${label}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 5,
+                  padding: "4px 10px",
+                  borderRadius: "16px",
+                  fontSize: "0.8rem",
+                  fontWeight: isSelected ? 700 : 500,
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  background: isSelected ? style.background : "#ffffff",
+                  color: isSelected ? style.color : "#475569",
+                  border: isSelected
+                    ? `2px solid ${style.color}`
+                    : "1px solid #e2e8f0",
+                  boxShadow: isSelected ? "0 1px 3px rgba(0,0,0,0.12)" : "none",
+                  opacity: selectedPostingKinds.length === 0 || isSelected ? 1 : 0.65,
+                }}
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    backgroundColor: style.color,
+                    display: "inline-block",
+                  }}
+                />
+                <span>{label}</span>
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    padding: "1px 5px",
+                    borderRadius: 8,
+                    background: isSelected ? "rgba(0,0,0,0.08)" : "#f1f5f9",
+                    color: isSelected ? style.color : "#64748b",
+                    fontWeight: 600,
+                  }}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="management-catalog-result">
         <p className="muted" role="status">
           {message || "尚未載入"}；符合條件 {sortedRows.length} 筆
         </p>
-        {(query || postingKindFilter !== "ALL" || startDate || endDate) ? (
+        {(query || selectedPostingKinds.length > 0 || startDate || endDate) ? (
           <button
             className="text-button"
             type="button"
             onClick={() => {
               setQuery("");
-              setPostingKindFilter("ALL");
+              setSelectedPostingKinds([]);
               setStartDate("");
               setEndDate("");
               setPage(1);

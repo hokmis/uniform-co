@@ -3,6 +3,7 @@ import {
   aggregateStockMovements,
   filterStockMovements,
   sortStockMovements,
+  ALL_POSTING_KINDS,
   type StockMovementRow,
 } from "./stock-movement-history";
 
@@ -302,5 +303,44 @@ describe("stock-movement-history", () => {
     expect(resRow.generalDelta).toBe(0);
     expect(resRow.hrOnHand).toBe(30);
     expect(resRow.generalOnHand).toBe(50);
+  });
+
+  it("filters stock movements by multiple posting kinds (tag-based multi-filter)", () => {
+    const rows = aggregateStockMovements(mockHistory, mockAvailability);
+
+    // 篩選單一標籤 (退回)
+    expect(filterStockMovements(rows, { postingKinds: ["RETURN"] }).length).toBe(1);
+
+    // 篩選雙標籤組合 (退回 + 採購)
+    const retAndRcp = filterStockMovements(rows, { postingKinds: ["RETURN", "RECEIPT"] });
+    expect(retAndRcp.length).toBe(2);
+    expect(retAndRcp.map((r) => r.postingKind)).toEqual(["RETURN", "RECEIPT"]);
+
+    // 篩選三標籤組合 (補庫 + 發放更正 + 需求發貨)
+    const multi = filterStockMovements(rows, {
+      postingKinds: ["REPLENISHMENT", "HR_ISSUE_CORRECTION", "WAREHOUSE_SHIPMENT"],
+    });
+    expect(multi.length).toBe(3);
+
+    // 空陣列標籤時應退回顯示全部
+    expect(filterStockMovements(rows, { postingKinds: [] }).length).toBe(7);
+  });
+
+  it("has exactly 13 predefined posting kinds for tag filtering", () => {
+    expect(ALL_POSTING_KINDS.length).toBe(13);
+    const kinds = ALL_POSTING_KINDS.map((k) => k.kind);
+    expect(kinds).toContain("HR_REQUEST_RESERVATION");
+    expect(kinds).toContain("WAREHOUSE_SHIPMENT");
+    expect(kinds).toContain("REPLENISHMENT");
+    expect(kinds).toContain("HR_ISSUE_CORRECTION");
+    expect(kinds).toContain("RETURN");
+    expect(kinds).toContain("RETURN_CORRECTION");
+    expect(kinds).toContain("RECEIPT");
+    expect(kinds).toContain("PURCHASE_RECEIPT_CORRECTION");
+    expect(kinds).toContain("STOCKTAKE");
+    expect(kinds).toContain("STOCKTAKE_CORRECTION");
+    expect(kinds).toContain("ADJUSTMENT");
+    expect(kinds).toContain("TRANSFER_CORRECTION");
+    expect(kinds).toContain("OPENING");
   });
 });
