@@ -465,7 +465,14 @@ export default function ReplenishmentPanel() {
   const filledItems = useMemo(() => {
     return visibleItems
       .filter((it) => (quantities[it.id] ?? 0) > 0)
-      .map((it) => ({ ...it, quantity: quantities[it.id] }));
+      .map((it) => ({
+        ...it,
+        quantity: quantities[it.id] ?? 0,
+        category: getUniformCategory(it.item_name, it.item_code),
+        displaySize: it.size || extractUniformSize(it.size, it.item_name) || "不分尺寸",
+        hrStock: it.hrOnHand ?? 0,
+        generalStock: it.generalOnHand ?? 0,
+      }));
   }, [quantities, visibleItems]);
 
   const totalFilledCount = filledItems.length;
@@ -1038,12 +1045,12 @@ export default function ReplenishmentPanel() {
                       {item.category}
                     </span>
                     <strong style={{ fontSize: "14px", color: "var(--ink, #1e293b)", fontWeight: 700 }}>
-                      {item.code}
+                      {item.item_code}
                     </strong>
                     <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink, #1e293b)" }}>
-                      {item.name}
+                      {item.item_name}
                       <span style={{ fontSize: "12px", fontWeight: 400, color: "var(--muted, #64748b)", marginLeft: "4px" }}>
-                        ／{item.size || "不分尺寸"}
+                        ／{item.displaySize}
                       </span>
                     </span>
                   </div>
@@ -1053,10 +1060,10 @@ export default function ReplenishmentPanel() {
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", fontSize: "12px", color: "var(--muted, #64748b)" }}>
                   <span>
-                    人資現有：<strong style={{ color: item.hrOnHand <= 0 ? "#dc2626" : "var(--ink, #1e293b)" }}>{item.hrOnHand}</strong> 件
+                    人資現有：<strong style={{ color: item.hrStock <= 0 ? "#dc2626" : "var(--ink, #1e293b)" }}>{item.hrStock}</strong> 件
                   </span>
                   <span>
-                    總倉現有：<strong style={{ color: item.generalOnHand <= 0 ? "#dc2626" : "var(--ink, #1e293b)" }}>{item.generalOnHand}</strong> 件
+                    總倉現有：<strong style={{ color: item.generalStock <= 0 ? "#dc2626" : "var(--ink, #1e293b)" }}>{item.generalStock}</strong> 件
                   </span>
                 </div>
               </div>
