@@ -58,6 +58,19 @@ function getLineDepartmentDisplay(line: IssueLine, lineIndex: number, unitMap: R
     || line.institution_name_snapshot;
 
   if (deptCode) {
+    if (deptCode.includes(",")) {
+      const parts = deptCode.split(",").map((c) => c.trim()).filter(Boolean);
+      const labels = parts.map((code) => {
+        for (const row of DEPARTMENT_BUTTON_ROWS) {
+          for (const btn of row) {
+            if (btn.code === code || btn.name === code || btn.display === code) return btn.display;
+          }
+        }
+        const info = resolveInstitutionInfo(code);
+        return info.shortName && info.shortName !== "其他" ? (info.shortName === "幼" ? "幼兒園" : info.shortName) : code;
+      });
+      return labels.join("、");
+    }
     for (const row of DEPARTMENT_BUTTON_ROWS) {
       for (const btn of row) {
         if (btn.code === deptCode || btn.name === deptCode || btn.display === deptCode) {

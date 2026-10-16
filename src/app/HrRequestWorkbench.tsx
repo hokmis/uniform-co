@@ -680,23 +680,53 @@ export default function HrRequestWorkbench() {
     const operation = operationRef.current ?? createHrRequestOperation(() => crypto.randomUUID());
     operationRef.current = operation;
     const submissionRoute = resolveHrRequestSubmissionRoute(operation.draftId, requestEntryState);
-    const issuePayload = visibleLines
+    // 方案 B：自動合併同員工與同品號的發放數量，徹底避免觸發 (request_id, employee_id, item_id) 唯一約束
+    const rawIssueLines = visibleLines
       .filter((line) => line.quantity > 0 && Boolean(line.itemId))
       .map((line) => {
         const resolvedEmpId = line.employeeId
           || (line.departmentCode ? findEmployeeForDepartment(visibleEmployeeOptions, line.departmentCode)?.employeeId : undefined)
           || visibleEmployeeOptions[0]?.employeeId
           || "";
-        return { employeeId: resolvedEmpId, itemId: line.itemId, quantity: line.quantity };
+        return {
+          employeeId: resolvedEmpId,
+          itemId: line.itemId,
+          quantity: line.quantity,
+          departmentCode: line.departmentCode,
+        };
       })
       .filter((line) => Boolean(line.employeeId));
+
+    const aggregatedIssueMap = new Map<string, { employeeId: string; itemId: string; quantity: number; departments: string[] }>();
+    for (const line of rawIssueLines) {
+      const key = `${line.employeeId}__${line.itemId}`;
+      const existing = aggregatedIssueMap.get(key);
+      if (existing) {
+        existing.quantity += line.quantity;
+        if (line.departmentCode && !existing.departments.includes(line.departmentCode)) {
+          existing.departments.push(line.departmentCode);
+        }
+      } else {
+        aggregatedIssueMap.set(key, {
+          employeeId: line.employeeId,
+          itemId: line.itemId,
+          quantity: line.quantity,
+          departments: line.departmentCode ? [line.departmentCode] : [],
+        });
+      }
+    }
+    const issuePayload = Array.from(aggregatedIssueMap.values()).map(({ employeeId, itemId, quantity }) => ({
+      employeeId,
+      itemId,
+      quantity,
+    }));
     const increasePayload = visibleItemOptions
       .map((item) => ({ itemId: item.itemId, quantity: increases[item.itemId] ?? 0 }))
       .filter((line) => line.quantity > 0 && Boolean(line.itemId));
     const unitMap: Record<number, string> = {};
-    visibleLines.forEach((line, index) => {
-      if (line.departmentCode) {
-        unitMap[index + 1] = line.departmentCode;
+    Array.from(aggregatedIssueMap.values()).forEach((entry, index) => {
+      if (entry.departments.length > 0) {
+        unitMap[index + 1] = entry.departments.join(",");
       }
     });
     const unitMapTag = Object.keys(unitMap).length > 0 ? `<!--unit_map:${JSON.stringify(unitMap)}-->` : "";
@@ -815,9 +845,21 @@ export default function HrRequestWorkbench() {
       );
       window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
     } else {
-      const fallbackMessage = submission.failureStage === "create" || submission.failureStage === "update"
+      const rawError = submission.error?.message;
+      let fallbackMessage = submission.failureStage === "create" || submission.failureStage === "update"
         ? "需求草稿建立或更新失敗；請使用相同資料重試。"
         : "送出失敗或結果未知；再次按下會沿用相同冪等鍵查回結果。";
+      if (rawError) {
+        if (rawError.includes("exceeds available stock")) {
+          fallbackMessage = "送出失敗：需求量或增庫量已超過目前可用庫存，請減少數量後再重試。";
+        } else if (rawError.includes("Active employee does not exist")) {
+          fallbackMessage = "送出失敗：選取單位的代表員工資料不存在或未啟用，請至員工管理確認。";
+        } else if (rawError.includes("HR role is required")) {
+          fallbackMessage = "送出失敗：目前登入帳號未具備人資（HR）權限。";
+        } else {
+          fallbackMessage = `送出失敗（${rawError}）；再次按下會沿用相同冪等鍵查回結果。`;
+        }
+      }
       setSubmitMessage(safeSupabaseMutationErrorMessage(submission.error, fallbackMessage));
     }
     setSubmitting(false);
