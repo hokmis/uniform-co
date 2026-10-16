@@ -8,15 +8,69 @@ import { hasCurrentReadSnapshot, shouldPreserveReadSnapshot, staleReadSnapshotMe
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseMutationErrorMessage, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
+import { DEPARTMENT_BUTTON_ROWS } from "./HrRequestWorkbench";
+import { resolveInstitutionInfo } from "@/src/domain/hr-request-pivot-export";
 import WorkflowActionBar from "./WorkflowActionBar";
 
-type RequestRow = { id: string; request_no: string; distribution_date: string };
-type IssueLine = { id: string; item_id: string; employee_no_snapshot: string; employee_name_snapshot: string; item_code_snapshot: string; item_name_snapshot: string; size_snapshot: string | null; unit_snapshot: string; quantity: number };
+type RequestRow = { id: string; request_no: string; distribution_date: string; note?: string | null };
+type IssueLine = {
+  id: string;
+  item_id: string;
+  employee_no_snapshot: string;
+  employee_name_snapshot: string;
+  item_code_snapshot: string;
+  item_name_snapshot: string;
+  size_snapshot: string | null;
+  unit_snapshot: string;
+  quantity: number;
+  line_no?: number;
+  department_code_snapshot?: string | null;
+  department_name_snapshot?: string | null;
+  institution_code_snapshot?: string | null;
+  institution_name_snapshot?: string | null;
+};
 type ReturnNote = { id: string; return_no: string; status: "DRAFT" | "POSTED"; original_hr_request_id: string; return_date?: string; reason_code?: string };
 type ReturnReasonCode = { code: string; label: string };
 
 function taipeiToday() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function parseUnitMap(note?: string | null): Record<string, string> {
+  if (!note) return {};
+  const match = note.match(/<!--unit_map:(.*?)-->/);
+  if (!match) return {};
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return {};
+  }
+}
+
+function getLineDepartmentDisplay(line: IssueLine, lineIndex: number, unitMap: Record<string, string>): string {
+  const lineNoKey = String(line.line_no ?? (lineIndex + 1));
+  const deptCode = unitMap[lineNoKey]
+    || (line.line_no ? unitMap[String(line.line_no)] : undefined)
+    || unitMap[String(lineIndex + 1)]
+    || line.department_code_snapshot
+    || line.institution_code_snapshot
+    || line.department_name_snapshot
+    || line.institution_name_snapshot;
+
+  if (deptCode) {
+    for (const row of DEPARTMENT_BUTTON_ROWS) {
+      for (const btn of row) {
+        if (btn.code === deptCode || btn.name === deptCode || btn.display === deptCode) {
+          return btn.display;
+        }
+      }
+    }
+    const info = resolveInstitutionInfo(deptCode);
+    if (info.shortName && info.shortName !== "其他") {
+      return info.shortName === "幼" ? "幼兒園" : info.shortName;
+    }
+  }
+  return "未指定單位";
 }
 
 export default function ReturnPanel() {
@@ -64,6 +118,7 @@ export default function ReturnPanel() {
   const hasCurrentReasonCodeSnapshot = hasCurrentReadSnapshot(identityReady, reasonCodesSnapshotAccountId, accountId);
   const visibleReasonCodes = hasCurrentReasonCodeSnapshot ? reasonCodes : [];
   const selectedRequest = visibleRequests.find((request) => request.id === requestId);
+  const unitMap = useMemo(() => parseUnitMap(selectedRequest?.note), [selectedRequest?.note]);
   const visibleIssueLines = selectedRequest ? issueLines : [];
   const selectedLine = visibleIssueLines.find((line) => line.id === selectedLineId);
   const maxQuantity = selectedLine?.quantity ?? 0;
@@ -87,7 +142,7 @@ export default function ReturnPanel() {
         const [result] = await retrySupabaseQueriesAfterSessionRefresh(
           supabase,
           async () => [await supabase.from("hr_requests")
-            .select("id,request_no,distribution_date")
+            .select("id,request_no,distribution_date,note")
             .eq("status", "SHIPPED")
             .order("distribution_date", { ascending: false })] as const,
         );
@@ -135,6 +190,10 @@ export default function ReturnPanel() {
         const nextRequestId = sameAccountSnapshot && loaded.some((request) => request.id === requestIdRef.current) ? requestIdRef.current : "";
         requestIdRef.current = nextRequestId;
         setRequestId(nextRequestId);
+        if (nextRequestId) {
+          const matched = loaded.find((r) => r.id === nextRequestId);
+          if (matched) setReturnNo((prev) => prev || `RET-${matched.request_no}`);
+        }
         if (!nextRequestId || loaded.length === 0) { issueLinesRef.current = []; setIssueLines([]); setLinesLoading(false); setSelectedLineId(""); }
       } finally {
         if (active) setRequestsLoading(false);
@@ -203,7 +262,7 @@ export default function ReturnPanel() {
         const [result] = await retrySupabaseQueriesAfterSessionRefresh(
           supabase,
           async () => [await supabase.from("hr_issue_lines")
-            .select("id,item_id,employee_no_snapshot,employee_name_snapshot,item_code_snapshot,item_name_snapshot,size_snapshot,unit_snapshot,quantity")
+            .select("id,item_id,employee_no_snapshot,employee_name_snapshot,item_code_snapshot,item_name_snapshot,size_snapshot,unit_snapshot,quantity,line_no,department_code_snapshot,department_name_snapshot,institution_code_snapshot,institution_name_snapshot")
             .eq("request_id", requestId).order("line_no")] as const,
         );
         if (!active) return;
@@ -232,7 +291,15 @@ export default function ReturnPanel() {
   function resetKeys() { createKeyRef.current = null; postKeyRef.current = null; postFingerprintRef.current = null; }
   function chooseRequest(nextId: string) {
     if (returnNote) return;
-    resetKeys(); requestIdRef.current = nextId; setRequestId(nextId); setLinesLoading(false); setReturnDate(visibleRequests.find((request) => request.id === nextId)?.distribution_date ?? taipeiToday()); issueLinesRef.current = []; setIssueLines([]); setSelectedLineId(""); setQuantity(1);
+    resetKeys();
+    const req = visibleRequests.find((request) => request.id === nextId);
+    requestIdRef.current = nextId; setRequestId(nextId); setLinesLoading(false);
+    setReturnDate(taipeiToday());
+    setReturnNo(req ? `RET-${req.request_no}` : "");
+    issueLinesRef.current = [];
+    setIssueLines([]);
+    setSelectedLineId("");
+    setQuantity(1);
   }
   function chooseLine(nextId: string) {
     if (returnNote) return;
@@ -400,15 +467,23 @@ export default function ReturnPanel() {
     {dataLoading ? <p className="auth-message" role="status" aria-live="polite">正在載入可退回需求、原因碼或發放明細；日期、單號與理由仍可先填寫。</p> : null}
     <div className="form-grid">
       <label className="field"><span>已發貨需求</span><select value={dataReadBlocked ? "" : requestId} onChange={(event) => chooseRequest(event.target.value)} disabled={busy || dataReadBlocked || Boolean(activeReturnNote)}><option value="">{requestsLoading && dataReadBlocked ? "載入需求中…" : "請選擇"}</option>{visibleRequests.map((request) => <option key={request.id} value={request.id}>{request.request_no}｜{request.distribution_date}</option>)}</select></label>
-      <label className="field"><span>原發放明細</span><select value={dataReadBlocked ? "" : selectedLineId} onChange={(event) => chooseLine(event.target.value)} disabled={busy || dataReadBlocked || linesLoading || Boolean(activeReturnNote) || !selectedRequest}><option value="">{linesLoading ? "載入明細中…" : "請選擇"}</option>{visibleIssueLines.map((line) => <option key={line.id} value={line.id}>{line.employee_no_snapshot} {line.employee_name_snapshot}｜{line.item_code_snapshot}｜已發 {line.quantity}</option>)}</select></label>
-      <label className="field"><span>退回日期</span><input type="date" value={returnDate} onChange={(event) => { resetKeys(); setReturnDate(event.target.value); }} disabled={busy || Boolean(activeReturnNote)} /></label>
-      <label className="field"><span>退回單號</span><input value={returnNo} onChange={(event) => { resetKeys(); setReturnNo(event.target.value); }} disabled={busy || Boolean(activeReturnNote)} maxLength={80} placeholder="例如 RET-2026-001" /></label>
+      <label className="field"><span>原發放明細</span><select value={dataReadBlocked ? "" : selectedLineId} onChange={(event) => chooseLine(event.target.value)} disabled={busy || dataReadBlocked || linesLoading || Boolean(activeReturnNote) || !selectedRequest}><option value="">{linesLoading ? "載入明細中…" : "請選擇"}</option>{visibleIssueLines.map((line, index) => {
+        const deptDisplay = getLineDepartmentDisplay(line, index, unitMap);
+        const sizeStr = line.size_snapshot ? ` (${line.size_snapshot})` : "";
+        return (
+          <option key={line.id} value={line.id}>
+            {deptDisplay}｜{line.item_code_snapshot} {line.item_name_snapshot}{sizeStr}｜已發 {line.quantity}
+          </option>
+        );
+      })}</select></label>
+      <label className="field"><span>退回日期</span><input type="date" value={returnDate} readOnly disabled={true} style={{ backgroundColor: "var(--surface-muted, #f1f5f9)", cursor: "not-allowed", color: "var(--ink-muted, #64748b)" }} title="退回日期固定為今日，不可修改" /></label>
+      <label className="field"><span>退回單號</span><input value={returnNo} onChange={(event) => { resetKeys(); setReturnNo(event.target.value); }} disabled={busy || Boolean(activeReturnNote)} maxLength={80} placeholder="選擇需求單後自動帶入（如 RET-REQ-xxx）" /></label>
       <label className="field"><span>退回原因碼</span><select value={reasonCode} onChange={(event) => { resetKeys(); setReasonCode(event.target.value); }} disabled={busy || !hasCurrentReasonCodeSnapshot || visibleReasonCodes.length === 0 || Boolean(activeReturnNote)}><option value="">{reasonCodesLoading && !hasCurrentReasonCodeSnapshot ? "載入原因碼中…" : visibleReasonCodes.length ? "請選擇" : "目前沒有可用原因碼"}</option>{visibleReasonCodes.map((code) => <option key={code.code} value={code.code}>{code.code}｜{code.label}</option>)}</select></label>
       <label className="field"><span>退回數量（上限 {maxQuantity}）</span><input type="number" min={1} max={maxQuantity} value={quantity} onChange={(event) => { resetKeys(); setQuantity(Math.min(maxQuantity || 1, Math.max(1, Number(event.target.value) || 1))); }} disabled={busy || activeReturnNote?.status === "POSTED"} /></label>
     </div>
     <label className="field reason-field"><span>退回原因</span><input value={reason} onChange={(event) => { resetKeys(); setReason(event.target.value); }} disabled={busy || activeReturnNote?.status === "POSTED"} maxLength={1000} placeholder="例如：離職／尺寸不合／制服汰換" /></label>
     <label className="field reason-field"><span>備註（選填）</span><input value={note} onChange={(event) => { resetKeys(); setNote(event.target.value); }} disabled={busy || activeReturnNote?.status === "POSTED"} maxLength={2000} /></label>
-    {selectedLine ? <p className="success-note">{selectedRequest?.request_no}／{selectedLine.employee_no_snapshot} {selectedLine.employee_name_snapshot}／{selectedLine.item_code_snapshot}{selectedLine.size_snapshot ? `（${selectedLine.size_snapshot}）` : ""}，原發放 {selectedLine.quantity} {selectedLine.unit_snapshot}。</p> : null}
+    {selectedLine ? <p className="success-note">{selectedRequest?.request_no}／單位：{getLineDepartmentDisplay(selectedLine, visibleIssueLines.indexOf(selectedLine), unitMap)}／{selectedLine.item_code_snapshot} {selectedLine.item_name_snapshot}{selectedLine.size_snapshot ? `（${selectedLine.size_snapshot}）` : ""}，原發放 {selectedLine.quantity} {selectedLine.unit_snapshot}。</p> : null}
     <WorkflowActionBar
       primary={{
         onClick: () => void completeReturn(),
