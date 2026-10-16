@@ -471,21 +471,22 @@ export default function ReplenishmentPanel() {
   const totalFilledCount = filledItems.length;
   const totalFilledQuantity = filledItems.reduce((sum, it) => sum + it.quantity, 0);
 
-  if (!client) {
-    return <section className="panel import-panel" aria-label="額外補庫申請"><div className="panel-heading"><div><p className="eyebrow">06 / REPLENISHMENT</p><h2>額外補庫申請</h2></div><span className="status-pill">預覽模式</span></div><p className="auth-message">設定 Supabase env 並登入 HR 帳號後，可建立不預留庫存的補庫單；倉庫確認完成時才依總倉現有庫存調庫。</p></section>;
-  }
-
   return (
-    <section className="panel import-panel" aria-label="額外補庫申請" aria-busy={dataLoading || busy}>
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">06 / REPLENISHMENT</p>
-          <h2>額外補庫申請</h2>
+    <section className="request-workbench" aria-label="額外補庫申請" aria-busy={dataLoading || busy}>
+      {/* 左側：額外補庫申請表單與品號填寫 */}
+      <div className="panel import-panel">
+        <div className="panel-heading">
+          <div>
+            <p className="eyebrow">06 / REPLENISHMENT</p>
+            <h2>額外補庫申請</h2>
+          </div>
+          <div className="heading-actions" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "8px" }}>
+            {!client ? <span className="status-pill">預覽模式</span> : null}
+            <span className={`status-pill ${submitted ? "success" : ""}`}>
+              {submitted ? "已送出" : submissionUnresolved ? "送出結果待確認" : cancellationUnresolved ? "取消結果待確認" : itemsReadBlocked && dataLoading ? "載入中…" : dataLoading ? "同步中…" : "草稿"}
+            </span>
+          </div>
         </div>
-        <span className={`status-pill ${submitted ? "success" : ""}`}>
-          {submitted ? "已送出" : submissionUnresolved ? "送出結果待確認" : cancellationUnresolved ? "取消結果待確認" : itemsReadBlocked && dataLoading ? "載入中…" : dataLoading ? "同步中…" : "草稿"}
-        </span>
-      </div>
       <p className="auth-message">【階段二：總倉補貨】補庫單由人事單位申請；倉庫確認完成後，總倉調撥出庫、人事倉庫調撥入庫補回數量。</p>
       {dataLoading ? <p className="sr-only" role="status" aria-live="polite">正在載入可用制服品號…</p> : null}
 
@@ -872,7 +873,7 @@ export default function ReplenishmentPanel() {
         </div>
       </div>
 
-      {/* 操作按鈕列 */}
+      {/* 操作按鈕列（左側底端） */}
       <div className="button-row" style={{ marginTop: "20px" }}>
         <button
           className="primary-button"
@@ -884,15 +885,14 @@ export default function ReplenishmentPanel() {
             ? "送出中…"
             : submitted
               ? "已送出"
-              : submissionUnresolved
-                ? "重試同一筆送出"
-                : cancellationUnresolved
-                  ? "取消結果待確認"
-                  : itemsReadBlocked && dataLoading
-                    ? "載入品號中…"
-                    : entryState.kind === "draft"
-                      ? "保存修改並送出"
-                      : "建立並送出補庫單"}
+              : submissionUnresolved ? "重試同一筆送出"
+              : cancellationUnresolved
+                ? "取消結果待確認"
+                : itemsReadBlocked && dataLoading
+                  ? "載入品號中…"
+                  : entryState.kind === "draft"
+                    ? "保存修改並送出"
+                    : "建立並送出補庫單"}
         </button>
         {submitted ? (
           <button className="secondary-button" type="button" onClick={startNextRequest} disabled={busy}>
@@ -902,8 +902,8 @@ export default function ReplenishmentPanel() {
       </div>
 
       {canCancelRequest ? (
-        <div className="button-row">
-          <label className="field">
+        <div className="button-row" style={{ marginTop: "16px" }}>
+          <label className="field" style={{ flex: 1 }}>
             <span>取消原因（必填）</span>
             <input
               value={cancelReason}
@@ -923,12 +923,183 @@ export default function ReplenishmentPanel() {
           </button>
         </div>
       ) : null}
+      </div>
 
-      {(identityError || message) ? (
-        <p className={(message.includes("已送出") || message.includes("已取消")) && !identityError ? "success-note" : "auth-message"} role="status">
-          {identityError ?? message}
+      {/* 右側：送出前品號檢查 */}
+      <div className="panel result-panel">
+        <div className="panel-heading" style={{ flexWrap: "wrap", gap: "10px", marginBottom: "18px" }}>
+          <div>
+            <p className="eyebrow">07 / ITEM SUMMARY</p>
+            <h2>送出前品號檢查</h2>
+          </div>
+          <div className="heading-actions" style={{ alignItems: "flex-end", gap: "8px" }}>
+            <span className={`status-pill ${submitted ? "success" : ""}`}>
+              {submitted ? "已送出" : submissionUnresolved ? "送出結果待確認" : cancellationUnresolved ? "取消結果待確認" : itemsReadBlocked && dataLoading ? "載入中…" : dataLoading ? "同步中…" : "可送出預覽"}
+            </span>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+              <button
+                className="primary-button print-button"
+                type="button"
+                onClick={() => void submit()}
+                disabled={busy || submitted || cancellationUnresolved || (!submissionUnresolved && itemsReadBlocked) || !identityReady}
+                style={{
+                  margin: 0,
+                  padding: "8px 16px",
+                  fontSize: "14px",
+                  whiteSpace: "nowrap",
+                  height: "38px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  boxSizing: "border-box",
+                }}
+              >
+                {busy
+                  ? "送出中…"
+                  : submitted
+                    ? "已送出"
+                    : submissionUnresolved ? "重試同一筆送出"
+                    : cancellationUnresolved
+                      ? "取消結果待確認"
+                      : itemsReadBlocked && dataLoading
+                        ? "載入品號中…"
+                        : entryState.kind === "draft"
+                          ? "保存修改並送出"
+                          : "建立並送出補庫單"}
+              </button>
+              {submitted ? (
+                <button
+                  className="secondary-button print-button"
+                  type="button"
+                  onClick={startNextRequest}
+                  disabled={busy}
+                  style={{
+                    margin: 0,
+                    padding: "8px 16px",
+                    fontSize: "14px",
+                    whiteSpace: "nowrap",
+                    height: "38px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  建立下一筆補庫單
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        {(identityError || message) ? (
+          <p
+            className={(message.includes("已送出") || message.includes("已取消")) && !identityError ? "success-note" : "auth-message"}
+            role="status"
+            style={{ marginBottom: "14px" }}
+          >
+            {identityError ?? message}
+          </p>
+        ) : null}
+
+        {itemsReadBlocked ? (
+          <p className="empty-state">主檔資料載入後，這裡會顯示品號彙總與庫存量。</p>
+        ) : filledItems.length === 0 ? (
+          <p className="empty-state">尚未填寫任何補庫品號。請在左側填寫申請數量。</p>
+        ) : (
+          <div className="summary-list" style={{ marginTop: 0, borderTop: "none" }}>
+            {filledItems.map((item) => (
+              <div
+                className="summary-row"
+                key={item.id}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
+                  gap: "6px",
+                  padding: "10px 0",
+                  borderBottom: "1px solid var(--line, #e2e8f0)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        background: "var(--accent, #1a73e8)",
+                        color: "#fff",
+                        padding: "2px 7px",
+                        borderRadius: "4px",
+                        lineHeight: "1.3",
+                      }}
+                    >
+                      {item.category}
+                    </span>
+                    <strong style={{ fontSize: "14px", color: "var(--ink, #1e293b)", fontWeight: 700 }}>
+                      {item.code}
+                    </strong>
+                    <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink, #1e293b)" }}>
+                      {item.name}
+                      <span style={{ fontSize: "12px", fontWeight: 400, color: "var(--muted, #64748b)", marginLeft: "4px" }}>
+                        ／{item.size || "不分尺寸"}
+                      </span>
+                    </span>
+                  </div>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--accent, #d8744a)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                    申請 {item.quantity} 件
+                  </span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", fontSize: "12px", color: "var(--muted, #64748b)" }}>
+                  <span>
+                    人資現有：<strong style={{ color: item.hrOnHand <= 0 ? "#dc2626" : "var(--ink, #1e293b)" }}>{item.hrOnHand}</strong> 件
+                  </span>
+                  <span>
+                    總倉現有：<strong style={{ color: item.generalOnHand <= 0 ? "#dc2626" : "var(--ink, #1e293b)" }}>{item.generalOnHand}</strong> 件
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="success-note" style={{ marginTop: "14px" }}>
+          【補庫流程說明】補庫單由人事單位發起申請；倉庫確認調撥完成後，總倉出庫並自動補回人資倉現有量。
         </p>
-      ) : null}
+
+        <div className="workbench-bottom-metrics">
+          <Metric label="已選品號數" value={`${totalFilledCount} 項`} compact />
+          <Metric label="總申請補庫量" value={`${totalFilledQuantity} 件`} compact />
+        </div>
+      </div>
     </section>
+  );
+}
+
+function Metric({ label, value, compact }: { label: string; value: number | string; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div
+        className="metric compact-metric"
+        style={{
+          padding: "8px 12px",
+          borderRadius: "10px",
+          display: "grid",
+          gap: "3px",
+          background: "#f8fafc",
+          border: "1px solid var(--line, #e2e8f0)",
+        }}
+      >
+        <span style={{ fontSize: "12px", color: "var(--muted, #64748b)", fontWeight: 500 }}>{label}</span>
+        <strong style={{ fontSize: "18px", letterSpacing: "normal", color: "var(--ink, #1e293b)", fontWeight: 700 }}>{value}</strong>
+      </div>
+    );
+  }
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
