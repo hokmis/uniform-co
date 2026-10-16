@@ -862,6 +862,9 @@ export default function HrRequestWorkbench() {
           <div>
             <p className="eyebrow">03 / HR REQUEST</p>
             <h2>新增員工制服需求單</h2>
+            <p style={{ margin: "4px 0 0", fontSize: "14px", color: "var(--muted, #64748b)" }}>
+              需求單申請日期：{taipeiToday()}
+            </p>
           </div>
           <div className="heading-actions" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "8px" }}>
             {!client ? <span className="status-pill">測試資料預覽</span> : null}
@@ -880,8 +883,7 @@ export default function HrRequestWorkbench() {
               <button
                 className="secondary-button"
                 type="button"
-                onClick={reloadOperationalData}
-                disabled={submitting}
+                onClick={reloadOperationalData} disabled={submitting}
                 style={{ margin: 0, height: "38px", display: "inline-flex", alignItems: "center", justifyContent: "center", boxSizing: "border-box" }}
               >
                 {loadingData ? "讀取中…" : "重新載入資料"}
@@ -943,7 +945,6 @@ export default function HrRequestWorkbench() {
 
         {activeTab === "request" ? (
           <div className="tab-pane request-tab-pane">
-            <label className="field date-field"><span>發放日期</span><input type="date" value={distributionDate} onChange={(event) => { markDraftChanged(); setDistributionDate(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} required /></label>
             <label className="field"><span>備註（選填）</span><input value={requestNote.replace(/<!--unit_map:.*?-->/g, "").trim()} onChange={(event) => { markDraftChanged(); setRequestNote(event.target.value); }} disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)} maxLength={2000} placeholder="例如：新人報到／換季發放" /></label>
 
             {/* 報局單位選擇（三排按鈕展開） */}

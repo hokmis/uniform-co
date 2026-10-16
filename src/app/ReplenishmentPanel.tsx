@@ -87,6 +87,10 @@ function requestNo() {
   return `REP-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
 }
 
+function taipeiToday(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
+}
+
 export default function ReplenishmentPanel() {
   const { client, accountId, identityError, identityLoading, isAuthenticated } = useWorkspaceSession();
   const panelActive = usePanelActivity();
@@ -486,6 +490,9 @@ export default function ReplenishmentPanel() {
           <div>
             <p className="eyebrow">06 / REPLENISHMENT</p>
             <h2>額外補庫申請</h2>
+            <p style={{ margin: "4px 0 0", fontSize: "14px", color: "var(--muted, #64748b)" }}>
+              補庫申請日期：{taipeiToday()}
+            </p>
           </div>
           <div className="heading-actions" style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: "8px" }}>
             {!client ? <span className="status-pill">預覽模式</span> : null}
@@ -494,7 +501,7 @@ export default function ReplenishmentPanel() {
             </span>
           </div>
         </div>
-      <p className="auth-message">【階段二：總倉補貨】補庫單由人事單位申請；倉庫確認完成後，總倉調撥出庫、人事倉庫調撥入庫補回數量。</p>
+      <p className="auth-message">補庫單由人事單位申請；倉庫確認完成後，總倉調撥出庫、人事倉庫調撥入庫補回數量。</p>
       {dataLoading ? <p className="sr-only" role="status" aria-live="polite">正在載入可用制服品號…</p> : null}
 
       <label className="field" style={{ marginBottom: "16px" }}>
