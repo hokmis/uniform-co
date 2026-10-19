@@ -13,6 +13,8 @@ import { workflowStatusLabel, workflowStatusTone } from "@/src/domain/workflow-s
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 import { useAccountScopedReadSnapshot } from "./use-account-scoped-read-snapshot";
+import { DEPARTMENT_BUTTON_ROWS } from "./HrRequestWorkbench";
+import { resolveInstitutionInfo, ORDERED_INSTITUTION_NAMES, INSTITUTION_CODE_MAP } from "@/src/domain/hr-request-pivot-export";
 import WorkflowActionBar from "./WorkflowActionBar";
 
 type ReturnLine = { id: string; return_note_id: string; return_no: string; original_issue_line_id: string; employee_no_snapshot: string | null; employee_name_snapshot: string | null; item_code_snapshot: string | null; item_name_snapshot: string | null; quantity: number; unit_snapshot: string | null };
@@ -21,6 +23,51 @@ type History = { id: string; correction_no: string; status: string; reason: stri
 
 const STORAGE_PREFIX = "uniform:return-correction";
 const EMPTY_RETURN_LINES: ReturnLine[] = [];
+
+function formatDepartmentDisplay(codeOrName?: string | null): string | null {
+  if (!codeOrName) return null;
+  const trimmed = codeOrName.trim();
+  if (!trimmed) return null;
+
+  for (const row of DEPARTMENT_BUTTON_ROWS) {
+    for (const btn of row) {
+      if (btn.code.toUpperCase() === trimmed.toUpperCase() || btn.name === trimmed || btn.display === trimmed) {
+        return btn.display;
+      }
+    }
+  }
+
+  const upper = trimmed.toUpperCase();
+  if (INSTITUTION_CODE_MAP[upper]) {
+    const sName = INSTITUTION_CODE_MAP[upper].shortName;
+    return sName === "幼" ? "幼兒園" : sName;
+  }
+
+  const info = resolveInstitutionInfo(trimmed);
+  if (info.shortName && info.shortName !== "其他" && info.shortName !== trimmed) {
+    return info.shortName === "幼" ? "幼兒園" : info.shortName;
+  }
+
+  if (ORDERED_INSTITUTION_NAMES.includes(info.shortName as any)) {
+    return info.shortName === "幼" ? "幼兒園" : info.shortName;
+  }
+
+  return null;
+}
+
+function getReturnLineDepartmentDisplay(line: ReturnLine): string {
+  const candidates = [
+    line.employee_name_snapshot,
+    line.employee_no_snapshot,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (candidate.toUpperCase().startsWith("AD2") || candidate.toUpperCase() === "AD2") continue;
+    const formatted = formatDepartmentDisplay(candidate);
+    if (formatted) return formatted;
+  }
+  return "福";
+}
 
 export default function ReturnCorrectionPanel() {
   const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
@@ -205,16 +252,18 @@ export default function ReturnCorrectionPanel() {
     setCorrectionNo(targetLine?.return_no ?? "");
     setDelta(0); setReason(""); setNote("");
   }
+  const effectiveCorrectionNo = (correctionNo.trim() || selectedLine?.return_no || "").trim();
+
   async function createDraft(keepBusy = false): Promise<Correction | null> {
-    if (!client || !selectedLine || !correctionNo.trim() || validationError) {
+    if (!client || !selectedLine || !effectiveCorrectionNo || validationError) {
       setMessage(validationError ?? "請選擇已完成的退回明細、填寫單號與原因。"); return null;
     }
     setBusy(true); setMessage("");
     const key = createKeyRef.current ?? crypto.randomUUID(); createKeyRef.current = key;
     window.localStorage.setItem(`${STORAGE_PREFIX}:create-key`, key);
-    const payload = { lineId: selectedLine.id, correctionNo: correctionNo.trim(), delta, reason: reason.trim(), note: note.trim() };
+    const payload = { lineId: selectedLine.id, correctionNo: effectiveCorrectionNo, delta, reason: reason.trim(), note: note.trim() };
     const { data, error } = await client.rpc("create_return_correction_draft", {
-      p_correction_no: correctionNo.trim(), p_original_return_line_id: selectedLine.id,
+      p_correction_no: effectiveCorrectionNo, p_original_return_line_id: selectedLine.id,
       p_return_quantity_delta: delta, p_reason: reason.trim(), p_note: note.trim() || null,
       p_idempotency_key: `CREATE-RETURN-CORRECTION-${key}`, p_request_fingerprint: JSON.stringify(payload),
     });
@@ -260,21 +309,21 @@ export default function ReturnCorrectionPanel() {
       await postCorrection(correction);
       return;
     }
-    if (!client || !selectedLine || !correctionNo.trim() || validationError) return;
+    if (!client || !selectedLine || !effectiveCorrectionNo || validationError) return;
     setBusy(true); setMessage("");
     const createKey = createKeyRef.current ?? crypto.randomUUID();
     const postKey = postKeyRef.current ?? crypto.randomUUID();
     createKeyRef.current = createKey; postKeyRef.current = postKey;
     window.localStorage.setItem(`${STORAGE_PREFIX}:create-key`, createKey);
     window.localStorage.setItem(`${STORAGE_PREFIX}:post-key`, postKey);
-    const payload = { lineId: selectedLine.id, correctionNo: correctionNo.trim(), delta, reason: reason.trim(), note: note.trim() };
+    const payload = { lineId: selectedLine.id, correctionNo: effectiveCorrectionNo, delta, reason: reason.trim(), note: note.trim() };
     const createIdempotencyKey = `CREATE-RETURN-CORRECTION-${createKey}`;
     const createRequestFingerprint = JSON.stringify(payload);
     const postIdempotencyKey = `POST-RETURN-CORRECTION-${postKey}`;
     const postRequestFingerprint = correctionPostRequestFingerprint("POST_RETURN_CORRECTION", postIdempotencyKey);
     window.localStorage.setItem(`${STORAGE_PREFIX}:post-fingerprint`, postRequestFingerprint);
     const createArgs = {
-      p_correction_no: correctionNo.trim(), p_original_return_line_id: selectedLine.id,
+      p_correction_no: effectiveCorrectionNo, p_original_return_line_id: selectedLine.id,
       p_return_quantity_delta: delta, p_reason: reason.trim(), p_note: note.trim() || null,
       p_idempotency_key: createIdempotencyKey, p_request_fingerprint: createRequestFingerprint,
     };
@@ -328,13 +377,15 @@ export default function ReturnCorrectionPanel() {
   return <section className="panel import-panel" aria-label="退回更正" aria-busy={busy || dataLoading}>
     <div className="panel-heading"><div><p className="eyebrow">10 / RETURN CORRECTION</p><h2>退回更正</h2></div><span className={`status-pill ${workflowStatusTone(correction?.status)}`}>{completionUnresolved ? "結果待確認" : workflowStatusLabel(correction?.status)}</span></div>
     <p className="auth-message">更正不覆寫原退回單；送出時會鎖定原退回單與原發放明細，重算有效退回量，並以本次差額調整人資倉。</p>
-    <div className="form-grid">
-      <label className="field"><span>原始退回明細</span><select value={lineId} onChange={(event) => chooseLine(event.target.value)} disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}><option value="">{sourceReadBlocked ? "載入退回明細中…" : "請選擇"}</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.return_no}｜{line.employee_no_snapshot}｜{line.item_code_snapshot}｜原退回 {line.quantity}</option>)}</select></label>
+    <div className="form-grid" style={{ marginTop: "24px" }}>
+      <label className="field"><span>原始退回明細</span><select value={lineId} onChange={(event) => chooseLine(event.target.value)} disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}><option value="">{sourceReadBlocked ? "載入退回明細中…" : "請選擇"}</option>{lines.map((line) => {
+        const deptDisplay = getReturnLineDepartmentDisplay(line);
+        return <option key={line.id} value={line.id}>{line.return_no} ｜ {deptDisplay} ｜ {line.item_code_snapshot} ｜ 原退回數量 {line.quantity}</option>;
+      })}</select></label>
       <div className="metric"><span>目前有效退回量</span><strong>{selectedLine ? effectiveReturned : "—"}</strong><small>{selectedLine?.item_name_snapshot ?? "請先選擇明細"}</small></div>
-      <label className="field"><span>更正單號</span><input value={correctionNo} onChange={(event) => { resetKeys(); setCorrectionNo(event.target.value); }} maxLength={80} disabled={busy || completionUnresolved || Boolean(correction)} placeholder="例如 RTC-RET-2026-001" /></label>
+      <label className="field"><span>更正原因</span><input value={reason} onChange={(event) => { resetKeys(); setReason(event.target.value); }} maxLength={1000} disabled={busy || completionUnresolved || Boolean(correction)} placeholder="例如：退回數量誤登" /></label>
       <label className="field"><span>退回量差額</span><input type="number" step={1} value={delta} onChange={(event) => { resetKeys(); setDelta(Number(event.target.value) || 0); }} disabled={busy || completionUnresolved || Boolean(correction)} /></label>
     </div>
-    <label className="field reason-field"><span>更正原因</span><input value={reason} onChange={(event) => { resetKeys(); setReason(event.target.value); }} maxLength={1000} disabled={busy || completionUnresolved || Boolean(correction)} placeholder="例如：退回數量誤登" /></label>
     <label className="field reason-field"><span>備註（選填）</span><input value={note} onChange={(event) => { resetKeys(); setNote(event.target.value); }} maxLength={2000} disabled={busy || completionUnresolved || Boolean(correction)} /></label>
     {dataLoading ? <p className="sr-only" role="status" aria-live="polite">正在讀取可更正的退回明細…</p> : null}
     {validationError ? <p className="auth-message">{validationError}</p> : null}
@@ -344,7 +395,7 @@ export default function ReturnCorrectionPanel() {
         onClick: () => void completeCorrection(),
         busy,
         busyLabel: "處理中…",
-        disabled: busy || sourceReadBlocked || !selectedLine || !correctionNo.trim() || Boolean(validationError) || correction?.status === "POSTED",
+        disabled: busy || sourceReadBlocked || !selectedLine || !effectiveCorrectionNo || Boolean(validationError) || correction?.status === "POSTED",
         label: correction?.status === "POSTED" ? "已完成" : completionUnresolved ? "重試同一筆（結果待確認）" : "確認並完成退回更正",
       }}
       secondary={!correction
