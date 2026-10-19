@@ -485,7 +485,7 @@ export default function ReplenishmentPanel() {
   return (
     <section className="request-workbench" aria-label="額外補庫申請" aria-busy={dataLoading || busy}>
       {/* 左側：額外補庫申請表單與品號填寫 */}
-      <div className="panel import-panel">
+      <div className="panel">
         <div className="panel-heading">
           <div>
             <p className="eyebrow">06 / REPLENISHMENT</p>
