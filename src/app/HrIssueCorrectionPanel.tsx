@@ -13,6 +13,8 @@ import { useWorkspaceSession } from "./workspace-session";
 import { useAccountScopedReadSnapshot } from "./use-account-scoped-read-snapshot";
 import { workflowStatusLabel, workflowStatusTone } from "@/src/domain/workflow-status";
 import { usePanelActivity } from "./RetainedPanelSet";
+import { DEPARTMENT_BUTTON_ROWS } from "./HrRequestWorkbench";
+import { resolveInstitutionInfo, ORDERED_INSTITUTION_NAMES, INSTITUTION_CODE_MAP } from "@/src/domain/hr-request-pivot-export";
 import WorkflowActionBar from "./WorkflowActionBar";
 
 type IssueLine = { id: string; request_id: string; request_no: string; line_no: number; employee_no_snapshot: string | null; employee_name_snapshot: string | null; item_code_snapshot: string | null; item_name_snapshot: string | null; quantity: number };
@@ -22,11 +24,115 @@ type History = { id: string; correction_no: string; status: string; reason: stri
 const STORAGE_PREFIX = "uniform:hr-issue-correction";
 const EMPTY_ISSUE_LINES: IssueLine[] = [];
 
+function formatDepartmentDisplay(codeOrName?: string | null): string | null {
+  if (!codeOrName) return null;
+  const trimmed = codeOrName.trim();
+  if (!trimmed) return null;
+
+  for (const row of DEPARTMENT_BUTTON_ROWS) {
+    for (const btn of row) {
+      if (btn.code.toUpperCase() === trimmed.toUpperCase() || btn.name === trimmed || btn.display === trimmed) {
+        return btn.display;
+      }
+    }
+  }
+
+  const upper = trimmed.toUpperCase();
+  if (INSTITUTION_CODE_MAP[upper]) {
+    const sName = INSTITUTION_CODE_MAP[upper].shortName;
+    return sName === "幼" ? "幼兒園" : sName;
+  }
+
+  const info = resolveInstitutionInfo(trimmed);
+  if (info.shortName && info.shortName !== "其他" && info.shortName !== trimmed) {
+    return info.shortName === "幼" ? "幼兒園" : info.shortName;
+  }
+
+  if (ORDERED_INSTITUTION_NAMES.includes(info.shortName as any)) {
+    return info.shortName === "幼" ? "幼兒園" : info.shortName;
+  }
+
+  return null;
+}
+
+function parseUnitMap(reqId?: string, reqNo?: string): Record<string, string> {
+  if (typeof window !== "undefined") {
+    try {
+      if (reqId) {
+        const cached = localStorage.getItem(`hr_request_units_${reqId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") return parsed;
+        }
+      }
+      if (reqNo) {
+        const cached = localStorage.getItem(`hr_request_units_${reqNo}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") return parsed;
+        }
+      }
+    } catch {}
+  }
+  return {};
+}
+
+function getLineDepartmentDisplay(line: IssueLine): string {
+  const unitMap = parseUnitMap(line.request_id, line.request_no);
+  const rawDept = unitMap[String(line.line_no)] || unitMap["1"];
+  if (rawDept) {
+    const firstCode = rawDept.split(",")[0].trim();
+    const display = formatDepartmentDisplay(firstCode);
+    if (display) return display;
+  }
+
+  const candidates = [
+    line.employee_name_snapshot,
+    line.employee_no_snapshot,
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (candidate.toUpperCase().startsWith("AD2") || candidate.toUpperCase() === "AD2") continue;
+    const formatted = formatDepartmentDisplay(candidate);
+    if (formatted) return formatted;
+  }
+
+  return "福";
+}
+
+function parseItemNameAndSize(itemCode: string | null, itemName: string | null): { chineseName: string; size: string } {
+  const code = itemCode ?? "";
+  const name = itemName ?? "";
+
+  const bracketMatch = name.match(/^(.*?)\s*[\(（]([A-Za-z0-9]+)[\)）]\s*$/);
+  if (bracketMatch) {
+    return {
+      chineseName: bracketMatch[1].replace(/[-_][A-Za-z0-9]+$/, "").trim() || name,
+      size: bracketMatch[2].toUpperCase(),
+    };
+  }
+
+  const dashMatch = name.match(/^(.*?)[-_](XS|S|M|L|XL|2XL|3XL|4XL|5XL|6XL|F)$/i);
+  if (dashMatch) {
+    return {
+      chineseName: dashMatch[1].trim() || name,
+      size: dashMatch[2].toUpperCase(),
+    };
+  }
+
+  const codeMatch = code.match(/(2XL|3XL|4XL|5XL|6XL|XS|XL|S|M|L|F)$/i);
+  const size = codeMatch ? codeMatch[1].toUpperCase() : (name ? "常規" : "—");
+  const chineseName = name.replace(/[-_\s]*(?:2XL|3XL|4XL|5XL|6XL|XS|XL|S|M|L|F)$/i, "").trim() || (name || code);
+
+  return { chineseName, size };
+}
+
 export default function HrIssueCorrectionPanel() {
   const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
   const panelActive = usePanelActivity();
   const hasSession = isAuthenticated;
   const identityReady = Boolean(client && panelActive && hasSession && accountId && !identityLoading && !identityError);
+  const [filterText, setFilterText] = useState("");
   const [lineId, setLineId] = useState("");
   const [correctionNo, setCorrectionNo] = useState("");
   const [reason, setReason] = useState("");
@@ -204,15 +310,28 @@ export default function HrIssueCorrectionPanel() {
     setCorrectionNo(targetLine?.request_no ?? "");
     setReason(""); setDelta(0);
   }
+  const filteredLines = useMemo(() => {
+    const query = filterText.trim().toLowerCase();
+    if (!query) return lines;
+    return lines.filter((line) => {
+      const matchNo = line.request_no && line.request_no.toLowerCase().includes(query);
+      const matchCode = line.item_code_snapshot && line.item_code_snapshot.toLowerCase().includes(query);
+      const matchName = line.item_name_snapshot && line.item_name_snapshot.toLowerCase().includes(query);
+      return matchNo || matchCode || matchName;
+    });
+  }, [lines, filterText]);
+
+  const effectiveCorrectionNo = (correctionNo.trim() || selectedLine?.request_no || "").trim();
+
   async function createDraft(keepBusy = false): Promise<Correction | null> {
     if (!client || !selectedLine) { setMessage("請先選擇已 SHIPPED 的人資發放明細。"); return null; }
-    if (validationError || !correctionNo.trim()) { setMessage(validationError ?? "請填寫更正單號。"); return null; }
+    if (validationError || !effectiveCorrectionNo) { setMessage(validationError ?? "查無需求單號，無法建立更正單。"); return null; }
     setBusy(true); setMessage("");
     const key = createKeyRef.current ?? crypto.randomUUID(); createKeyRef.current = key;
     window.localStorage.setItem(`${STORAGE_PREFIX}:create-key`, key);
-    const fingerprint = JSON.stringify({ lineId: selectedLine.id, correctionNo: correctionNo.trim(), delta, reason: reason.trim() });
+    const fingerprint = JSON.stringify({ lineId: selectedLine.id, correctionNo: effectiveCorrectionNo, delta, reason: reason.trim() });
     const { data, error } = await client.rpc("create_hr_issue_correction_draft", {
-      p_correction_no: correctionNo.trim(), p_original_issue_line_id: selectedLine.id,
+      p_correction_no: effectiveCorrectionNo, p_original_issue_line_id: selectedLine.id,
       p_issue_quantity_delta: delta, p_reason: reason.trim(), p_note: null,
       p_idempotency_key: `HR-ISSUE-CORRECTION-DRAFT-${key}`, p_request_fingerprint: fingerprint,
     });
@@ -255,21 +374,21 @@ export default function HrIssueCorrectionPanel() {
       await postDraft(correction);
       return;
     }
-    if (!client || !selectedLine || !correctionNo.trim() || validationError) return;
+    if (!client || !selectedLine || !effectiveCorrectionNo || validationError) return;
     setBusy(true); setMessage("");
     const createKey = createKeyRef.current ?? crypto.randomUUID();
     const postKey = postKeyRef.current ?? crypto.randomUUID();
     createKeyRef.current = createKey; postKeyRef.current = postKey;
     window.localStorage.setItem(`${STORAGE_PREFIX}:create-key`, createKey);
     window.localStorage.setItem(`${STORAGE_PREFIX}:post-key`, postKey);
-    const payload = { lineId: selectedLine.id, correctionNo: correctionNo.trim(), delta, reason: reason.trim() };
+    const payload = { lineId: selectedLine.id, correctionNo: effectiveCorrectionNo, delta, reason: reason.trim() };
     const createIdempotencyKey = `HR-ISSUE-CORRECTION-DRAFT-${createKey}`;
     const createRequestFingerprint = JSON.stringify(payload);
     const postIdempotencyKey = `POST-HR-ISSUE-CORRECTION-${postKey}`;
     const postRequestFingerprint = correctionPostRequestFingerprint("POST_HR_ISSUE_CORRECTION", postIdempotencyKey);
     window.localStorage.setItem(`${STORAGE_PREFIX}:post-fingerprint`, postRequestFingerprint);
     const createArgs = {
-      p_correction_no: correctionNo.trim(), p_original_issue_line_id: selectedLine.id,
+      p_correction_no: effectiveCorrectionNo, p_original_issue_line_id: selectedLine.id,
       p_issue_quantity_delta: delta, p_reason: reason.trim(), p_note: null,
       p_idempotency_key: createIdempotencyKey, p_request_fingerprint: createRequestFingerprint,
     };
@@ -318,14 +437,67 @@ export default function HrIssueCorrectionPanel() {
   if (!client) return <section className="panel import-panel" aria-label="人資發放更正"><div className="panel-heading"><div><p className="eyebrow">16 / HR ISSUE CORRECTION</p><h2>人資發放更正</h2></div><span className="status-pill">預覽模式</span></div><p className="auth-message">登入 HR 帳號後，可選擇已發放明細建立具理由的更正單。</p></section>;
   const postedDelta = history.filter((item) => item.status === "POSTED").reduce((sum, item) => sum + item.issue_quantity_delta, 0);
   const sourceReadBlocked = dataLoading && !sourceSnapshotReady;
+
+  const selectedDept = selectedLine ? getLineDepartmentDisplay(selectedLine) : "";
+  const { chineseName, size: itemSize } = selectedLine
+    ? parseItemNameAndSize(selectedLine.item_code_snapshot, selectedLine.item_name_snapshot)
+    : { chineseName: "", size: "" };
+  const cardContent = selectedLine
+    ? `${selectedDept}, ${selectedLine.item_code_snapshot}, ${chineseName}、${itemSize}`
+    : "請先選擇明細";
+
   return <section className="panel import-panel" aria-label="人資發放更正" aria-busy={busy || dataLoading}>
     <div className="panel-heading"><div><p className="eyebrow">16 / HR ISSUE CORRECTION</p><h2>人資發放更正</h2></div><span className={`status-pill ${workflowStatusTone(correction?.status)}`}>{completionUnresolved ? "結果待確認" : workflowStatusLabel(correction?.status)}</span></div>
     <p className="auth-message">更正只可指向已完成發放的明細；正數代表補登、負數代表沖回。送出時系統會鎖定品號、需求與原明細，重新計算可用數量與人資倉餘額。</p>
     <div className="form-grid">
-      <label className="field"><span>原始發放明細</span><select value={lineId} onChange={(event) => chooseLine(event.target.value)} disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}><option value="">{sourceReadBlocked ? "載入發放明細中…" : "請選擇"}</option>{lines.map((line) => <option key={line.id} value={line.id}>{line.request_no}｜{line.item_code_snapshot}｜{line.employee_no_snapshot ?? line.employee_name_snapshot}｜原發放 {line.quantity}</option>)}</select></label>
-      <div className="metric"><span>原始品號／人員</span><strong>{selectedLine?.item_code_snapshot ?? "—"}</strong><small>{selectedLine?.item_name_snapshot ?? selectedLine?.employee_name_snapshot ?? selectedLine?.request_no ?? "請先選擇明細"}</small></div>
-      <label className="field"><span>更正單號</span><input value={correctionNo} onChange={(event) => { resetKeys(); setCorrectionNo(event.target.value); }} maxLength={80} disabled={busy || completionUnresolved || Boolean(correction)} placeholder="例如 HIC-2026-001" /></label>
-      <label className="field"><span>發放量差額</span><input type="number" step={1} value={delta} onChange={(event) => { resetKeys(); setDelta(Number(event.target.value) || 0); }} disabled={busy || completionUnresolved || Boolean(correction)} /></label>
+      <div className="field">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+          <span>原始發放明細</span>
+          {filterText ? (
+            <span style={{ fontSize: "12px", color: "var(--text-muted, #888)" }}>
+              已篩選 {filteredLines.length} / {lines.length} 筆
+            </span>
+          ) : null}
+        </div>
+        <input
+          type="text"
+          value={filterText}
+          onChange={(event) => setFilterText(event.target.value)}
+          placeholder="輸入關鍵字篩選目前有的需求單號…"
+          disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}
+          style={{ marginBottom: "6px" }}
+        />
+        <select
+          value={lineId}
+          onChange={(event) => chooseLine(event.target.value)}
+          disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}
+        >
+          <option value="">{sourceReadBlocked ? "載入發放明細中…" : filteredLines.length === 0 ? "無符合條件的發放明細" : "請選擇"}</option>
+          {filteredLines.map((line) => {
+            const deptDisplay = getLineDepartmentDisplay(line);
+            return (
+              <option key={line.id} value={line.id}>
+                {line.request_no} ｜ {line.item_code_snapshot} ｜ {deptDisplay} ｜ 原發放 {line.quantity}。
+              </option>
+            );
+          })}
+        </select>
+      </div>
+      <div className="metric">
+        <span>原始品號／人員</span>
+        <strong>{selectedLine ? `${selectedDept}, ${selectedLine.item_code_snapshot}` : "—"}</strong>
+        <small>{cardContent}</small>
+      </div>
+      <label className="field">
+        <span>發放量差額</span>
+        <input
+          type="number"
+          step={1}
+          value={delta}
+          onChange={(event) => { resetKeys(); setDelta(Number(event.target.value) || 0); }}
+          disabled={busy || completionUnresolved || Boolean(correction)}
+        />
+      </label>
     </div>
     {selectedLine ? <div className="metric"><span>目前有效發放量（原始＋已完成更正）</span><strong>{selectedLine.quantity + postedDelta}</strong><small>{history.filter((item) => item.status === "POSTED").length > 0 ? `已有 ${history.filter((item) => item.status === "POSTED").length} 筆完成更正` : "尚無完成更正"}</small></div> : null}
     <CorrectionHistoryTable ariaLabel="人資發放更正歷史" rows={historyRows} deltaLabel="發放差額" />
@@ -337,7 +509,7 @@ export default function HrIssueCorrectionPanel() {
         onClick: () => void completeCorrection(),
         busy,
         busyLabel: "處理中…",
-        disabled: busy || sourceReadBlocked || !selectedLine || !correctionNo.trim() || Boolean(validationError) || correction?.status === "POSTED",
+        disabled: busy || sourceReadBlocked || !selectedLine || !effectiveCorrectionNo || Boolean(validationError) || correction?.status === "POSTED",
         label: correction?.status === "POSTED" ? "已完成" : completionUnresolved ? "重試同一筆（結果待確認）" : "確認並完成更正",
       }}
       secondary={!correction
