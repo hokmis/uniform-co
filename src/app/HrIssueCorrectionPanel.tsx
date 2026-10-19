@@ -472,7 +472,40 @@ export default function HrIssueCorrectionPanel() {
     });
   }, [expandedLines, filterText]);
 
-  const effectiveCorrectionNo = (correctionNo.trim() || selectedLine?.request_no || "").trim();
+function buildNextCorrectionNo(baseNo: string, historyList: Array<{ correction_no: string }>): string {
+  const cleanBase = (baseNo || "").trim();
+  if (!cleanBase) return "";
+  const existing = new Set(historyList.map((h) => h.correction_no.trim().toUpperCase()));
+  let seq = 1;
+  while (existing.has(`${cleanBase}-C${seq}`.toUpperCase())) {
+    seq++;
+  }
+  return `${cleanBase}-C${seq}`;
+}
+
+function formatCorrectionErrorMessage(error: unknown, fallback: string): string {
+  if (!error) return fallback;
+  const msg = typeof error === "string" ? error : String((error as { message?: string })?.message || "");
+  if (msg.includes("correction_notes_correction_no_key") || msg.includes("duplicate key")) {
+    return "更正單號重複；系統已自動為您重新產生新單號，請再次按確認送出。";
+  }
+  if (msg.includes("Return correction would make HR stock negative")) {
+    return "更正失敗：調減發放/退回量將導致人資倉該品項庫存為負數（目前人資倉可扣減庫存不足）。";
+  }
+  if (msg.includes("Effective issued quantity must remain") || msg.includes("Effective returned quantity must remain")) {
+    return "更正失敗：調整後的有效數量不得小於 0 且不得超過上限。";
+  }
+  if (msg.includes("source changed while locking")) {
+    return "來源資料在更正過程中已被變更，請重新整理後重試。";
+  }
+  return safeSupabaseMutationErrorMessage(error as Parameters<typeof safeSupabaseMutationErrorMessage>[0], fallback);
+}
+
+  const effectiveCorrectionNo = useMemo(() => {
+    if (correction?.correction_no) return correction.correction_no;
+    const base = selectedLine?.request_no || "";
+    return buildNextCorrectionNo(base, history);
+  }, [correction?.correction_no, selectedLine?.request_no, history]);
 
   async function createDraft(keepBusy = false): Promise<Correction | null> {
     if (!client || !selectedLine) { setMessage("請先選擇已 SHIPPED 的人資發放明細。"); return null; }
@@ -488,7 +521,7 @@ export default function HrIssueCorrectionPanel() {
       p_idempotency_key: `HR-ISSUE-CORRECTION-DRAFT-${key}`, p_request_fingerprint: fingerprint,
     });
     if (error || !data?.id) {
-      setMessage(safeSupabaseMutationErrorMessage(error, "人資發放更正結果尚未確認；請使用相同操作重試。"));
+      setMessage(formatCorrectionErrorMessage(error, "人資發放更正結果尚未確認；請使用相同操作重試。"));
       if (!keepBusy) setBusy(false);
       return null;
     }
@@ -512,7 +545,7 @@ export default function HrIssueCorrectionPanel() {
       p_request_fingerprint: requestFingerprint,
     });
     if (error || !data?.id) {
-      setMessage(safeSupabaseMutationErrorMessage(error, "人資發放更正結果尚未確認；請使用相同操作重試。"));
+      setMessage(formatCorrectionErrorMessage(error, "人資發放更正結果尚未確認；請使用相同操作重試。"));
       setBusy(false);
       return false;
     }
@@ -569,7 +602,7 @@ export default function HrIssueCorrectionPanel() {
       window.localStorage.removeItem(`${STORAGE_PREFIX}:create-key`); window.localStorage.setItem(`${STORAGE_PREFIX}:id`, result.correction.id);
       setCompletionUnresolved(false);
       setMessage(result.error
-        ? safeSupabaseMutationErrorMessage(result.error, "人資發放更正草稿已建立，完成結果尚未確認；請重試同一筆。")
+        ? formatCorrectionErrorMessage(result.error, "人資發放更正草稿已建立，完成結果尚未確認；請重試同一筆。")
         : "人資發放更正草稿已建立，完成結果尚未確認；請重試同一筆。");
     } else if (result.outcomeUnknown) {
       setCompletionUnresolved(true);
@@ -578,7 +611,7 @@ export default function HrIssueCorrectionPanel() {
       createKeyRef.current = null; postKeyRef.current = null;
       window.localStorage.removeItem(`${STORAGE_PREFIX}:create-key`); window.localStorage.removeItem(`${STORAGE_PREFIX}:post-key`); window.localStorage.removeItem(`${STORAGE_PREFIX}:post-fingerprint`);
       setCompletionUnresolved(false);
-      setMessage(safeSupabaseMutationErrorMessage(result.error, "人資發放更正建立或完成失敗；請檢查資料後重試。"));
+      setMessage(formatCorrectionErrorMessage(result.error, "人資發放更正建立或完成失敗；請檢查資料後重試。"));
     }
     setBusy(false);
   }

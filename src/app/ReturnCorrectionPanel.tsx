@@ -333,16 +333,48 @@ export default function ReturnCorrectionPanel() {
     window.localStorage.removeItem(`${STORAGE_PREFIX}:post-key`);
     window.localStorage.removeItem(`${STORAGE_PREFIX}:post-fingerprint`);
   }
+function buildNextCorrectionNo(baseNo: string, historyList: Array<{ correction_no: string }>): string {
+  const cleanBase = (baseNo || "").trim();
+  if (!cleanBase) return "";
+  const existing = new Set(historyList.map((h) => h.correction_no.trim().toUpperCase()));
+  let seq = 1;
+  while (existing.has(`${cleanBase}-C${seq}`.toUpperCase())) {
+    seq++;
+  }
+  return `${cleanBase}-C${seq}`;
+}
+
+function formatCorrectionErrorMessage(error: unknown, fallback: string): string {
+  if (!error) return fallback;
+  const msg = typeof error === "string" ? error : String((error as { message?: string })?.message || "");
+  if (msg.includes("correction_notes_correction_no_key") || msg.includes("duplicate key")) {
+    return "更正編號重複；系統已自動為您重新產生新編號，請再次按確認送出。";
+  }
+  if (msg.includes("Return correction would make HR stock negative")) {
+    return "更正失敗：調減退回量將導致人資倉該品項庫存為負數（目前人資倉可扣減庫存不足）。";
+  }
+  if (msg.includes("Effective returned quantity must remain between zero")) {
+    return "更正失敗：調整後的有效退回量不得小於 0 且不得大於原發放量。";
+  }
+  if (msg.includes("Return source changed") || msg.includes("Original issue source changed")) {
+    return "來源資料在更正過程中已被變更，請重新整理後重試。";
+  }
+  return safeSupabaseMutationErrorMessage(error as Parameters<typeof safeSupabaseMutationErrorMessage>[0], fallback);
+}
+
   function chooseLine(nextId: string) {
     if (correction) return;
     recoveredLineIdRef.current = null;
     resetKeys(); window.localStorage.removeItem(`${STORAGE_PREFIX}:id`);
     setLineId(nextId);
-    const targetLine = lines.find((line) => line.id === nextId);
-    setCorrectionNo(targetLine?.return_no ?? "");
+    setCorrectionNo("");
     setDelta(0); setReason(""); setNote("");
   }
-  const effectiveCorrectionNo = (correctionNo.trim() || selectedLine?.return_no || "").trim();
+  const effectiveCorrectionNo = useMemo(() => {
+    if (correction?.correction_no) return correction.correction_no;
+    const base = selectedLine?.return_no || "";
+    return buildNextCorrectionNo(base, history);
+  }, [correction?.correction_no, selectedLine?.return_no, history]);
 
   async function createDraft(keepBusy = false): Promise<Correction | null> {
     if (!client || !selectedLine || !effectiveCorrectionNo || validationError) {
@@ -358,7 +390,7 @@ export default function ReturnCorrectionPanel() {
       p_idempotency_key: `CREATE-RETURN-CORRECTION-${key}`, p_request_fingerprint: JSON.stringify(payload),
     });
     if (error || !data?.id) {
-      setMessage(safeSupabaseMutationErrorMessage(error, "退回更正結果尚未確認；請使用相同操作重試。"));
+      setMessage(formatCorrectionErrorMessage(error, "退回更正結果尚未確認；請使用相同操作重試。"));
       if (!keepBusy) setBusy(false);
       return null;
     }
@@ -382,7 +414,7 @@ export default function ReturnCorrectionPanel() {
       p_request_fingerprint: requestFingerprint,
     });
     if (error || !data?.id) {
-      setMessage(safeSupabaseMutationErrorMessage(error, "退回更正結果尚未確認；請使用相同操作重試。"));
+      setMessage(formatCorrectionErrorMessage(error, "退回更正結果尚未確認；請使用相同操作重試。"));
       setBusy(false);
       return false;
     }
@@ -441,7 +473,7 @@ export default function ReturnCorrectionPanel() {
       window.localStorage.removeItem(`${STORAGE_PREFIX}:create-key`); window.localStorage.setItem(`${STORAGE_PREFIX}:id`, result.correction.id);
       setCompletionUnresolved(false);
       setMessage(result.error
-        ? safeSupabaseMutationErrorMessage(result.error, "退回更正草稿已建立，完成結果尚未確認；請重試同一筆。")
+        ? formatCorrectionErrorMessage(result.error, "退回更正草稿已建立，完成結果尚未確認；請重試同一筆。")
         : "退回更正草稿已建立，完成結果尚未確認；請重試同一筆。");
     } else if (result.outcomeUnknown) {
       setCompletionUnresolved(true);
@@ -450,7 +482,7 @@ export default function ReturnCorrectionPanel() {
       createKeyRef.current = null; postKeyRef.current = null;
       window.localStorage.removeItem(`${STORAGE_PREFIX}:create-key`); window.localStorage.removeItem(`${STORAGE_PREFIX}:post-key`); window.localStorage.removeItem(`${STORAGE_PREFIX}:post-fingerprint`);
       setCompletionUnresolved(false);
-      setMessage(safeSupabaseMutationErrorMessage(result.error, "退回更正建立或完成失敗；請檢查資料後重試。"));
+      setMessage(formatCorrectionErrorMessage(result.error, "退回更正建立或完成失敗；請檢查資料後重試。"));
     }
     setBusy(false);
   }
