@@ -603,7 +603,7 @@ export default function HrIssueCorrectionPanel() {
     <div className="panel-heading"><div><p className="eyebrow">16 / HR ISSUE CORRECTION</p><h2>人資發放更正</h2></div><span className={`status-pill ${workflowStatusTone(correction?.status)}`}>{completionUnresolved ? "結果待確認" : workflowStatusLabel(correction?.status)}</span></div>
     <p className="auth-message">更正只可指向已完成發放的明細；正數代表補登、負數代表沖回。送出時系統會鎖定品號、需求與原明細，重新計算可用數量與人資倉餘額。</p>
     <div className="form-grid">
-      <div className="field">
+      <div className="field hr-correction-source-field" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between", height: "100%" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
           <span>原始發放明細</span>
           {filterText ? (
@@ -636,11 +636,11 @@ export default function HrIssueCorrectionPanel() {
           })}
         </select>
       </div>
-      <div className="metric">
-        <span>原始品號／人員</span>
-        <strong>{cardContent}</strong>
+      <div className="metric hr-correction-metric" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center", height: "100%", padding: "12px 16px", borderRadius: "12px", gap: "4px" }}>
+        <span style={{ fontSize: "12px", color: "var(--muted)" }}>原始品號／人員</span>
+        <strong style={{ fontSize: "15px", fontWeight: 700, lineHeight: 1.45, letterSpacing: 0, wordBreak: "break-word" }}>{cardContent}</strong>
       </div>
-      <label className="field">
+      <label className="field hr-correction-delta-field">
         <span>發放量差額</span>
         <input
           type="number"
