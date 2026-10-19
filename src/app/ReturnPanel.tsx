@@ -618,6 +618,17 @@ export default function ReturnPanel() {
       return;
     }
 
+    if (result.returnNote && selectedLine) {
+      const deptDisplay = getLineDepartmentDisplay(selectedLine, visibleIssueLines.indexOf(selectedLine), unitMap);
+      if (deptDisplay && typeof window !== "undefined") {
+        try {
+          localStorage.setItem(`return_unit_${result.returnNote.return_no}`, deptDisplay);
+          localStorage.setItem(`return_unit_${result.returnNote.id}`, deptDisplay);
+          localStorage.setItem(`return_line_dept_${result.returnNote.return_no}_${selectedLine.id.split("__")[0]}`, deptDisplay);
+        } catch {}
+      }
+    }
+
     setReturnNote(result.returnNote);
     resetKeys();
     notifyInventoryDataChanged();

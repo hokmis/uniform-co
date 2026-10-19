@@ -17,7 +17,19 @@ import { DEPARTMENT_BUTTON_ROWS } from "./HrRequestWorkbench";
 import { resolveInstitutionInfo, ORDERED_INSTITUTION_NAMES, INSTITUTION_CODE_MAP } from "@/src/domain/hr-request-pivot-export";
 import WorkflowActionBar from "./WorkflowActionBar";
 
-type ReturnLine = { id: string; return_note_id: string; return_no: string; original_issue_line_id: string; employee_no_snapshot: string | null; employee_name_snapshot: string | null; item_code_snapshot: string | null; item_name_snapshot: string | null; quantity: number; unit_snapshot: string | null };
+type ReturnLine = {
+  id: string;
+  return_note_id: string;
+  return_no: string;
+  original_hr_request_id?: string | null;
+  original_issue_line_id: string;
+  employee_no_snapshot: string | null;
+  employee_name_snapshot: string | null;
+  item_code_snapshot: string | null;
+  item_name_snapshot: string | null;
+  quantity: number;
+  unit_snapshot: string | null;
+};
 type Correction = { id: string; correction_no: string; status: "DRAFT" | "POSTED"; original_return_note_id: string };
 type History = { id: string; correction_no: string; status: string; reason: string; delta: number; posted_at: string | null };
 
@@ -55,7 +67,83 @@ function formatDepartmentDisplay(codeOrName?: string | null): string | null {
   return null;
 }
 
+function parseUnitMap(reqId?: string, reqNo?: string): Record<string, string> {
+  if (typeof window !== "undefined") {
+    try {
+      if (reqId) {
+        const cached = localStorage.getItem(`hr_request_units_${reqId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") return parsed;
+        }
+      }
+      if (reqNo) {
+        const cached = localStorage.getItem(`hr_request_units_${reqNo}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") return parsed;
+        }
+      }
+    } catch {}
+  }
+  return {};
+}
+
+function parseUnitBreakdown(reqId?: string, reqNo?: string): Array<{ deptCode?: string; quantity?: number }> {
+  if (typeof window !== "undefined") {
+    try {
+      if (reqId) {
+        const cached = localStorage.getItem(`hr_request_breakdown_${reqId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+      if (reqNo) {
+        const cached = localStorage.getItem(`hr_request_breakdown_${reqNo}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+    } catch {}
+  }
+  return [];
+}
+
 function getReturnLineDepartmentDisplay(line: ReturnLine): string {
+  if (typeof window !== "undefined") {
+    try {
+      const directReturnUnit = localStorage.getItem(`return_line_dept_${line.return_no}_${line.original_issue_line_id}`)
+        || localStorage.getItem(`return_unit_${line.return_no}`)
+        || localStorage.getItem(`return_unit_${line.return_note_id}`);
+      if (directReturnUnit) {
+        const formatted = formatDepartmentDisplay(directReturnUnit);
+        if (formatted) return formatted;
+      }
+    } catch {}
+  }
+
+  const reqNo = line.return_no ? line.return_no.replace(/^RET-/, "") : undefined;
+  const unitMap = parseUnitMap(line.original_hr_request_id ?? undefined, reqNo);
+  const rawValues = Object.values(unitMap);
+  for (const rawDept of rawValues) {
+    if (!rawDept) continue;
+    const parts = String(rawDept).split(",");
+    for (const part of parts) {
+      const display = formatDepartmentDisplay(part.trim());
+      if (display) return display;
+    }
+  }
+
+  const breakdown = parseUnitBreakdown(line.original_hr_request_id ?? undefined, reqNo);
+  for (const b of breakdown) {
+    if (b.deptCode) {
+      const display = formatDepartmentDisplay(b.deptCode);
+      if (display) return display;
+    }
+  }
+
   const candidates = [
     line.employee_name_snapshot,
     line.employee_no_snapshot,
@@ -66,7 +154,7 @@ function getReturnLineDepartmentDisplay(line: ReturnLine): string {
     const formatted = formatDepartmentDisplay(candidate);
     if (formatted) return formatted;
   }
-  return "福";
+  return "—";
 }
 
 export default function ReturnCorrectionPanel() {
@@ -91,7 +179,7 @@ export default function ReturnCorrectionPanel() {
     const [result] = await retrySupabaseQueriesAfterSessionRefresh(
       client,
       async () => [await client.from("v_return_correction_sources")
-        .select("line_id,return_id,return_no,original_issue_line_id,employee_no_snapshot,employee_name_snapshot,item_code,item_name,quantity,unit_snapshot")
+        .select("line_id,return_id,return_no,original_hr_request_id,original_issue_line_id,employee_no_snapshot,employee_name_snapshot,item_code,item_name,quantity,unit_snapshot")
         .order("return_no", { ascending: false })
         .order("line_id", { ascending: true })] as const,
     );
@@ -102,6 +190,7 @@ export default function ReturnCorrectionPanel() {
       line_id: string;
       return_id: string;
       return_no: string;
+      original_hr_request_id: string | null;
       original_issue_line_id: string;
       employee_no_snapshot: string | null;
       employee_name_snapshot: string | null;
@@ -116,6 +205,7 @@ export default function ReturnCorrectionPanel() {
         id: row.line_id,
         return_note_id: row.return_id,
         return_no: row.return_no,
+        original_hr_request_id: row.original_hr_request_id,
         original_issue_line_id: row.original_issue_line_id,
         employee_no_snapshot: row.employee_no_snapshot,
         employee_name_snapshot: row.employee_name_snapshot,
