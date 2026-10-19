@@ -457,6 +457,7 @@ export default function ReturnPanel() {
     let active = true;
     async function loadLines() {
       setLinesLoading(true);
+      try {
         const [result, returnResult] = await retrySupabaseQueriesAfterSessionRefresh(
           supabase,
           async () => [
