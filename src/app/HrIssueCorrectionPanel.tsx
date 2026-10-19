@@ -638,8 +638,7 @@ export default function HrIssueCorrectionPanel() {
       </div>
       <div className="metric">
         <span>原始品號／人員</span>
-        <strong>{selectedLine ? `${selectedDept}, ${selectedLine.item_code_snapshot}` : "—"}</strong>
-        <small>{cardContent}</small>
+        <strong>{cardContent}</strong>
       </div>
       <label className="field">
         <span>發放量差額</span>
