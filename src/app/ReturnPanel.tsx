@@ -9,7 +9,7 @@ import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseMutationErrorMessa
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 import { DEPARTMENT_BUTTON_ROWS } from "./HrRequestWorkbench";
-import { resolveInstitutionInfo } from "@/src/domain/hr-request-pivot-export";
+import { resolveInstitutionInfo, ORDERED_INSTITUTION_NAMES, INSTITUTION_CODE_MAP } from "@/src/domain/hr-request-pivot-export";
 import WorkflowActionBar from "./WorkflowActionBar";
 
 type RequestRow = { id: string; request_no: string; distribution_date: string; note?: string | null };
@@ -43,20 +43,40 @@ type UnitBreakdownItem = {
   employeeId?: string;
 };
 
-function parseUnitMap(note?: string | null): Record<string, string> {
-  if (!note) return {};
-  const match = note.match(/<!--unit_map:(.*?)-->/);
-  if (!match) return {};
-  try {
-    return JSON.parse(match[1]);
-  } catch {
-    return {};
+function parseUnitMap(note?: string | null, reqId?: string, reqNo?: string): Record<string, string> {
+  if (note) {
+    const match = note.match(/<!--unit_map:([\s\S]*?)-->/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch {}
+    }
   }
+  if (typeof window !== "undefined") {
+    try {
+      if (reqId) {
+        const cached = localStorage.getItem(`hr_request_units_${reqId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") return parsed;
+        }
+      }
+      if (reqNo) {
+        const cached = localStorage.getItem(`hr_request_units_${reqNo}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && typeof parsed === "object") return parsed;
+        }
+      }
+    } catch {}
+  }
+  return {};
 }
 
 function parseUnitBreakdown(note?: string | null, reqId?: string, reqNo?: string): UnitBreakdownItem[] {
   if (note) {
-    const match = note.match(/<!--unit_breakdown:(.*?)-->/);
+    const match = note.match(/<!--unit_breakdown:([\s\S]*?)-->/);
     if (match) {
       try {
         const parsed = JSON.parse(match[1]);
@@ -85,32 +105,69 @@ function parseUnitBreakdown(note?: string | null, reqId?: string, reqNo?: string
   return [];
 }
 
-function getLineDepartmentDisplay(line: IssueLine, lineIndex: number, unitMap: Record<string, string>): string {
-  const lineNoKey = String(line.line_no ?? (lineIndex + 1));
-  const rawDeptCode = line.department_code_snapshot
-    || unitMap[lineNoKey]
-    || (line.line_no ? unitMap[String(line.line_no)] : undefined)
-    || unitMap[String(lineIndex + 1)]
-    || line.institution_code_snapshot
-    || line.department_name_snapshot
-    || line.institution_name_snapshot;
+function formatDepartmentDisplay(codeOrName?: string | null): string | null {
+  if (!codeOrName) return null;
+  const trimmed = codeOrName.trim();
+  if (!trimmed) return null;
 
-  // 顯示單一單位，不顯示合併發放明細
-  const deptCode = rawDeptCode ? rawDeptCode.split(",")[0].trim() : "";
-
-  if (deptCode) {
-    for (const row of DEPARTMENT_BUTTON_ROWS) {
-      for (const btn of row) {
-        if (btn.code === deptCode || btn.name === deptCode || btn.display === deptCode) {
-          return btn.display;
-        }
+  for (const row of DEPARTMENT_BUTTON_ROWS) {
+    for (const btn of row) {
+      if (btn.code.toUpperCase() === trimmed.toUpperCase() || btn.name === trimmed || btn.display === trimmed) {
+        return btn.display;
       }
     }
-    const info = resolveInstitutionInfo(deptCode);
-    if (info.shortName && info.shortName !== "其他") {
-      return info.shortName === "幼" ? "幼兒園" : info.shortName;
-    }
   }
+
+  const upper = trimmed.toUpperCase();
+  if (INSTITUTION_CODE_MAP[upper]) {
+    const sName = INSTITUTION_CODE_MAP[upper].shortName;
+    return sName === "幼" ? "幼兒園" : sName;
+  }
+
+  const info = resolveInstitutionInfo(trimmed);
+  if (info.shortName && info.shortName !== "其他" && info.shortName !== trimmed) {
+    return info.shortName === "幼" ? "幼兒園" : info.shortName;
+  }
+
+  if (ORDERED_INSTITUTION_NAMES.includes(info.shortName as any)) {
+    return info.shortName === "幼" ? "幼兒園" : info.shortName;
+  }
+
+  return null;
+}
+
+function getLineDepartmentDisplay(line: IssueLine, lineIndex: number, unitMap: Record<string, string>): string {
+  // 1. 若為拆解明細（ID 帶有 __deptCode），優先取其專屬單位
+  if (line.id.includes("__")) {
+    const virtualDept = line.id.split("__")[1];
+    const display = formatDepartmentDisplay(virtualDept) || formatDepartmentDisplay(line.department_code_snapshot);
+    if (display) return display;
+  }
+
+  // 2. 從需求單的單位對照表（unitMap）獲取建立時選擇的報局單位
+  const lineNoKey = String(line.line_no ?? (lineIndex + 1));
+  const rawUnitMapDept = unitMap[lineNoKey]
+    || (line.line_no ? unitMap[String(line.line_no)] : undefined)
+    || unitMap[String(lineIndex + 1)];
+
+  if (rawUnitMapDept) {
+    const firstCode = rawUnitMapDept.split(",")[0].trim();
+    const display = formatDepartmentDisplay(firstCode);
+    if (display) return display;
+  }
+
+  // 3. 從明細的快照中依序尋找有效單位（過濾如 AD2 等非報局單位）
+  const candidates = [
+    line.institution_name_snapshot,
+    line.institution_code_snapshot,
+    line.department_name_snapshot,
+    line.department_code_snapshot,
+  ];
+  for (const candidate of candidates) {
+    const display = formatDepartmentDisplay(candidate);
+    if (display) return display;
+  }
+
   return "未指定單位";
 }
 
@@ -159,21 +216,39 @@ export default function ReturnPanel() {
   const hasCurrentReasonCodeSnapshot = hasCurrentReadSnapshot(identityReady, reasonCodesSnapshotAccountId, accountId);
   const visibleReasonCodes = hasCurrentReasonCodeSnapshot ? reasonCodes : [];
   const selectedRequest = visibleRequests.find((request) => request.id === requestId);
-  const unitMap = useMemo(() => parseUnitMap(selectedRequest?.note), [selectedRequest?.note]);
+  const unitMap = useMemo(
+    () => parseUnitMap(selectedRequest?.note, selectedRequest?.id, selectedRequest?.request_no),
+    [selectedRequest?.id, selectedRequest?.note, selectedRequest?.request_no],
+  );
   const unitBreakdown = useMemo(
     () => parseUnitBreakdown(selectedRequest?.note, selectedRequest?.id, selectedRequest?.request_no),
     [selectedRequest?.id, selectedRequest?.note, selectedRequest?.request_no],
   );
   const visibleIssueLines = useMemo(() => {
     if (!selectedRequest || issueLines.length === 0) return [];
-    if (unitBreakdown.length === 0) return issueLines;
+
+    // 收集 unitMap 中所有的有效報局單位代碼
+    const allUnitMapDepts = Array.from(
+      new Set(
+        Object.values(unitMap)
+          .flatMap((v) => (typeof v === "string" ? v.split(",") : []))
+          .map((s) => s.trim())
+          .filter((s) => Boolean(formatDepartmentDisplay(s))),
+      ),
+    );
 
     const result: IssueLine[] = [];
-    for (const dbLine of issueLines) {
-      const matches = unitBreakdown.filter((b) => b.itemId === dbLine.item_id);
-      if (matches.length > 1) {
-        // 多單位合併發放：讀取原始資料確認各唯一單位領取的品號及數量，展開為各單一單位明細
-        for (const m of matches) {
+    for (let i = 0; i < issueLines.length; i++) {
+      const dbLine = issueLines[i];
+      const lineNoKey = String(dbLine.line_no ?? (i + 1));
+      const rawDept = unitMap[lineNoKey]
+        || (dbLine.line_no ? unitMap[String(dbLine.line_no)] : undefined)
+        || unitMap[String(i + 1)];
+
+      // 情況 A：存在具體 unitBreakdown（精確品號配對）
+      const breakdownMatches = unitBreakdown.filter((b) => b.itemId === dbLine.item_id);
+      if (breakdownMatches.length > 1) {
+        for (const m of breakdownMatches) {
           result.push({
             ...dbLine,
             id: `${dbLine.id}__${m.deptCode}`,
@@ -181,19 +256,51 @@ export default function ReturnPanel() {
             department_code_snapshot: m.deptCode,
           });
         }
-      } else if (matches.length === 1) {
-        const m = matches[0];
+        continue;
+      } else if (breakdownMatches.length === 1) {
+        const m = breakdownMatches[0];
         result.push({
           ...dbLine,
           quantity: m.quantity || dbLine.quantity,
           department_code_snapshot: m.deptCode || dbLine.department_code_snapshot,
         });
-      } else {
-        result.push(dbLine);
+        continue;
       }
+
+      // 情況 B1：本行的 unitMap 記錄了多個單位（以逗號分隔，例如 "C8,C7" 或 "福,氣"）
+      let deptsForLine: string[] = [];
+      if (rawDept && rawDept.includes(",")) {
+        deptsForLine = rawDept.split(",").map((s) => s.trim()).filter((s) => Boolean(formatDepartmentDisplay(s)));
+      } else if ((!rawDept || !formatDepartmentDisplay(rawDept)) && issueLines.length === 1 && allUnitMapDepts.length > 1) {
+        // 情況 B2：整張需求單僅 1 筆彙總發放明細，但 unitMap 包含了多個報局單位（例如 {"1":"C8","2":"C7"}）
+        deptsForLine = allUnitMapDepts;
+      }
+
+      if (deptsForLine.length > 1) {
+        const baseQty = Math.floor(dbLine.quantity / deptsForLine.length);
+        const remainder = dbLine.quantity % deptsForLine.length;
+        for (let dIdx = 0; dIdx < deptsForLine.length; dIdx++) {
+          const dept = deptsForLine[dIdx];
+          const itemQty = baseQty + (dIdx < remainder ? 1 : 0);
+          result.push({
+            ...dbLine,
+            id: `${dbLine.id}__${dept}`,
+            quantity: itemQty,
+            department_code_snapshot: dept,
+          });
+        }
+        continue;
+      }
+
+      // 情況 C：單一單位
+      const singleDept = rawDept ? rawDept.split(",")[0].trim() : (allUnitMapDepts[0] || "");
+      result.push({
+        ...dbLine,
+        department_code_snapshot: singleDept || dbLine.department_code_snapshot,
+      });
     }
     return result;
-  }, [selectedRequest, issueLines, unitBreakdown]);
+  }, [selectedRequest, issueLines, unitBreakdown, unitMap]);
   const selectedLine = visibleIssueLines.find((line) => line.id === selectedLineId);
   const maxQuantity = selectedLine?.quantity ?? 0;
   const dataLoading = requestsLoading || reasonCodesLoading || linesLoading;
