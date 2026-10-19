@@ -36,6 +36,13 @@ function taipeiToday() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 
+type UnitBreakdownItem = {
+  deptCode: string;
+  itemId: string;
+  quantity: number;
+  employeeId?: string;
+};
+
 function parseUnitMap(note?: string | null): Record<string, string> {
   if (!note) return {};
   const match = note.match(/<!--unit_map:(.*?)-->/);
@@ -47,12 +54,43 @@ function parseUnitMap(note?: string | null): Record<string, string> {
   }
 }
 
+function parseUnitBreakdown(note?: string | null, reqId?: string, reqNo?: string): UnitBreakdownItem[] {
+  if (note) {
+    const match = note.match(/<!--unit_breakdown:(.*?)-->/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+  }
+  if (typeof window !== "undefined") {
+    try {
+      if (reqId) {
+        const cached = localStorage.getItem(`hr_request_breakdown_${reqId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+      if (reqNo) {
+        const cached = localStorage.getItem(`hr_request_breakdown_${reqNo}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+    } catch {}
+  }
+  return [];
+}
+
 function getLineDepartmentDisplay(line: IssueLine, lineIndex: number, unitMap: Record<string, string>): string {
   const lineNoKey = String(line.line_no ?? (lineIndex + 1));
-  const rawDeptCode = unitMap[lineNoKey]
+  const rawDeptCode = line.department_code_snapshot
+    || unitMap[lineNoKey]
     || (line.line_no ? unitMap[String(line.line_no)] : undefined)
     || unitMap[String(lineIndex + 1)]
-    || line.department_code_snapshot
     || line.institution_code_snapshot
     || line.department_name_snapshot
     || line.institution_name_snapshot;
@@ -122,7 +160,40 @@ export default function ReturnPanel() {
   const visibleReasonCodes = hasCurrentReasonCodeSnapshot ? reasonCodes : [];
   const selectedRequest = visibleRequests.find((request) => request.id === requestId);
   const unitMap = useMemo(() => parseUnitMap(selectedRequest?.note), [selectedRequest?.note]);
-  const visibleIssueLines = selectedRequest ? issueLines : [];
+  const unitBreakdown = useMemo(
+    () => parseUnitBreakdown(selectedRequest?.note, selectedRequest?.id, selectedRequest?.request_no),
+    [selectedRequest?.id, selectedRequest?.note, selectedRequest?.request_no],
+  );
+  const visibleIssueLines = useMemo(() => {
+    if (!selectedRequest || issueLines.length === 0) return [];
+    if (unitBreakdown.length === 0) return issueLines;
+
+    const result: IssueLine[] = [];
+    for (const dbLine of issueLines) {
+      const matches = unitBreakdown.filter((b) => b.itemId === dbLine.item_id);
+      if (matches.length > 1) {
+        // 多單位合併發放：讀取原始資料確認各唯一單位領取的品號及數量，展開為各單一單位明細
+        for (const m of matches) {
+          result.push({
+            ...dbLine,
+            id: `${dbLine.id}__${m.deptCode}`,
+            quantity: m.quantity,
+            department_code_snapshot: m.deptCode,
+          });
+        }
+      } else if (matches.length === 1) {
+        const m = matches[0];
+        result.push({
+          ...dbLine,
+          quantity: m.quantity || dbLine.quantity,
+          department_code_snapshot: m.deptCode || dbLine.department_code_snapshot,
+        });
+      } else {
+        result.push(dbLine);
+      }
+    }
+    return result;
+  }, [selectedRequest, issueLines, unitBreakdown]);
   const selectedLine = visibleIssueLines.find((line) => line.id === selectedLineId);
   const maxQuantity = selectedLine?.quantity ?? 0;
   const dataLoading = requestsLoading || reasonCodesLoading || linesLoading;
@@ -340,7 +411,7 @@ export default function ReturnPanel() {
       p_return_no: returnNo.trim(), p_original_hr_request_id: requestId,
       p_return_date: returnDate, p_reason_code: reasonCode,
       p_reason: reason.trim(), p_note: note.trim() || null,
-      p_lines: [{ originalIssueLineId: selectedLine.id, quantity }],
+      p_lines: [{ originalIssueLineId: selectedLine.id.split("__")[0], quantity }],
       p_idempotency_key: `CREATE-RETURN-V2-${key}`, p_request_fingerprint: fingerprint,
     });
     if (error || !data?.id) {
@@ -413,7 +484,7 @@ export default function ReturnPanel() {
       reasonCode,
       reason: reason.trim(),
       note: note.trim() || null,
-      lines: [{ originalIssueLineId: selectedLine.id, quantity }],
+      lines: [{ originalIssueLineId: selectedLine.id.split("__")[0], quantity }],
       createIdempotencyKey,
       createRequestFingerprint: fingerprint,
       postIdempotencyKey,
@@ -454,9 +525,9 @@ export default function ReturnPanel() {
     createKeyRef.current = key;
     const { data, error } = await client.rpc("update_return_note_draft", {
       p_return_note_id: returnNote.id, p_reason: reason.trim(), p_note: note.trim() || null,
-      p_lines: [{ originalIssueLineId: selectedLine.id, quantity }],
+      p_lines: [{ originalIssueLineId: selectedLine.id.split("__")[0], quantity }],
       p_idempotency_key: `UPDATE-RETURN-${key}`,
-      p_request_fingerprint: JSON.stringify({ returnNoteId: returnNote.id, lineId: selectedLine.id, quantity, reason: reason.trim(), note: note.trim() }),
+      p_request_fingerprint: JSON.stringify({ returnNoteId: returnNote.id, lineId: selectedLine.id.split("__")[0], quantity, reason: reason.trim(), note: note.trim() }),
     });
     if (error || !data?.id) setMessage(safeSupabaseMutationErrorMessage(error, "退回草稿結果尚未確認；請使用相同操作重試。"));
     else { setReturnNote(data as ReturnNote); createKeyRef.current = null; setMessage("退回草稿已更新；確認後送出。"); }

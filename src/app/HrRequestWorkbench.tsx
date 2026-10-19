@@ -729,13 +729,32 @@ export default function HrRequestWorkbench() {
         unitMap[index + 1] = entry.departments[0];
       }
     });
+    const unitBreakdown = rawIssueLines
+      .filter((line) => line.quantity > 0 && Boolean(line.itemId) && Boolean(line.departmentCode))
+      .map((line) => ({
+        deptCode: line.departmentCode!,
+        itemId: line.itemId,
+        quantity: line.quantity,
+        employeeId: line.employeeId,
+      }));
     const unitMapTag = Object.keys(unitMap).length > 0 ? `<!--unit_map:${JSON.stringify(unitMap)}-->` : "";
-    const cleanUserNote = requestNote.replace(/<!--unit_map:.*?-->/g, "").trim();
-    const normalizedNote = cleanUserNote ? `${cleanUserNote}\n${unitMapTag}`.trim() : (unitMapTag || null);
-    if (Object.keys(unitMap).length > 0 && typeof window !== "undefined") {
+    const breakdownTag = unitBreakdown.length > 0 ? `<!--unit_breakdown:${JSON.stringify(unitBreakdown)}-->` : "";
+    const cleanUserNote = requestNote
+      .replace(/<!--unit_breakdown:.*?-->/g, "")
+      .replace(/<!--unit_map:.*?-->/g, "")
+      .trim();
+    const tags = [unitMapTag, breakdownTag].filter(Boolean).join("\n");
+    const normalizedNote = cleanUserNote ? `${cleanUserNote}\n${tags}`.trim() : (tags || null);
+    if (typeof window !== "undefined") {
       try {
-        localStorage.setItem(`hr_request_units_${operation.draftId}`, JSON.stringify(unitMap));
-        if (submittedRequestId) localStorage.setItem(`hr_request_units_${submittedRequestId}`, JSON.stringify(unitMap));
+        if (Object.keys(unitMap).length > 0) {
+          localStorage.setItem(`hr_request_units_${operation.draftId}`, JSON.stringify(unitMap));
+          if (submittedRequestId) localStorage.setItem(`hr_request_units_${submittedRequestId}`, JSON.stringify(unitMap));
+        }
+        if (unitBreakdown.length > 0) {
+          localStorage.setItem(`hr_request_breakdown_${operation.draftId}`, JSON.stringify(unitBreakdown));
+          if (submittedRequestId) localStorage.setItem(`hr_request_breakdown_${submittedRequestId}`, JSON.stringify(unitBreakdown));
+        }
       } catch {}
     }
     if (submissionRoute.kind === "invalid") {
@@ -765,10 +784,16 @@ export default function HrRequestWorkbench() {
       }));
       const updated = updateResult.data;
       if (!updateResult.error && updated?.id) {
-        if (Object.keys(unitMap).length > 0 && typeof window !== "undefined") {
+        if (typeof window !== "undefined") {
           try {
-            localStorage.setItem(`hr_request_units_${updated.id}`, JSON.stringify(unitMap));
-            if (updated.request_no) localStorage.setItem(`hr_request_units_${updated.request_no}`, JSON.stringify(unitMap));
+            if (Object.keys(unitMap).length > 0) {
+              localStorage.setItem(`hr_request_units_${updated.id}`, JSON.stringify(unitMap));
+              if (updated.request_no) localStorage.setItem(`hr_request_units_${updated.request_no}`, JSON.stringify(unitMap));
+            }
+            if (unitBreakdown.length > 0) {
+              localStorage.setItem(`hr_request_breakdown_${updated.id}`, JSON.stringify(unitBreakdown));
+              if (updated.request_no) localStorage.setItem(`hr_request_breakdown_${updated.request_no}`, JSON.stringify(unitBreakdown));
+            }
           } catch {}
         }
         setRequestEntryState({ kind: "submitted", requestId: updated.id, editing: false });
@@ -824,10 +849,16 @@ export default function HrRequestWorkbench() {
     const request = submission.request;
     if (request?.id) {
       setSubmittedEarlyIssue(request.inventory_policy === "ISSUE_ON_SUBMIT");
-      if (Object.keys(unitMap).length > 0 && typeof window !== "undefined") {
+      if (typeof window !== "undefined") {
         try {
-          localStorage.setItem(`hr_request_units_${request.id}`, JSON.stringify(unitMap));
-          if (request.request_no) localStorage.setItem(`hr_request_units_${request.request_no}`, JSON.stringify(unitMap));
+          if (Object.keys(unitMap).length > 0) {
+            localStorage.setItem(`hr_request_units_${request.id}`, JSON.stringify(unitMap));
+            if (request.request_no) localStorage.setItem(`hr_request_units_${request.request_no}`, JSON.stringify(unitMap));
+          }
+          if (unitBreakdown.length > 0) {
+            localStorage.setItem(`hr_request_breakdown_${request.id}`, JSON.stringify(unitBreakdown));
+            if (request.request_no) localStorage.setItem(`hr_request_breakdown_${request.request_no}`, JSON.stringify(unitBreakdown));
+          }
         } catch {}
       }
       operationRef.current = { ...operation, draftId: request.id };
