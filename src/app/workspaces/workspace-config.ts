@@ -30,7 +30,7 @@ export const workspaceDefinitions = [
     description: "從員工資料、制服需求、預留到退回與人資更正，串起完整發放流程。",
     modules: [
       { anchor: "hr-request-title", label: "需求與發放準備", keywords: "員工 制服需求 發放 預留 增庫 退回" },
-      { anchor: "hr-correction-title", label: "人資發放與退回更正", keywords: "更正 發放 退回 差額 來源單據" },
+      { anchor: "hr-correction-title", label: "人資發放、退回更正", keywords: "更正 發放 退回 差額 來源單據" },
       { anchor: "hr-employee-title", label: "員工主檔管理", keywords: "員工 工號 機構 部門 職稱 到職 離職 新增 修改 停用 刪除 匯入 匯出" },
     ],
   },

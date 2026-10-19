@@ -32,7 +32,7 @@ export default function HrWorkspace({ activeModule }: Props) {
     { id: "hr-correction-title", content: <ModuleWorkbench
       idPrefix="hr-correction"
       eyebrow="CORRECTIONS"
-      title="人資發放與退回更正"
+      title="人資發放、退回更正"
       headingId="hr-correction-title"
       description="正式過帳後以來源明細建立後續更正，不直接改寫原始單據；所有差額仍由受保護 RPC 驗證與過帳。"
       tabs={[
