@@ -171,6 +171,21 @@ function getLineDepartmentDisplay(line: IssueLine, lineIndex: number, unitMap: R
   return "未指定單位";
 }
 
+function formatReturnErrorMessage(error: unknown, fallback: string): string {
+  if (!error) return fallback;
+  const msg = typeof error === "string" ? error : String((error as { message?: string })?.message || "");
+  if (msg.includes("return_notes_return_no_key") || msg.includes("duplicate key")) {
+    return "退回單號已存在；請修改退回單號（例如在單號後方加上序號 -2）後重試。";
+  }
+  if (msg.includes("Return quantity exceeds remaining issued quantity") || msg.includes("exceeds remaining")) {
+    return "退回失敗：退回數量已超過該明細剩餘可退數量（該品項已全數退回）。若需調整退回量請至「退回更正」。";
+  }
+  if (msg.includes("Returns require a SHIPPED HR request")) {
+    return "退回失敗：僅有「已發貨（SHIPPED）」狀態的需求單可進行退回。";
+  }
+  return safeSupabaseMutationErrorMessage(error as Parameters<typeof safeSupabaseMutationErrorMessage>[0], fallback);
+}
+
 export default function ReturnPanel() {
   const { client, isAuthenticated, accountId, identityError, identityLoading } = useWorkspaceSession();
   const panelActive = usePanelActivity();
@@ -178,6 +193,7 @@ export default function ReturnPanel() {
   const identityReady = Boolean(client && panelActive && hasSession && accountId && !identityLoading && !identityError);
   const [requests, setRequests] = useState<RequestRow[]>([]);
   const [issueLines, setIssueLines] = useState<IssueLine[]>([]);
+  const [returnedQuantities, setReturnedQuantities] = useState<Record<string, number>>({});
   const [requestId, setRequestId] = useState("");
   const [selectedLineId, setSelectedLineId] = useState("");
   const [returnNo, setReturnNo] = useState("");
@@ -302,7 +318,9 @@ export default function ReturnPanel() {
     return result;
   }, [selectedRequest, issueLines, unitBreakdown, unitMap]);
   const selectedLine = visibleIssueLines.find((line) => line.id === selectedLineId);
-  const maxQuantity = selectedLine?.quantity ?? 0;
+  const selectedRealLineId = selectedLine ? selectedLine.id.split("__")[0] : "";
+  const selectedReturned = selectedRealLineId ? (returnedQuantities[selectedRealLineId] ?? 0) : 0;
+  const maxQuantity = selectedLine ? Math.max(0, selectedLine.quantity - selectedReturned) : 0;
   const dataLoading = requestsLoading || reasonCodesLoading || linesLoading;
   const transactionLoading = requestsLoading || linesLoading;
   const actionLoading = transactionLoading || (reasonCodesLoading && !hasCurrentReasonCodeSnapshot);
@@ -439,12 +457,16 @@ export default function ReturnPanel() {
     let active = true;
     async function loadLines() {
       setLinesLoading(true);
-      try {
-        const [result] = await retrySupabaseQueriesAfterSessionRefresh(
+        const [result, returnResult] = await retrySupabaseQueriesAfterSessionRefresh(
           supabase,
-          async () => [await supabase.from("hr_issue_lines")
-            .select("id,item_id,employee_no_snapshot,employee_name_snapshot,item_code_snapshot,item_name_snapshot,size_snapshot,unit_snapshot,quantity,line_no,department_code_snapshot,department_name_snapshot,institution_code_snapshot,institution_name_snapshot")
-            .eq("request_id", requestId).order("line_no")] as const,
+          async () => [
+            await supabase.from("hr_issue_lines")
+              .select("id,item_id,employee_no_snapshot,employee_name_snapshot,item_code_snapshot,item_name_snapshot,size_snapshot,unit_snapshot,quantity,line_no,department_code_snapshot,department_name_snapshot,institution_code_snapshot,institution_name_snapshot")
+              .eq("request_id", requestId).order("line_no"),
+            await supabase.from("v_return_correction_sources")
+              .select("return_no,original_issue_line_id,quantity")
+              .eq("original_hr_request_id", requestId),
+          ] as const,
         );
         if (!active) return;
         if (result.error) {
@@ -461,6 +483,30 @@ export default function ReturnPanel() {
         setIssueLines(loaded);
         setSelectedLineId((current) => loaded.some((line) => line.id === current) ? current : "");
         setQuantity(1);
+
+        const returnMap: Record<string, number> = {};
+        const existingNos = new Set<string>();
+        for (const row of ((returnResult?.data ?? []) as Array<{ return_no: string; original_issue_line_id: string; quantity: number }>)) {
+          if (row.original_issue_line_id) {
+            returnMap[row.original_issue_line_id] = (returnMap[row.original_issue_line_id] ?? 0) + (row.quantity ?? 0);
+          }
+          if (row.return_no) {
+            existingNos.add(row.return_no.trim().toUpperCase());
+          }
+        }
+        setReturnedQuantities(returnMap);
+
+        const currentReq = visibleRequests.find((r) => r.id === requestId);
+        if (currentReq) {
+          const baseNo = `RET-${currentReq.request_no}`;
+          let cand = baseNo;
+          let seq = 2;
+          while (existingNos.has(cand.toUpperCase())) {
+            cand = `${baseNo}-${seq}`;
+            seq++;
+          }
+          setReturnNo(cand);
+        }
       } finally {
         if (active) setLinesLoading(false);
       }
@@ -479,12 +525,19 @@ export default function ReturnPanel() {
     setReturnNo(req ? `RET-${req.request_no}` : "");
     issueLinesRef.current = [];
     setIssueLines([]);
+    setReturnedQuantities({});
     setSelectedLineId("");
     setQuantity(1);
   }
   function chooseLine(nextId: string) {
     if (returnNote) return;
-    resetKeys(); setSelectedLineId(nextId); setQuantity(1);
+    resetKeys();
+    setSelectedLineId(nextId);
+    const line = visibleIssueLines.find((l) => l.id === nextId);
+    const realLineId = line ? line.id.split("__")[0] : "";
+    const returned = realLineId ? (returnedQuantities[realLineId] ?? 0) : 0;
+    const rem = line ? Math.max(0, line.quantity - returned) : 0;
+    setQuantity(rem > 0 ? 1 : 0);
   }
 
   function startNextReturn() {
@@ -508,8 +561,13 @@ export default function ReturnPanel() {
   const fingerprint = useMemo(() => JSON.stringify({ requestId, returnDate, reasonCode, returnNo: returnNo.trim(), reason: reason.trim(), note: note.trim(), lineId: selectedLineId, quantity }), [requestId, returnDate, reasonCode, returnNo, reason, note, selectedLineId, quantity]);
 
   async function createDraft(keepBusy = false): Promise<ReturnNote | null> {
-    if (!identityReady || dataReadBlocked || !client || !requestId || !selectedLine || !returnNo.trim() || !reason.trim() || !selectedReasonCodeIsCurrent || !returnDate || quantity < 1 || quantity > maxQuantity) {
-      setMessage("請選擇已發貨需求與發放明細，填寫日期、退回原因碼、退回單號與理由，且退回量不得超過原發放量。"); return null;
+    if (!identityReady || dataReadBlocked || !client || !requestId || !selectedLine || !returnNo.trim() || !reason.trim() || !selectedReasonCodeIsCurrent || !returnDate || maxQuantity === 0 || quantity < 1 || quantity > maxQuantity) {
+      if (maxQuantity === 0) {
+        setMessage("該明細已全數退回，無剩餘可退數量。若需調整退回量請至「人資發放、退回更正」➔「退回更正」。");
+      } else {
+        setMessage("請選擇已發貨需求與發放明細，填寫日期、退回原因碼、退回單號與理由，且退回量不得超過原發放量。");
+      }
+      return null;
     }
     setBusy(true); setMessage("");
     const key = createKeyRef.current ?? crypto.randomUUID();
@@ -522,7 +580,7 @@ export default function ReturnPanel() {
       p_idempotency_key: `CREATE-RETURN-V2-${key}`, p_request_fingerprint: fingerprint,
     });
     if (error || !data?.id) {
-      setMessage(safeSupabaseMutationErrorMessage(error, "退回草稿建立失敗；請使用相同資料重試。"));
+      setMessage(formatReturnErrorMessage(error, "退回草稿建立失敗；請使用相同資料重試。"));
       if (!keepBusy) setBusy(false);
       return null;
     }
@@ -548,7 +606,7 @@ export default function ReturnPanel() {
       p_request_fingerprint: requestFingerprint,
     });
     if (error) {
-      setMessage(safeSupabaseMutationErrorMessage(error, "退回送出失敗；請使用相同草稿重試。"));
+      setMessage(formatReturnErrorMessage(error, "退回送出失敗；請使用相同草稿重試。"));
       setBusy(false);
       return false;
     }
@@ -567,8 +625,12 @@ export default function ReturnPanel() {
       return;
     }
     if (!identityReady || dataReadBlocked || !client || !requestId || !selectedLine || !returnNo.trim()
-      || !reason.trim() || !selectedReasonCodeIsCurrent || !returnDate || quantity < 1 || quantity > maxQuantity) {
-      setMessage("請選擇已發貨需求與發放明細，填寫日期、退回原因碼、退回單號與理由，且退回量不得超過原發放量。");
+      || !reason.trim() || !selectedReasonCodeIsCurrent || !returnDate || maxQuantity === 0 || quantity < 1 || quantity > maxQuantity) {
+      if (maxQuantity === 0) {
+        setMessage("該明細已全數退回，無剩餘可退數量。若需調整退回量請至「人資發放、退回更正」➔「退回更正」。");
+      } else {
+        setMessage("請選擇已發貨需求與發放明細，填寫日期、退回原因碼、退回單號與理由，且退回量不得超過原發放量。");
+      }
       return;
     }
 
@@ -602,7 +664,7 @@ export default function ReturnPanel() {
       setReturnNote(result.returnNote);
       createKeyRef.current = null;
       setMessage(result.error
-        ? safeSupabaseMutationErrorMessage(result.error, "退回草稿已保存，但送出尚未完成；請使用同一草稿重試。")
+        ? formatReturnErrorMessage(result.error, "退回草稿已保存，但送出尚未完成；請使用同一草稿重試。")
         : "退回草稿已保存，但完成狀態尚未確認；請保留同一草稿並重試。",
       );
       setBusy(false);
@@ -611,7 +673,7 @@ export default function ReturnPanel() {
 
     if (result.error || result.failureStage || !result.returnNote || result.returnNote.status !== "POSTED") {
       setMessage(result.error
-        ? safeSupabaseMutationErrorMessage(result.error, "退回完成狀態尚未確認；請保留目前資料並用相同內容重試。")
+        ? formatReturnErrorMessage(result.error, "退回完成狀態尚未確認；請保留目前資料並用相同內容重試。")
         : "退回完成狀態尚未確認；請保留目前資料並用相同內容重試。",
       );
       setBusy(false);
@@ -662,26 +724,40 @@ export default function ReturnPanel() {
       <label className="field"><span>原發放明細</span><select value={dataReadBlocked ? "" : selectedLineId} onChange={(event) => chooseLine(event.target.value)} disabled={busy || dataReadBlocked || linesLoading || Boolean(activeReturnNote) || !selectedRequest}><option value="">{linesLoading ? "載入明細中…" : "請選擇"}</option>{visibleIssueLines.map((line, index) => {
         const deptDisplay = getLineDepartmentDisplay(line, index, unitMap);
         const sizeStr = line.size_snapshot ? ` (${line.size_snapshot})` : "";
+        const realLineId = line.id.split("__")[0];
+        const lineReturned = returnedQuantities[realLineId] ?? 0;
+        const lineRemaining = Math.max(0, line.quantity - lineReturned);
+        const statusLabel = lineRemaining === 0 ? "（已全數退回）" : lineReturned > 0 ? `（可退 ${lineRemaining}／已退 ${lineReturned}）` : `（可退 ${lineRemaining}）`;
         return (
           <option key={line.id} value={line.id}>
-            {deptDisplay}｜{line.item_code_snapshot} {line.item_name_snapshot}{sizeStr}｜已發 {line.quantity}
+            {deptDisplay}｜{line.item_code_snapshot} {line.item_name_snapshot}{sizeStr}｜原發 {line.quantity} {statusLabel}
           </option>
         );
       })}</select></label>
       <label className="field"><span>退回日期</span><input type="date" value={returnDate} readOnly disabled={true} style={{ backgroundColor: "var(--surface-muted, #f1f5f9)", cursor: "not-allowed", color: "var(--ink-muted, #64748b)" }} title="退回日期固定為今日，不可修改" /></label>
       <label className="field"><span>退回單號</span><input value={returnNo} onChange={(event) => { resetKeys(); setReturnNo(event.target.value); }} disabled={busy || Boolean(activeReturnNote)} maxLength={80} placeholder="選擇需求單後自動帶入（如 RET-REQ-xxx）" /></label>
       <label className="field"><span>退回原因碼</span><select value={reasonCode} onChange={(event) => { resetKeys(); setReasonCode(event.target.value); }} disabled={busy || !hasCurrentReasonCodeSnapshot || visibleReasonCodes.length === 0 || Boolean(activeReturnNote)}><option value="">{reasonCodesLoading && !hasCurrentReasonCodeSnapshot ? "載入原因碼中…" : visibleReasonCodes.length ? "請選擇" : "目前沒有可用原因碼"}</option>{visibleReasonCodes.map((code) => <option key={code.code} value={code.code}>{code.code}｜{code.label}</option>)}</select></label>
-      <label className="field"><span>退回數量（上限 {maxQuantity}）</span><input type="number" min={1} max={maxQuantity} value={quantity} onChange={(event) => { resetKeys(); setQuantity(Math.min(maxQuantity || 1, Math.max(1, Number(event.target.value) || 1))); }} disabled={busy || activeReturnNote?.status === "POSTED"} /></label>
+      <label className="field"><span>退回數量{maxQuantity === 0 ? "（已全數退回）" : `（上限 ${maxQuantity}）`}</span><input type="number" min={maxQuantity === 0 ? 0 : 1} max={maxQuantity} value={maxQuantity === 0 ? 0 : quantity} onChange={(event) => { resetKeys(); setQuantity(Math.min(maxQuantity || 1, Math.max(1, Number(event.target.value) || 1))); }} disabled={busy || maxQuantity === 0 || activeReturnNote?.status === "POSTED"} /></label>
     </div>
     <label className="field reason-field"><span>退回原因</span><input value={reason} onChange={(event) => { resetKeys(); setReason(event.target.value); }} disabled={busy || activeReturnNote?.status === "POSTED"} maxLength={1000} placeholder="例如：離職／尺寸不合／制服汰換" /></label>
     <label className="field reason-field"><span>備註（選填）</span><input value={note} onChange={(event) => { resetKeys(); setNote(event.target.value); }} disabled={busy || activeReturnNote?.status === "POSTED"} maxLength={2000} /></label>
-    {selectedLine ? <p className="success-note">{selectedRequest?.request_no}／單位：{getLineDepartmentDisplay(selectedLine, visibleIssueLines.indexOf(selectedLine), unitMap)}／{selectedLine.item_code_snapshot} {selectedLine.item_name_snapshot}{selectedLine.size_snapshot ? `（${selectedLine.size_snapshot}）` : ""}，原發放 {selectedLine.quantity} {selectedLine.unit_snapshot}。</p> : null}
+    {selectedLine ? (
+      maxQuantity === 0 ? (
+        <p className="auth-message" style={{ margin: "12px 0 0" }}>
+          ⚠️ <strong>此明細已全數退回</strong>：{selectedRequest?.request_no}／單位：{getLineDepartmentDisplay(selectedLine, visibleIssueLines.indexOf(selectedLine), unitMap)}／{selectedLine.item_code_snapshot} {selectedLine.item_name_snapshot}{selectedLine.size_snapshot ? `（${selectedLine.size_snapshot}）` : ""}，原發放 {selectedLine.quantity} 件，累計已退回 {selectedReturned} 件，剩餘可退 0 件。若需調整或抽回退回數量，請至「<strong>人資發放、退回更正</strong>」➔「<strong>退回更正</strong>」處理。
+        </p>
+      ) : (
+        <p className="success-note">
+          {selectedRequest?.request_no}／單位：{getLineDepartmentDisplay(selectedLine, visibleIssueLines.indexOf(selectedLine), unitMap)}／{selectedLine.item_code_snapshot} {selectedLine.item_name_snapshot}{selectedLine.size_snapshot ? `（${selectedLine.size_snapshot}）` : ""}，原發放 {selectedLine.quantity} {selectedLine.unit_snapshot}（已退 {selectedReturned} 件，剩餘可退 {maxQuantity} 件）。
+        </p>
+      )
+    ) : null}
     <WorkflowActionBar
       primary={{
         onClick: () => void completeReturn(),
         busy,
         busyLabel: "處理中…",
-        disabled: busy || dataReadBlocked || actionLoading || !selectedLine || !returnNo.trim() || !reason.trim() || !selectedReasonCodeIsCurrent || !returnDate || quantity < 1 || quantity > maxQuantity || activeReturnNote?.status === "POSTED",
+        disabled: busy || dataReadBlocked || actionLoading || !selectedLine || !returnNo.trim() || !reason.trim() || !selectedReasonCodeIsCurrent || !returnDate || quantity < 1 || quantity > maxQuantity || maxQuantity === 0 || activeReturnNote?.status === "POSTED",
         label: activeReturnNote?.status === "DRAFT" ? "確認並完成退回" : activeReturnNote?.status === "POSTED" ? "已完成" : "確認並完成退回",
       }}
       secondary={!activeReturnNote
