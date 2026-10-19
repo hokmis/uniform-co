@@ -49,7 +49,7 @@ function parseUnitMap(note?: string | null): Record<string, string> {
 
 function getLineDepartmentDisplay(line: IssueLine, lineIndex: number, unitMap: Record<string, string>): string {
   const lineNoKey = String(line.line_no ?? (lineIndex + 1));
-  const deptCode = unitMap[lineNoKey]
+  const rawDeptCode = unitMap[lineNoKey]
     || (line.line_no ? unitMap[String(line.line_no)] : undefined)
     || unitMap[String(lineIndex + 1)]
     || line.department_code_snapshot
@@ -57,20 +57,10 @@ function getLineDepartmentDisplay(line: IssueLine, lineIndex: number, unitMap: R
     || line.department_name_snapshot
     || line.institution_name_snapshot;
 
+  // 顯示單一單位，不顯示合併發放明細
+  const deptCode = rawDeptCode ? rawDeptCode.split(",")[0].trim() : "";
+
   if (deptCode) {
-    if (deptCode.includes(",")) {
-      const parts = deptCode.split(",").map((c) => c.trim()).filter(Boolean);
-      const labels = parts.map((code) => {
-        for (const row of DEPARTMENT_BUTTON_ROWS) {
-          for (const btn of row) {
-            if (btn.code === code || btn.name === code || btn.display === code) return btn.display;
-          }
-        }
-        const info = resolveInstitutionInfo(code);
-        return info.shortName && info.shortName !== "其他" ? (info.shortName === "幼" ? "幼兒園" : info.shortName) : code;
-      });
-      return labels.join("、");
-    }
     for (const row of DEPARTMENT_BUTTON_ROWS) {
       for (const btn of row) {
         if (btn.code === deptCode || btn.name === deptCode || btn.display === deptCode) {
@@ -473,9 +463,9 @@ export default function ReturnPanel() {
     setBusy(false);
   }
 
-  if (!client) return <section className="panel import-panel" aria-label="員工制服退回"><div className="panel-heading"><div><p className="eyebrow">09 / RETURN</p><h2>員工制服退回</h2></div><span className="status-pill">預覽模式</span></div><p className="auth-message">登入 HR 帳號後，選擇已發貨需求與原發放明細，建立退回草稿並送回人資倉。</p></section>;
+  if (!client) return <section className="panel import-panel" aria-label="員工制服退回"><div className="panel-heading"><div><p className="eyebrow">09 / RETURN</p><h2>員工制服退回</h2><p style={{ margin: "4px 0 0", fontSize: "14px", color: "var(--muted, #64748b)" }}>處理離職繳回與瑕疵換退</p></div><span className="status-pill">預覽模式</span></div><p className="auth-message">登入 HR 帳號後，選擇已發貨需求與原發放明細，建立退回草稿並送回人資倉。</p></section>;
   return <section className="panel import-panel" aria-label="員工制服退回" aria-busy={dataLoading}>
-    <div className="panel-heading"><div><p className="eyebrow">09 / RETURN</p><h2>員工制服退回</h2></div><span className={`status-pill ${workflowStatusTone(activeReturnNote?.status)}`}>{workflowStatusLabel(activeReturnNote?.status, "建立退回")}</span></div>
+    <div className="panel-heading"><div><p className="eyebrow">09 / RETURN</p><h2>員工制服退回</h2><p style={{ margin: "4px 0 0", fontSize: "14px", color: "var(--muted, #64748b)" }}>處理離職繳回與瑕疵換退</p></div><span className={`status-pill ${workflowStatusTone(activeReturnNote?.status)}`}>{workflowStatusLabel(activeReturnNote?.status, "建立退回")}</span></div>
     <p className="auth-message">退回只接受已發貨需求；送出時系統會檢查可退數量、鎖定品號並增加人資倉，原發放單不會被改寫。</p>
     {dataLoading ? <p className="auth-message" role="status" aria-live="polite">正在載入可退回需求、原因碼或發放明細；日期、單號與理由仍可先填寫。</p> : null}
     <div className="form-grid">

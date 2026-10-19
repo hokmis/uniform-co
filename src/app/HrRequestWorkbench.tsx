@@ -726,7 +726,7 @@ export default function HrRequestWorkbench() {
     const unitMap: Record<number, string> = {};
     Array.from(aggregatedIssueMap.values()).forEach((entry, index) => {
       if (entry.departments.length > 0) {
-        unitMap[index + 1] = entry.departments.join(",");
+        unitMap[index + 1] = entry.departments[0];
       }
     });
     const unitMapTag = Object.keys(unitMap).length > 0 ? `<!--unit_map:${JSON.stringify(unitMap)}-->` : "";
