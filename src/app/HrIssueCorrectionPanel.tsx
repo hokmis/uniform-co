@@ -638,20 +638,7 @@ export default function HrIssueCorrectionPanel() {
       </div>
       <div className="metric hr-correction-metric" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center", height: "100%", padding: "12px 16px", borderRadius: "12px", gap: "4px" }}>
         <span style={{ fontSize: "12px", color: "var(--muted)" }}>原始品號／人員</span>
-        <strong style={{ fontSize: "15px", fontWeight: 700, lineHeight: 1.45, letterSpacing: 0, wordBreak: "break-word" }}>{cardContent}</strong>
-      </div>
-      <div className="metric hr-correction-effective-metric" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center", height: "100%", padding: "12px 16px", borderRadius: "12px", gap: "4px" }}>
-        <span style={{ fontSize: "12px", color: "var(--muted)" }}>目前有效發放量（原始＋已完成更正）</span>
-        {selectedLine ? (
-          <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
-            <strong style={{ fontSize: "20px", fontWeight: 800, lineHeight: 1.2, letterSpacing: "-.02em" }}>{selectedLine.quantity + postedDelta}</strong>
-            <small style={{ fontSize: "12px", color: "var(--muted)" }}>
-              {history.filter((item) => item.status === "POSTED").length > 0 ? `已有 ${history.filter((item) => item.status === "POSTED").length} 筆完成更正` : "尚無完成更正"}
-            </small>
-          </div>
-        ) : (
-          <strong style={{ fontSize: "16px", fontWeight: 700, lineHeight: 1.2, color: "var(--muted)" }}>請先選擇明細</strong>
-        )}
+        <strong style={{ fontSize: "19px", fontWeight: 700, lineHeight: 1.35, letterSpacing: 0, wordBreak: "break-word" }}>{cardContent}</strong>
       </div>
       <label className="field hr-correction-delta-field" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center", height: "100%", gap: "6px" }}>
         <span>發放量差額</span>
@@ -663,6 +650,19 @@ export default function HrIssueCorrectionPanel() {
           disabled={busy || completionUnresolved || Boolean(correction)}
         />
       </label>
+      <div className="metric hr-correction-effective-metric" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center", height: "100%", padding: "12px 16px", borderRadius: "12px", gap: "4px" }}>
+        <span style={{ fontSize: "12px", color: "var(--muted)" }}>目前有效發放量（原始＋已完成更正）</span>
+        {selectedLine ? (
+          <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+            <strong style={{ fontSize: "24px", fontWeight: 800, lineHeight: 1.25, letterSpacing: "-.02em" }}>{selectedLine.quantity + postedDelta}</strong>
+            <small style={{ fontSize: "12px", color: "var(--muted)" }}>
+              {history.filter((item) => item.status === "POSTED").length > 0 ? `已有 ${history.filter((item) => item.status === "POSTED").length} 筆完成更正` : "尚無完成更正"}
+            </small>
+          </div>
+        ) : (
+          <strong style={{ fontSize: "18px", fontWeight: 700, lineHeight: 1.25, color: "var(--muted)" }}>請先選擇明細</strong>
+        )}
+      </div>
     </div>
     <CorrectionHistoryTable ariaLabel="人資發放更正歷史" rows={historyRows} deltaLabel="發放差額" />
     <label className="field reason-field"><span>更正原因</span><input value={reason} onChange={(event) => { resetKeys(); setReason(event.target.value); }} maxLength={500} disabled={busy || completionUnresolved || Boolean(correction)} placeholder="例如：補發一件制服" /></label>
