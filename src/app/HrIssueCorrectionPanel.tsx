@@ -602,7 +602,7 @@ export default function HrIssueCorrectionPanel() {
   return <section className="panel import-panel" aria-label="人資發放更正" aria-busy={busy || dataLoading}>
     <div className="panel-heading"><div><p className="eyebrow">16 / HR ISSUE CORRECTION</p><h2>人資發放更正</h2></div><span className={`status-pill ${workflowStatusTone(correction?.status)}`}>{completionUnresolved ? "結果待確認" : workflowStatusLabel(correction?.status)}</span></div>
     <p className="auth-message">更正只可指向已完成發放的明細；正數代表補登、負數代表沖回。送出時系統會鎖定品號、需求與原明細，重新計算可用數量與人資倉餘額。</p>
-    <div className="form-grid">
+    <div className="form-grid hr-correction-form-grid" style={{ marginTop: "24px" }}>
       <div className="field hr-correction-source-field" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "space-between", height: "100%" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
           <span>原始發放明細</span>
@@ -640,7 +640,20 @@ export default function HrIssueCorrectionPanel() {
         <span style={{ fontSize: "12px", color: "var(--muted)" }}>原始品號／人員</span>
         <strong style={{ fontSize: "15px", fontWeight: 700, lineHeight: 1.45, letterSpacing: 0, wordBreak: "break-word" }}>{cardContent}</strong>
       </div>
-      <label className="field hr-correction-delta-field">
+      <div className="metric hr-correction-effective-metric" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center", height: "100%", padding: "12px 16px", borderRadius: "12px", gap: "4px" }}>
+        <span style={{ fontSize: "12px", color: "var(--muted)" }}>目前有效發放量（原始＋已完成更正）</span>
+        {selectedLine ? (
+          <div style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+            <strong style={{ fontSize: "20px", fontWeight: 800, lineHeight: 1.2, letterSpacing: "-.02em" }}>{selectedLine.quantity + postedDelta}</strong>
+            <small style={{ fontSize: "12px", color: "var(--muted)" }}>
+              {history.filter((item) => item.status === "POSTED").length > 0 ? `已有 ${history.filter((item) => item.status === "POSTED").length} 筆完成更正` : "尚無完成更正"}
+            </small>
+          </div>
+        ) : (
+          <strong style={{ fontSize: "16px", fontWeight: 700, lineHeight: 1.2, color: "var(--muted)" }}>請先選擇明細</strong>
+        )}
+      </div>
+      <label className="field hr-correction-delta-field" style={{ boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: "center", height: "100%", gap: "6px" }}>
         <span>發放量差額</span>
         <input
           type="number"
@@ -651,7 +664,6 @@ export default function HrIssueCorrectionPanel() {
         />
       </label>
     </div>
-    {selectedLine ? <div className="metric"><span>目前有效發放量（原始＋已完成更正）</span><strong>{selectedLine.quantity + postedDelta}</strong><small>{history.filter((item) => item.status === "POSTED").length > 0 ? `已有 ${history.filter((item) => item.status === "POSTED").length} 筆完成更正` : "尚無完成更正"}</small></div> : null}
     <CorrectionHistoryTable ariaLabel="人資發放更正歷史" rows={historyRows} deltaLabel="發放差額" />
     <label className="field reason-field"><span>更正原因</span><input value={reason} onChange={(event) => { resetKeys(); setReason(event.target.value); }} maxLength={500} disabled={busy || completionUnresolved || Boolean(correction)} placeholder="例如：補發一件制服" /></label>
     {dataLoading ? <p className="sr-only" role="status" aria-live="polite">正在讀取可更正的人資發放明細…</p> : null}

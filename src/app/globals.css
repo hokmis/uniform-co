@@ -2422,6 +2422,10 @@ html[data-appearance="sh"] input:focus-visible {
   }
 }
 
+.hr-correction-form-grid {
+  margin-top: 24px;
+}
+
 .hr-correction-source-field {
   box-sizing: border-box;
   display: flex !important;
@@ -2449,18 +2453,30 @@ html[data-appearance="sh"] input:focus-visible {
   word-break: break-word;
 }
 
-@media (min-width: 521px) {
-  .hr-correction-source-field {
-    grid-column: 1;
-    grid-row: 1;
-  }
-  .hr-correction-metric {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  .hr-correction-delta-field {
-    grid-column: 2;
-    grid-row: 2;
-  }
+.hr-correction-effective-metric {
+  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 12px 16px !important;
+  border-radius: 12px !important;
+  height: 100%;
+  gap: 4px !important;
 }
+
+.hr-correction-effective-metric strong {
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  line-height: 1.2 !important;
+  letter-spacing: -.02em !important;
+}
+
+.hr-correction-delta-field {
+  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+}
+
 
