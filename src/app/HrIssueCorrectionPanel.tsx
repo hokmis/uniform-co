@@ -17,7 +17,7 @@ import { DEPARTMENT_BUTTON_ROWS } from "./HrRequestWorkbench";
 import { resolveInstitutionInfo, ORDERED_INSTITUTION_NAMES, INSTITUTION_CODE_MAP } from "@/src/domain/hr-request-pivot-export";
 import WorkflowActionBar from "./WorkflowActionBar";
 
-type IssueLine = { id: string; request_id: string; request_no: string; line_no: number; employee_no_snapshot: string | null; employee_name_snapshot: string | null; item_code_snapshot: string | null; item_name_snapshot: string | null; quantity: number };
+type IssueLine = { id: string; request_id: string; request_no: string; line_no: number; employee_no_snapshot: string | null; employee_name_snapshot: string | null; item_code_snapshot: string | null; item_name_snapshot: string | null; quantity: number; department_code_snapshot?: string | null };
 type Correction = { id: string; correction_no: string; status: "DRAFT" | "POSTED"; original_hr_request_id: string };
 type History = { id: string; correction_no: string; status: string; reason: string; issue_quantity_delta: number; posted_at: string | null };
 
@@ -77,7 +77,59 @@ function parseUnitMap(reqId?: string, reqNo?: string): Record<string, string> {
   return {};
 }
 
+function parseUnitBreakdown(note?: string | null, reqId?: string, reqNo?: string): UnitBreakdownItem[] {
+  if (note) {
+    const match = note.match(/<!--unit_breakdown:([\s\S]*?)-->/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch {}
+    }
+  }
+  if (typeof window !== "undefined") {
+    try {
+      if (reqId) {
+        const cached = localStorage.getItem(`hr_request_breakdown_${reqId}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+      if (reqNo) {
+        const cached = localStorage.getItem(`hr_request_breakdown_${reqNo}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+    } catch {}
+  }
+  return [];
+}
+
+type UnitBreakdownItem = {
+  deptCode: string;
+  itemId?: string;
+  quantity: number;
+  employeeId?: string;
+};
+
 function getLineDepartmentDisplay(line: IssueLine): string {
+  // 1. 若為拆解明細（ID 帶有 __deptCode），優先取其專屬單位
+  if (line.id.includes("__")) {
+    const virtualDept = line.id.split("__")[1];
+    const display = formatDepartmentDisplay(virtualDept) || formatDepartmentDisplay(line.department_code_snapshot);
+    if (display) return display;
+  }
+
+  // 2. 若明細上有 department_code_snapshot
+  if (line.department_code_snapshot) {
+    const display = formatDepartmentDisplay(line.department_code_snapshot);
+    if (display) return display;
+  }
+
+  // 3. 嘗試從 unitMap 讀取
   const unitMap = parseUnitMap(line.request_id, line.request_no);
   const rawDept = unitMap[String(line.line_no)] || unitMap["1"];
   if (rawDept) {
@@ -86,6 +138,7 @@ function getLineDepartmentDisplay(line: IssueLine): string {
     if (display) return display;
   }
 
+  // 4. 從快照字串尋找單位線索
   const candidates = [
     line.employee_name_snapshot,
     line.employee_no_snapshot,
@@ -199,7 +252,102 @@ export default function HrIssueCorrectionPanel() {
     initialMessage: client ? "正在確認身份並載入可更正的人資發放明細…" : "設定 Supabase 並登入後，才能讀取可更正的人資發放明細。",
     read: readIssueLines,
   });
-  const selectedLine = useMemo(() => lines.find((line) => line.id === lineId), [lines, lineId]);
+  const expandedLines: IssueLine[] = useMemo(() => {
+    if (!lines || lines.length === 0) return [];
+
+    const requestGroups = new Map<string, IssueLine[]>();
+    for (const line of lines) {
+      const groupKey = line.request_id || line.request_no;
+      const group = requestGroups.get(groupKey) || [];
+      group.push(line);
+      requestGroups.set(groupKey, group);
+    }
+
+    const result: IssueLine[] = [];
+
+    for (const [, reqLines] of requestGroups.entries()) {
+      if (reqLines.length === 0) continue;
+      const sample = reqLines[0];
+      const unitMap = parseUnitMap(sample.request_id, sample.request_no);
+      const unitBreakdown = parseUnitBreakdown(null, sample.request_id, sample.request_no);
+
+      const allUnitMapDepts = Array.from(
+        new Set(
+          Object.values(unitMap)
+            .flatMap((v) => (typeof v === "string" ? v.split(",") : []))
+            .map((s) => s.trim())
+            .filter((s) => Boolean(formatDepartmentDisplay(s))),
+        ),
+      );
+
+      for (let i = 0; i < reqLines.length; i++) {
+        const dbLine = reqLines[i];
+        const lineNoKey = String(dbLine.line_no ?? (i + 1));
+        const rawDept = unitMap[lineNoKey]
+          || (dbLine.line_no ? unitMap[String(dbLine.line_no)] : undefined)
+          || unitMap[String(i + 1)];
+
+        // 情況 A：存在具體 unitBreakdown
+        if (unitBreakdown.length > 0) {
+          if (reqLines.length === 1 && unitBreakdown.length > 1) {
+            for (const m of unitBreakdown) {
+              result.push({
+                ...dbLine,
+                id: `${dbLine.id}__${m.deptCode}`,
+                quantity: m.quantity,
+                department_code_snapshot: m.deptCode,
+              });
+            }
+            continue;
+          } else if (reqLines.length === 1 && unitBreakdown.length === 1) {
+            const m = unitBreakdown[0];
+            result.push({
+              ...dbLine,
+              quantity: m.quantity || dbLine.quantity,
+              department_code_snapshot: m.deptCode || dbLine.department_code_snapshot,
+            });
+            continue;
+          }
+        }
+
+        // 情況 B1：本行的 unitMap 記錄了多個單位（以逗號分隔，例如 "C8,C7" 或 "福,氣"）
+        let deptsForLine: string[] = [];
+        if (rawDept && rawDept.includes(",")) {
+          deptsForLine = rawDept.split(",").map((s) => s.trim()).filter((s) => Boolean(formatDepartmentDisplay(s)));
+        } else if ((!rawDept || !formatDepartmentDisplay(rawDept)) && reqLines.length === 1 && allUnitMapDepts.length > 1) {
+          // 情況 B2：整張需求單僅 1 筆彙總發放明細，但 unitMap 包含了多個報局單位（例如 {"1":"C8","2":"C7"}）
+          deptsForLine = allUnitMapDepts;
+        }
+
+        if (deptsForLine.length > 1) {
+          const baseQty = Math.floor(dbLine.quantity / deptsForLine.length);
+          const remainder = dbLine.quantity % deptsForLine.length;
+          for (let dIdx = 0; dIdx < deptsForLine.length; dIdx++) {
+            const dept = deptsForLine[dIdx];
+            const itemQty = baseQty + (dIdx < remainder ? 1 : 0);
+            result.push({
+              ...dbLine,
+              id: `${dbLine.id}__${dept}`,
+              quantity: itemQty,
+              department_code_snapshot: dept,
+            });
+          }
+          continue;
+        }
+
+        // 情況 C：單一單位
+        const singleDept = rawDept ? rawDept.split(",")[0].trim() : (allUnitMapDepts[0] || "");
+        result.push({
+          ...dbLine,
+          department_code_snapshot: singleDept || dbLine.department_code_snapshot,
+        });
+      }
+    }
+
+    return result;
+  }, [lines]);
+
+  const selectedLine = useMemo(() => expandedLines.find((line) => line.id === lineId), [expandedLines, lineId]);
   const validationError = validateHrIssueCorrectionInput({ issueQuantityDelta: delta, reason });
   const historyRows: CorrectionHistoryRow[] = useMemo(() => history.map((item) => ({
     id: item.id,
@@ -214,18 +362,18 @@ export default function HrIssueCorrectionPanel() {
     if (!sourceSnapshotReady) return;
     const recoveredLineId = recoveredLineIdRef.current;
     setLineId((current) => {
-      const nextId = (recoveredLineId && lines.some((line) => line.id === recoveredLineId))
-        ? recoveredLineId
-        : (lines.some((line) => line.id === current) ? current : "");
+      const nextId = (recoveredLineId && expandedLines.some((line) => line.id.split("__")[0] === recoveredLineId))
+        ? (expandedLines.find((line) => line.id.split("__")[0] === recoveredLineId)?.id || recoveredLineId)
+        : (expandedLines.some((line) => line.id === current) ? current : "");
       if (nextId && !correction) {
-        const targetLine = lines.find((line) => line.id === nextId);
+        const targetLine = expandedLines.find((line) => line.id === nextId);
         if (targetLine) {
           setCorrectionNo((prev) => prev || targetLine.request_no);
         }
       }
       return nextId;
     });
-  }, [correction, lines, sourceSnapshotReady]);
+  }, [correction, expandedLines, sourceSnapshotReady]);
 
   useEffect(() => {
     if (!panelActive || !client || !hasSession || identityLoading || identityError || !accountId) return;
@@ -284,9 +432,10 @@ export default function HrIssueCorrectionPanel() {
     if (!panelActive || !client || !hasSession || identityLoading || identityError || !accountId || !selectedLine) return;
     const supabase = client;
     const sourceLine = selectedLine;
+    const realLineId = sourceLine.id.split("__")[0];
     let active = true;
     async function loadHistory() {
-      const result = await loadCorrectionHistory(supabase, { kind: "HR_ISSUE", parentId: sourceLine.request_id, lineId: sourceLine.id });
+      const result = await loadCorrectionHistory(supabase, { kind: "HR_ISSUE", parentId: sourceLine.request_id, lineId: realLineId });
       if (!active) return;
       if (result.error) { setMessage("人資發放更正歷史載入失敗，請重新整理後再試。"); return; }
       setHistory(result.data.map((row) => ({ id: row.id, correction_no: row.correction_no, status: row.status, reason: row.reason, issue_quantity_delta: row.delta, posted_at: row.posted_at })));
@@ -306,20 +455,22 @@ export default function HrIssueCorrectionPanel() {
     recoveredLineIdRef.current = null;
     resetKeys(); window.localStorage.removeItem(`${STORAGE_PREFIX}:id`);
     setLineId(nextId); setCorrection(null);
-    const targetLine = lines.find((line) => line.id === nextId);
+    const targetLine = expandedLines.find((line) => line.id === nextId);
     setCorrectionNo(targetLine?.request_no ?? "");
     setReason(""); setDelta(0);
   }
   const filteredLines = useMemo(() => {
     const query = filterText.trim().toLowerCase();
-    if (!query) return lines;
-    return lines.filter((line) => {
+    if (!query) return expandedLines;
+    return expandedLines.filter((line) => {
       const matchNo = line.request_no && line.request_no.toLowerCase().includes(query);
       const matchCode = line.item_code_snapshot && line.item_code_snapshot.toLowerCase().includes(query);
       const matchName = line.item_name_snapshot && line.item_name_snapshot.toLowerCase().includes(query);
-      return matchNo || matchCode || matchName;
+      const dept = getLineDepartmentDisplay(line);
+      const matchDept = dept && dept.toLowerCase().includes(query);
+      return matchNo || matchCode || matchName || matchDept;
     });
-  }, [lines, filterText]);
+  }, [expandedLines, filterText]);
 
   const effectiveCorrectionNo = (correctionNo.trim() || selectedLine?.request_no || "").trim();
 
@@ -329,9 +480,10 @@ export default function HrIssueCorrectionPanel() {
     setBusy(true); setMessage("");
     const key = createKeyRef.current ?? crypto.randomUUID(); createKeyRef.current = key;
     window.localStorage.setItem(`${STORAGE_PREFIX}:create-key`, key);
-    const fingerprint = JSON.stringify({ lineId: selectedLine.id, correctionNo: effectiveCorrectionNo, delta, reason: reason.trim() });
+    const realLineId = selectedLine.id.split("__")[0];
+    const fingerprint = JSON.stringify({ lineId: realLineId, correctionNo: effectiveCorrectionNo, delta, reason: reason.trim() });
     const { data, error } = await client.rpc("create_hr_issue_correction_draft", {
-      p_correction_no: effectiveCorrectionNo, p_original_issue_line_id: selectedLine.id,
+      p_correction_no: effectiveCorrectionNo, p_original_issue_line_id: realLineId,
       p_issue_quantity_delta: delta, p_reason: reason.trim(), p_note: null,
       p_idempotency_key: `HR-ISSUE-CORRECTION-DRAFT-${key}`, p_request_fingerprint: fingerprint,
     });
@@ -381,14 +533,15 @@ export default function HrIssueCorrectionPanel() {
     createKeyRef.current = createKey; postKeyRef.current = postKey;
     window.localStorage.setItem(`${STORAGE_PREFIX}:create-key`, createKey);
     window.localStorage.setItem(`${STORAGE_PREFIX}:post-key`, postKey);
-    const payload = { lineId: selectedLine.id, correctionNo: effectiveCorrectionNo, delta, reason: reason.trim() };
+    const realLineId = selectedLine.id.split("__")[0];
+    const payload = { lineId: realLineId, correctionNo: effectiveCorrectionNo, delta, reason: reason.trim() };
     const createIdempotencyKey = `HR-ISSUE-CORRECTION-DRAFT-${createKey}`;
     const createRequestFingerprint = JSON.stringify(payload);
     const postIdempotencyKey = `POST-HR-ISSUE-CORRECTION-${postKey}`;
     const postRequestFingerprint = correctionPostRequestFingerprint("POST_HR_ISSUE_CORRECTION", postIdempotencyKey);
     window.localStorage.setItem(`${STORAGE_PREFIX}:post-fingerprint`, postRequestFingerprint);
     const createArgs = {
-      p_correction_no: effectiveCorrectionNo, p_original_issue_line_id: selectedLine.id,
+      p_correction_no: effectiveCorrectionNo, p_original_issue_line_id: realLineId,
       p_issue_quantity_delta: delta, p_reason: reason.trim(), p_note: null,
       p_idempotency_key: createIdempotencyKey, p_request_fingerprint: createRequestFingerprint,
     };
@@ -455,7 +608,7 @@ export default function HrIssueCorrectionPanel() {
           <span>原始發放明細</span>
           {filterText ? (
             <span style={{ fontSize: "12px", color: "var(--text-muted, #888)" }}>
-              已篩選 {filteredLines.length} / {lines.length} 筆
+              已篩選 {filteredLines.length} / {expandedLines.length} 筆
             </span>
           ) : null}
         </div>
