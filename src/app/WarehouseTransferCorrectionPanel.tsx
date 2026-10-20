@@ -106,11 +106,6 @@ export default function WarehouseTransferCorrectionPanel() {
     });
   }, [sourceSnapshotReady, sources]);
 
-  useEffect(() => {
-    if (selected?.parentNo && !correction) {
-      setCorrectionNo(selected.parentNo);
-    }
-  }, [selected?.parentNo, correction]);
 
   useEffect(() => {
     if (!panelActive || !client || !hasSession || identityLoading || identityError || !accountId) return;

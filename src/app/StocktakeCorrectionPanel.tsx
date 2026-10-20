@@ -117,11 +117,6 @@ export default function StocktakeCorrectionPanel() {
     });
   }, [sourceSnapshotReady, sources]);
 
-  useEffect(() => {
-    if (selected?.stocktakeNo && !correction) {
-      setCorrectionNo(selected.stocktakeNo);
-    }
-  }, [selected?.stocktakeNo, correction]);
 
   useEffect(() => {
     if (!panelActive || !client || !hasSession || identityLoading || identityError || !accountId) return;

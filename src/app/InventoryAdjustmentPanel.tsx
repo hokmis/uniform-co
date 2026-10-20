@@ -67,8 +67,8 @@ export default function InventoryAdjustmentPanel() {
   const currentOwner = useRef(owner);
   useEffect(() => { currentOwner.current = owner; }, [owner]);
   const visible = draft.owner === owner ? draft : blankDraft(owner);
-  const items = snapshot.owner === owner ? snapshot.items : [];
-  const warehouses = snapshot.owner === owner ? snapshot.warehouses : [];
+  const items = useMemo(() => snapshot.owner === owner ? snapshot.items : [], [snapshot.owner, snapshot.items, owner]);
+  const warehouses = useMemo(() => snapshot.owner === owner ? snapshot.warehouses : [], [snapshot.owner, snapshot.warehouses, owner]);
   const scope = `${owner}:${visible.warehouse}`;
   const balances = balanceSnapshot?.scope === scope ? balanceSnapshot.rows : {};
   const storageKey = `inventory-adjustment:${authUserId}:${accountId}`;
