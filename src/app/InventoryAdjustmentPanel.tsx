@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { adjustmentSampleCsv, parseAdjustmentCsv, signedAdjustmentQuantity, type AdjustmentLine } from "@/src/domain/inventory-adjustment";
 import { notifyInventoryDataChanged } from "@/src/domain/inventory-events";
+import { STANDARD_UNIFORM_SIZES } from "@/src/domain/uniform-size";
 import { loadActiveItemOptions, loadActiveWarehouseOptions, type ActiveItemOption, type ActiveWarehouseOption } from "@/src/lib/master-data-cache";
 import { readBrowserStorageEntries, writeBrowserStorageEntries, removeBrowserStorageEntries } from "@/src/lib/browser-operation-storage";
 import { retrySupabaseQueriesAfterSessionRefresh, retrySupabaseRpcAfterSessionRefresh } from "@/src/lib/supabase-session";
@@ -11,6 +12,8 @@ import { usePanelActivity } from "./RetainedPanelSet";
 import WorkflowActionBar from "./WorkflowActionBar";
 
 type UniformCategoryKey = "ALL" | "照服" | "護士" | "行政" | "廚師" | "工務" | "幼兒園" | "OTHER";
+type GenderFilterKey = "ALL" | "MALE" | "FEMALE";
+type SeasonFilterKey = "ALL" | "SUMMER" | "WINTER";
 
 function getUniformCategory(itemName: string, itemCode: string): UniformCategoryKey {
   const name = itemName || "";
@@ -22,6 +25,25 @@ function getUniformCategory(itemName: string, itemCode: string): UniformCategory
   if (name.includes("工務") || code.includes("工務")) return "工務";
   if (name.includes("幼兒園") || name.includes("幼") || code.includes("幼")) return "幼兒園";
   return "OTHER";
+}
+
+function getUniformGender(itemName: string, size?: string | null): GenderFilterKey {
+  const text = `${itemName || ""} ${size || ""}`;
+  const hasMale = text.includes("男");
+  const hasFemale = text.includes("女");
+  if (hasMale && !hasFemale) return "MALE";
+  if (hasFemale && !hasMale) return "FEMALE";
+  return "ALL";
+}
+
+function getUniformSeason(itemName: string): SeasonFilterKey | "ALL_SEASON" {
+  const name = itemName || "";
+  const hasSummer = name.includes("夏");
+  const hasWinter = name.includes("冬");
+  if (hasSummer && hasWinter) return "ALL_SEASON";
+  if (hasSummer) return "SUMMER";
+  if (hasWinter) return "WINTER";
+  return "ALL_SEASON";
 }
 
 function extractSize(item: ActiveItemOption): string {
@@ -61,8 +83,11 @@ export default function InventoryAdjustmentPanel() {
   const [reload, setReload] = useState(0);
   const [restoredOwner, setRestoredOwner] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<UniformCategoryKey>("ALL");
+  const [genderFilter, setGenderFilter] = useState<GenderFilterKey>("ALL");
+  const [seasonFilter, setSeasonFilter] = useState<SeasonFilterKey>("ALL");
   const [sizeFilter, setSizeFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [page, setPage] = useState<number>(1);
   const flight = useRef(false);
   const currentOwner = useRef(owner);
   useEffect(() => { currentOwner.current = owner; }, [owner]);
@@ -74,28 +99,36 @@ export default function InventoryAdjustmentPanel() {
   const storageKey = `inventory-adjustment:${authUserId}:${accountId}`;
   const locked = busy || importing || Boolean(visible.pending || visible.result) || !ready || restoredOwner !== owner;
 
-  const categoryTabs: { key: UniformCategoryKey; label: string }[] = [
-    { key: "ALL", label: "全部" },
-    { key: "照服", label: "照服" },
-    { key: "護士", label: "護士" },
-    { key: "行政", label: "行政" },
-    { key: "廚師", label: "廚師" },
-    { key: "工務", label: "工務" },
-    { key: "幼兒園", label: "幼兒園" },
-    { key: "OTHER", label: "其他" },
-  ];
-
-  const sizeOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const item of items) {
-      const sz = extractSize(item);
-      if (sz) set.add(sz);
-    }
-    const orderMap: Record<string, number> = {
-      "XS": 1, "S": 2, "M": 3, "L": 4, "XL": 5, "2L": 6, "3L": 7, "4L": 8, "5L": 9, "6L": 10, "F": 99,
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      ALL: items.length,
+      "照服": 0, "護士": 0, "行政": 0, "廚師": 0, "工務": 0, "幼兒園": 0, OTHER: 0,
     };
-    return Array.from(set).sort((a, b) => (orderMap[a] ?? 50) - (orderMap[b] ?? 50) || a.localeCompare(b));
+    for (const item of items) {
+      const cat = getUniformCategory(item.item_name, item.item_code);
+      counts[cat] = (counts[cat] || 0) + 1;
+    }
+    return counts;
   }, [items]);
+
+  const categoryTabs = useMemo(() => {
+    const base: { key: UniformCategoryKey; label: string }[] = [
+      { key: "ALL", label: "全部" },
+      { key: "照服", label: "照服" },
+      { key: "護士", label: "護士" },
+      { key: "行政", label: "行政" },
+      { key: "廚師", label: "廚師" },
+      { key: "工務", label: "工務" },
+      { key: "幼兒園", label: "幼兒園" },
+    ];
+    if (categoryCounts.OTHER > 0) {
+      base.push({ key: "OTHER", label: "其他" });
+    }
+    return base.map((cat) => ({
+      ...cat,
+      count: categoryCounts[cat.key] || 0,
+    }));
+  }, [categoryCounts]);
 
   const filteredItems = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -103,6 +136,15 @@ export default function InventoryAdjustmentPanel() {
       if (categoryFilter !== "ALL") {
         const cat = getUniformCategory(item.item_name, item.item_code);
         if (cat !== categoryFilter) return false;
+      }
+      if (genderFilter !== "ALL") {
+        const g = getUniformGender(item.item_name, item.size);
+        if (g !== genderFilter) return false;
+      }
+      if (seasonFilter !== "ALL") {
+        const s = getUniformSeason(item.item_name);
+        if (seasonFilter === "SUMMER" && s !== "SUMMER" && s !== "ALL_SEASON") return false;
+        if (seasonFilter === "WINTER" && s !== "WINTER" && s !== "ALL_SEASON") return false;
       }
       if (sizeFilter !== "ALL") {
         const sz = extractSize(item);
@@ -116,7 +158,15 @@ export default function InventoryAdjustmentPanel() {
       }
       return true;
     });
-  }, [categoryFilter, items, searchQuery, sizeFilter]);
+  }, [categoryFilter, genderFilter, items, searchQuery, seasonFilter, sizeFilter]);
+
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const currentPage = Math.min(Math.max(1, page), totalPages);
+  const pagedItems = useMemo(
+    () => filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [currentPage, filteredItems, pageSize],
+  );
 
   function toggleItemTag(itemId: string) {
     if (locked) return;
@@ -254,138 +304,381 @@ export default function InventoryAdjustmentPanel() {
       <label className="field"><span>備註（選填）</span><input maxLength={2000} value={visible.note} disabled={locked} onChange={(event) => edit({ note: event.target.value })} /></label>
     </div>
     <div className="adjustment-tag-section" style={{ margin: "16px 0", padding: "16px", background: "var(--card-subtle, #f8fbf8)", border: "1px solid var(--line, #e0e6df)", borderRadius: "14px" }}>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "12px" }}>
+      {/* 1. 一級分類標籤（膠囊式按鈕，帶徽章） */}
+      <div
+        role="tablist"
+        aria-label="制服品項分類"
+        style={{
+          display: "flex",
+          gap: "6px",
+          flexWrap: "wrap",
+          marginBottom: "12px",
+          paddingBottom: "8px",
+          borderBottom: "1px solid var(--line, #e5e9ef)",
+        }}
+      >
+        {categoryTabs.map((cat) => {
+          const isActive = categoryFilter === cat.key;
+          return (
+            <button
+              key={`adj-cat-${cat.key}`}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              disabled={locked}
+              onClick={() => {
+                setCategoryFilter(cat.key);
+                setPage(1);
+              }}
+              style={{
+                padding: "6px 12px",
+                borderRadius: "8px",
+                border: isActive ? "1px solid var(--accent, #2563eb)" : "1px solid #e2e8f0",
+                background: isActive ? "var(--accent, #2563eb)" : "#f8fafc",
+                color: isActive ? "#fff" : "#475569",
+                fontWeight: isActive ? 700 : 500,
+                fontSize: "13px",
+                cursor: locked ? "not-allowed" : "pointer",
+                transition: "all 0.15s ease",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              <span>{cat.label}</span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  padding: "1px 5px",
+                  borderRadius: "10px",
+                  background: isActive ? "rgba(255, 255, 255, 0.25)" : "#e2e8f0",
+                  color: isActive ? "#fff" : "#64748b",
+                }}
+              >
+                {cat.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 2. 次級篩選列（性別、季節、尺寸、搜尋、分頁） */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          flexWrap: "wrap",
+          gap: "10px",
+          marginBottom: "14px",
+          background: "#f8fafc",
+          padding: "10px 14px",
+          borderRadius: "8px",
+          border: "1px solid #e2e8f0",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "14px", flexWrap: "wrap" }}>
+          {/* 性別篩選按鈕群 */}
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>性別：</span>
+            <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1" }}>
+              {[
+                { key: "ALL", label: "全部" },
+                { key: "MALE", label: "男" },
+                { key: "FEMALE", label: "女" },
+              ].map((g) => {
+                const active = genderFilter === g.key;
+                return (
+                  <button
+                    key={`adj-gender-${g.key}`}
+                    type="button"
+                    disabled={locked}
+                    onClick={() => {
+                      setGenderFilter(g.key as GenderFilterKey);
+                      setPage(1);
+                    }}
+                    style={{
+                      padding: "3px 9px",
+                      fontSize: "12px",
+                      border: "none",
+                      borderRight: "1px solid #cbd5e1",
+                      background: active ? "var(--accent, #2563eb)" : "#fff",
+                      color: active ? "#fff" : "#334155",
+                      fontWeight: active ? 700 : 400,
+                      cursor: locked ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {g.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 季節篩選按鈕群 */}
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>季節：</span>
+            <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1" }}>
+              {[
+                { key: "ALL", label: "全部" },
+                { key: "SUMMER", label: "夏季" },
+                { key: "WINTER", label: "冬季" },
+              ].map((s) => {
+                const active = seasonFilter === s.key;
+                return (
+                  <button
+                    key={`adj-season-${s.key}`}
+                    type="button"
+                    disabled={locked}
+                    onClick={() => {
+                      setSeasonFilter(s.key as SeasonFilterKey);
+                      setPage(1);
+                    }}
+                    style={{
+                      padding: "3px 9px",
+                      fontSize: "12px",
+                      border: "none",
+                      borderRight: "1px solid #cbd5e1",
+                      background: active ? "var(--accent, #2563eb)" : "#fff",
+                      color: active ? "#fff" : "#334155",
+                      fontWeight: active ? 700 : 400,
+                      cursor: locked ? "not-allowed" : "pointer",
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 尺寸篩選按鈕群 */}
+          <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            <span style={{ fontSize: "12px", fontWeight: 600, color: "#64748b" }}>尺寸：</span>
+            <div style={{ display: "inline-flex", borderRadius: "6px", overflow: "hidden", border: "1px solid #cbd5e1", maxWidth: "420px", overflowX: "auto" }}>
+              {[
+                { key: "ALL", label: "全部" },
+                ...STANDARD_UNIFORM_SIZES.map((sz) => ({ key: sz, label: sz })),
+              ].map((s) => {
+                const active = sizeFilter === s.key;
+                return (
+                  <button
+                    key={`adj-size-${s.key}`}
+                    type="button"
+                    disabled={locked}
+                    onClick={() => {
+                      setSizeFilter(s.key);
+                      setPage(1);
+                    }}
+                    style={{
+                      padding: "3px 7px",
+                      fontSize: "12px",
+                      border: "none",
+                      borderRight: "1px solid #cbd5e1",
+                      background: active ? "var(--accent, #2563eb)" : "#fff",
+                      color: active ? "#fff" : "#334155",
+                      fontWeight: active ? 700 : 400,
+                      cursor: locked ? "not-allowed" : "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 重設篩選 */}
+          {categoryFilter !== "ALL" || genderFilter !== "ALL" || seasonFilter !== "ALL" || sizeFilter !== "ALL" || searchQuery ? (
+            <button
+              type="button"
+              className="text-button"
+              disabled={locked}
+              onClick={() => {
+                setCategoryFilter("ALL");
+                setGenderFilter("ALL");
+                setSeasonFilter("ALL");
+                setSizeFilter("ALL");
+                setSearchQuery("");
+                setPage(1);
+              }}
+              style={{ fontSize: "12px", color: "#64748b", padding: "2px 4px" }}
+            >
+              重設篩選
+            </button>
+          ) : null}
+        </div>
+
+        {/* 搜尋框與微型分頁 */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+          <input
+            type="search"
+            placeholder="搜尋品號、品名或尺寸…"
+            value={searchQuery}
+            disabled={locked}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1);
+            }}
+            style={{
+              padding: "4px 10px",
+              fontSize: "12px",
+              borderRadius: "6px",
+              border: "1px solid #cbd5e1",
+              width: "180px",
+              background: "#fff",
+            }}
+          />
+
+          {totalPages > 1 ? (
+            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={locked || currentPage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                style={{ padding: "3px 8px", fontSize: "12px", margin: 0 }}
+              >
+                上一頁
+              </button>
+              <span style={{ alignSelf: "center", fontSize: "12px", fontWeight: 600 }}>
+                {currentPage} / {totalPages}
+              </span>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={locked || currentPage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                style={{ padding: "3px 8px", fontSize: "12px", margin: 0 }}
+              >
+                下一頁
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* 3. 品項清單標題與全選/清空 */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px", marginBottom: "10px" }}>
         <div>
-          <strong>標籤化選擇品號</strong>
-          <span style={{ fontSize: "13px", color: "var(--muted, #667)", marginLeft: "8px" }}>
-            （已選 {visible.lines.length} / 全部 {items.length} 項；目前符合篩選 {filteredItems.length} 項）
+          <h3 style={{ margin: 0, fontSize: "15px" }}>制服調整品項選擇</h3>
+          <span style={{ fontSize: "12px", color: "var(--muted, #666)" }}>
+            點擊加入調整明細（每頁 {pageSize} 筆，目前篩選共 {filteredItems.length} 個品號；已選 {visible.lines.length} 項）
           </span>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           <button
             type="button"
             className="secondary-button"
-            style={{ marginTop: 0, padding: "6px 14px", fontSize: "13px", fontWeight: 700 }}
+            style={{ marginTop: 0, padding: "5px 12px", fontSize: "12px", fontWeight: 700 }}
             onClick={addAllFiltered}
             disabled={locked || !filteredItems.length || filteredItems.every((it) => visible.lines.some((l) => l.item_id === it.id))}
           >
-            全選符合品項（{filteredItems.length} 項）
+            全選目前篩選品項（{filteredItems.length} 項）
           </button>
           {visible.lines.length > 0 ? (
             <button
               type="button"
               className="text-button"
-              style={{ padding: "6px 8px", fontSize: "13px" }}
+              style={{ padding: "4px 8px", fontSize: "12px" }}
               onClick={clearAllLines}
               disabled={locked}
             >
-              清空所有品項
+              清空已選品項
             </button>
           ) : null}
         </div>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", marginBottom: "12px", paddingBottom: "10px", borderBottom: "1px dashed var(--line, #e0e6df)" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px" }}>
-          <span style={{ fontSize: "12px", color: "var(--muted, #666)", fontWeight: 600 }}>類別:</span>
-          {categoryTabs.map((tab) => {
-            const activeTab = categoryFilter === tab.key;
+      {/* 4. 品項卡片清單 */}
+      {filteredItems.length === 0 ? (
+        <p className="empty-state" style={{ padding: "16px 0", textAlign: "center", color: "var(--muted, #888)" }}>
+          查無符合目前分類或條件的品號；請調整分類頁籤、篩選條件或點擊「重設篩選」。
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          {pagedItems.map((item) => {
+            const isAdded = visible.lines.some((line) => line.item_id === item.id);
+            const known = balanceSnapshot?.scope === scope;
+            const onHand = known ? (balances[item.id] ?? 0) : null;
             return (
-              <button
-                key={tab.key}
-                type="button"
-                disabled={locked}
-                onClick={() => setCategoryFilter(tab.key)}
+              <div
+                key={`adj-item-${item.id}`}
                 style={{
-                  padding: "3px 10px",
-                  borderRadius: "12px",
-                  fontSize: "12px",
-                  cursor: locked ? "not-allowed" : "pointer",
-                  border: activeTab ? "1px solid var(--accent, #1b5e20)" : "1px solid var(--line, #ddd)",
-                  background: activeTab ? "var(--accent, #2e7d32)" : "#ffffff",
-                  color: activeTab ? "#ffffff" : "inherit",
-                  fontWeight: activeTab ? 700 : 400,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  border: isAdded ? "1.5px solid var(--green, #2e7d32)" : "1px solid #e2e8f0",
+                  background: isAdded ? "var(--green-subtle, #f0fdf4)" : "#ffffff",
                   transition: "all 0.15s ease",
                 }}
               >
-                {tab.label}
-              </button>
+                <div>
+                  <div style={{ fontSize: "14px", fontWeight: 600, color: isAdded ? "var(--green, #166534)" : "#1e293b" }}>
+                    {item.item_code} ｜ {item.item_name}（{item.size || "不分尺寸"}）
+                  </div>
+                  <div style={{ fontSize: "12px", color: "var(--muted, #64748b)", marginTop: "2px" }}>
+                    目前庫存：{onHand !== null ? onHand : "待載入"} {isAdded ? "（已排入下方調整明細）" : ""}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={locked}
+                  onClick={() => toggleItemTag(item.id)}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: "6px",
+                    fontSize: "13px",
+                    fontWeight: 700,
+                    cursor: locked ? "not-allowed" : "pointer",
+                    border: isAdded ? "1px solid var(--line, #cbd5e1)" : "1px solid var(--accent, #2563eb)",
+                    background: isAdded ? "#fff" : "var(--accent, #2563eb)",
+                    color: isAdded ? "#475569" : "#fff",
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {isAdded ? "✓ 已加入" : "+ 加入"}
+                </button>
+              </div>
             );
           })}
         </div>
+      )}
 
-        {sizeOptions.length > 0 ? (
-          <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--muted, #666)", fontWeight: 600 }}>
-            <span>尺寸:</span>
-            <select
-              value={sizeFilter}
-              onChange={(e) => setSizeFilter(e.target.value)}
-              disabled={locked}
-              style={{ padding: "4px 8px", fontSize: "12px", borderRadius: "8px", border: "1px solid var(--line, #ccc)" }}
-            >
-              <option value="ALL">全部尺寸</option>
-              {sizeOptions.map((sz) => (
-                <option key={sz} value={sz}>{sz}</option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-
-        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", flex: 1, minWidth: "160px" }}>
-          <input
-            type="search"
-            placeholder="搜尋品號、品名或尺寸…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            disabled={locked}
-            style={{ width: "100%", padding: "5px 10px", fontSize: "13px", borderRadius: "8px", border: "1px solid var(--line, #ccc)" }}
-          />
-        </div>
-      </div>
-
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", maxHeight: "220px", overflowY: "auto", padding: "4px 2px" }}>
-        {filteredItems.map((item) => {
-          const isAdded = visible.lines.some((line) => line.item_id === item.id);
-          const known = balanceSnapshot?.scope === scope;
-          const onHand = known ? (balances[item.id] ?? 0) : null;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              disabled={locked}
-              onClick={() => toggleItemTag(item.id)}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-                padding: "6px 12px",
-                borderRadius: "20px",
-                fontSize: "13px",
-                cursor: locked ? "not-allowed" : "pointer",
-                transition: "all 0.15s ease",
-                border: isAdded ? "1.5px solid var(--green, #2e7d32)" : "1px solid var(--line, #d0d7cf)",
-                background: isAdded ? "var(--green-subtle, #e8f5e9)" : "#ffffff",
-                color: isAdded ? "var(--green, #1b5e20)" : "inherit",
-                fontWeight: isAdded ? 700 : 400,
-              }}
-              title={isAdded ? "點擊自調整明細移除" : "點擊加入調整明細"}
-            >
-              <span style={{ fontSize: "12px", fontWeight: 800 }}>{isAdded ? "✓" : "+"}</span>
-              <span>{item.item_code}｜{item.item_name}{item.size ? `｜${item.size}` : ""}</span>
-              {onHand !== null ? (
-                <span style={{ fontSize: "11px", opacity: 0.85, background: isAdded ? "#c8e6c9" : "#f0f2f0", padding: "1px 6px", borderRadius: "10px" }}>
-                  庫存:{onHand}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-        {filteredItems.length === 0 ? (
-          <span style={{ fontSize: "13px", color: "var(--muted, #888)", padding: "8px 0" }}>
-            {!items.length ? "目前尚未載入品號" : "沒有符合篩選條件的制服品項"}
+      {/* 5. 底部完整分頁列 */}
+      {totalPages > 1 ? (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px", paddingTop: "8px", borderTop: "1px solid var(--line, #e2e8f0)" }}>
+          <span style={{ fontSize: "12px", color: "var(--muted, #666)" }}>
+            顯示第 {(currentPage - 1) * pageSize + 1} 至 {Math.min(currentPage * pageSize, filteredItems.length)} 筆，共 {filteredItems.length} 筆
           </span>
-        ) : null}
-      </div>
+          <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={locked || currentPage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              style={{ padding: "4px 10px", fontSize: "12px", margin: 0 }}
+            >
+              上一頁
+            </button>
+            <span style={{ fontSize: "12px", fontWeight: 600 }}>
+              第 {currentPage} / {totalPages} 頁
+            </span>
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={locked || currentPage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              style={{ padding: "4px 10px", fontSize: "12px", margin: 0 }}
+            >
+              下一頁
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
     <div className="button-row"><label className="secondary-button">匯入 CSV（取代本張明細）<input type="file" accept=".csv,text/csv" disabled={locked || !items.length} onChange={(event) => { void importFile(event.target.files?.[0]); event.target.value = ""; }} /></label><button type="button" className="secondary-button" onClick={downloadSample}>下載匯入範例 CSV</button><button type="button" className="secondary-button" disabled={busy || !ready} onClick={() => setReload((value) => value + 1)}>重新載入庫存</button></div>
     <div className="table-scroll"><table><thead><tr><th>品號／品名</th><th>目前庫存</th><th>調整數量（+／−）</th><th>預計調整後</th><th>原因（必填）</th><th>操作</th></tr></thead><tbody>{visible.lines.map((line, index) => {
