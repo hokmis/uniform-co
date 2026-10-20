@@ -107,6 +107,12 @@ export default function WarehouseTransferCorrectionPanel() {
   }, [sourceSnapshotReady, sources]);
 
   useEffect(() => {
+    if (selected?.parentNo && !correction) {
+      setCorrectionNo(selected.parentNo);
+    }
+  }, [selected?.parentNo, correction]);
+
+  useEffect(() => {
     if (!panelActive || !client || !hasSession || identityLoading || identityError || !accountId) return;
     const supabase = client;
     const createKey = window.localStorage.getItem(`${PREFIX}:create-key`);
@@ -270,7 +276,7 @@ export default function WarehouseTransferCorrectionPanel() {
     <div className="panel-heading"><div><p className="eyebrow">17 / TRANSFER CORRECTION</p><h2>倉庫調撥更正</h2></div><span className={`status-pill ${workflowStatusTone(correction?.status)}`}>{completionUnresolved ? "結果待確認" : workflowStatusLabel(correction?.status)}</span></div>
     <p className="auth-message">更正只可指向已完成的發貨／補庫明細；正數代表總倉調入人資倉，負數代表沖回。送出時會鎖品號、來源文件與兩倉餘額，保留原始紀錄並新增更正紀錄。</p>
     <div className="form-grid">
-      <label className="field"><span>原始調撥明細</span><select value={sourceKey} onChange={(event) => { recoveredSourceRef.current = null; resetKeys(); window.localStorage.removeItem(`${PREFIX}:id`); setSourceKey(event.target.value); setCorrection(null); }} disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}><option value="">{sourceReadBlocked ? "載入調撥明細中…" : "請選擇"}</option>{sources.map((source) => <option key={`${source.kind}:${source.lineId}`} value={`${source.kind}:${source.lineId}`}>{source.kind === "SHIPMENT" ? "發貨" : "補庫"}｜{source.parentNo}｜{source.itemCode}｜原調撥 {source.actual}</option>)}</select></label>
+      <label className="field"><span>原始調撥明細</span><select value={sourceKey} onChange={(event) => { recoveredSourceRef.current = null; resetKeys(); window.localStorage.removeItem(`${PREFIX}:id`); const nextKey = event.target.value; setSourceKey(nextKey); setCorrection(null); const target = sources.find((source) => `${source.kind}:${source.lineId}` === nextKey); setCorrectionNo(target?.parentNo ?? ""); }} disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}><option value="">{sourceReadBlocked ? "載入調撥明細中…" : "請選擇"}</option>{sources.map((source) => <option key={`${source.kind}:${source.lineId}`} value={`${source.kind}:${source.lineId}`}>{source.kind === "SHIPMENT" ? "發貨" : "補庫"}｜{source.parentNo}｜{source.itemCode}｜原調撥 {source.actual}</option>)}</select></label>
       <div className="metric"><span>原始品號／有效調撥量</span><strong>{selected?.itemCode ?? "—"}／{effective}</strong><small>{selected?.itemName ?? "請先選擇明細"}；上限 {selected?.requested ?? "—"}</small></div>
       <label className="field"><span>更正單號</span><input value={correctionNo} onChange={(event) => { resetKeys(); setCorrectionNo(event.target.value); }} maxLength={80} disabled={busy || completionUnresolved || Boolean(correction)} placeholder="例如 WTC-2026-001" /></label>
       <label className="field"><span>調撥量差額</span><input type="number" step={1} value={delta} onChange={(event) => { resetKeys(); setDelta(Number(event.target.value) || 0); }} disabled={busy || completionUnresolved || Boolean(correction)} /></label>

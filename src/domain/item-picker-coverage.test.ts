@@ -55,7 +55,6 @@ describe("searchable item picker adoption", () => {
   it.each([
     "HrRequestWorkbench.tsx",
     "ReplenishmentPanel.tsx",
-    "StocktakePanel.tsx",
     "InventoryMovementHistoryPanel.tsx",
     "InventoryHistoryExportPanel.tsx",
     "SeasonalCampaignPanel.tsx",
@@ -83,12 +82,13 @@ describe("searchable item picker adoption", () => {
     expect(source).toContain("未選取時匯出全部可見品號");
   });
 
-  it("lets stocktake select and add several searched items in one action", () => {
+  it("lets stocktake select and add items using tag-based selection and select-all", () => {
     const source = readFileSync(resolve(process.cwd(), "src/app/StocktakePanel.tsx"), "utf8");
 
-    expect(source).toContain("appendStocktakeItems");
-    expect(source).toContain("value={selectedItemIds} multiple");
-    expect(source).toContain("加入 ${selectedItemIds.length} 個品號");
+    expect(source).toContain("標籤化品號選擇");
+    expect(source).toContain("全選目前全部品項");
+    expect(source).toContain("toggleItemTag");
+    expect(source).toContain("addAllItems");
   });
 
   it("lets HR add several searched replenishment items without duplicating existing lines", () => {

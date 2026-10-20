@@ -118,6 +118,12 @@ export default function StocktakeCorrectionPanel() {
   }, [sourceSnapshotReady, sources]);
 
   useEffect(() => {
+    if (selected?.stocktakeNo && !correction) {
+      setCorrectionNo(selected.stocktakeNo);
+    }
+  }, [selected?.stocktakeNo, correction]);
+
+  useEffect(() => {
     if (!panelActive || !client || !hasSession || identityLoading || identityError || !accountId) return;
     const supabase = client;
     const createKey = window.localStorage.getItem(`${PREFIX}:create-key`);
@@ -275,7 +281,7 @@ export default function StocktakeCorrectionPanel() {
     <div className="panel-heading"><div><p className="eyebrow">18 / STOCKTAKE CORRECTION</p><h2>盤點更正</h2></div><span className={`status-pill ${workflowStatusTone(correction?.status)}`}>{completionUnresolved ? "結果待確認" : workflowStatusLabel(correction?.status)}</span></div>
     <p className="auth-message">更正只可指向已完成的盤點明細；差額會新增更正紀錄，不改寫原始盤點。送出時系統會鎖品號、盤點來源、兩倉餘額及受影響預留，重算有效實盤數量。</p>
     <div className="form-grid">
-      <label className="field"><span>原始盤點明細</span><select value={sourceId} onChange={(event) => { recoveredSourceRef.current = null; resetKeys(); window.localStorage.removeItem(`${PREFIX}:id`); setSourceId(event.target.value); setCorrection(null); }} disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}><option value="">{sourceReadBlocked ? "載入盤點明細中…" : "請選擇"}</option>{sources.map((source) => <option key={source.lineId} value={source.lineId}>{source.stocktakeNo}｜{source.itemCode}｜帳面 {source.book}／實盤 {source.counted}</option>)}</select></label>
+      <label className="field"><span>原始盤點明細</span><select value={sourceId} onChange={(event) => { recoveredSourceRef.current = null; resetKeys(); window.localStorage.removeItem(`${PREFIX}:id`); const nextId = event.target.value; setSourceId(nextId); setCorrection(null); const target = sources.find((source) => source.lineId === nextId); setCorrectionNo(target?.stocktakeNo ?? ""); }} disabled={busy || completionUnresolved || sourceReadBlocked || Boolean(correction)}><option value="">{sourceReadBlocked ? "載入盤點明細中…" : "請選擇"}</option>{sources.map((source) => <option key={source.lineId} value={source.lineId}>{source.stocktakeNo}｜{source.itemCode}｜帳面 {source.book}／實盤 {source.counted}</option>)}</select></label>
       <div className="metric"><span>原始品號／有效實盤量</span><strong>{selected?.itemCode ?? "—"}／{effective}</strong><small>{selected?.itemName ?? "請先選擇明細"}；原帳面 {selected?.book ?? "—"}</small></div>
       <label className="field"><span>更正單號</span><input value={correctionNo} onChange={(event) => { resetKeys(); setCorrectionNo(event.target.value); }} maxLength={80} disabled={busy || completionUnresolved || Boolean(correction)} placeholder="例如 STC-2026-001" /></label>
       <label className="field"><span>實盤量差額</span><input type="number" step={1} value={delta} onChange={(event) => { resetKeys(); setDelta(Number(event.target.value) || 0); }} disabled={busy || completionUnresolved || Boolean(correction)} /></label>

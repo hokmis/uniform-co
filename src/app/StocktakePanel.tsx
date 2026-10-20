@@ -12,7 +12,6 @@ import { attemptOptionalRpc } from "@/src/lib/optional-rpc";
 import { isSupabaseSessionSyncError, retrySupabaseQueriesAfterSessionRefresh, safeSupabaseMutationErrorMessage, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import WorkflowActionBar from "./WorkflowActionBar";
-import SearchableItemPicker from "./SearchableItemPicker";
 
 type Warehouse = { id: string; code: string; name: string; purpose: "HR" | "GENERAL" };
 type Item = { id: string; item_code: string; item_name: string; unit: string; size: string | null };
@@ -584,8 +583,6 @@ export default function StocktakePanel() {
     <div className="form-grid">
       <label className="field"><span>盤點倉庫</span><select value={warehouseId} onChange={(event) => changeWarehouse(event.target.value)} disabled={mutationLocked || sourceReadBlocked || Boolean(displayStocktake)}><option value="">{masterDataReadBlocked && masterDataLoading ? "載入倉庫中…" : masterDataReadBlocked ? "暫不可用" : "請選擇"}</option>{scopedWarehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code}｜{warehouse.name}（{warehouse.purpose === "HR" ? "人資倉" : "總倉"}）</option>)}</select></label>
       <label className="field"><span>盤點單號</span><input value={stocktakeNo} onChange={(event) => { resetOperationKeys(); setStocktakeNo(event.target.value); }} disabled={mutationLocked || Boolean(stocktake)} maxLength={80} /></label>
-      <div className="field"><span>批次加入品號（可搜尋複選）</span><SearchableItemPicker label="盤點品號" placeholder="搜尋品號、品名或尺寸" options={scopedItems.filter((item) => !visibleLines.some((line) => line.item_id === item.id)).map((item) => ({ id: item.id, code: item.item_code, name: item.item_name, size: item.size, detail: `帳面 ${balances[item.id]?.on_hand_quantity ?? 0}` }))} value={selectedItemIds} multiple onChange={(value) => setSelectedItemIds(Array.isArray(value) ? value : [value])} disabled={mutationLocked || sourceReadBlocked || Boolean(displayStocktake) || !selectedWarehouse} /></div>
-      <div className="field"><span>&nbsp;</span><button className="secondary-button" type="button" onClick={() => appendStocktakeItems()} disabled={mutationLocked || sourceReadBlocked || Boolean(displayStocktake) || selectedItemIds.length === 0 || !selectedWarehouse}>{sourceReadBlocked ? "載入帳面中…" : `加入 ${selectedItemIds.length} 個品號`}</button></div>
     </div>
     {selectedWarehouse && !displayStocktake ? (
       <div className="stocktake-tag-section" style={{ margin: "16px 0", padding: "16px", background: "var(--card-subtle, #f8fbf8)", border: "1px solid var(--line, #e0e6df)", borderRadius: "14px" }}>

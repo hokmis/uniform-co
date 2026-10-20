@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { adjustmentSampleCsv, parseAdjustmentCsv, signedAdjustmentQuantity, type AdjustmentLine } from "@/src/domain/inventory-adjustment";
 import { notifyInventoryDataChanged } from "@/src/domain/inventory-events";
 import { loadActiveItemOptions, loadActiveWarehouseOptions, type ActiveItemOption, type ActiveWarehouseOption } from "@/src/lib/master-data-cache";
@@ -8,8 +8,27 @@ import { readBrowserStorageEntries, writeBrowserStorageEntries, removeBrowserSto
 import { retrySupabaseQueriesAfterSessionRefresh, retrySupabaseRpcAfterSessionRefresh } from "@/src/lib/supabase-session";
 import { useWorkspaceSession } from "./workspace-session";
 import { usePanelActivity } from "./RetainedPanelSet";
-import SearchableItemPicker from "./SearchableItemPicker";
 import WorkflowActionBar from "./WorkflowActionBar";
+
+type UniformCategoryKey = "ALL" | "照服" | "護士" | "行政" | "廚師" | "工務" | "幼兒園" | "OTHER";
+
+function getUniformCategory(itemName: string, itemCode: string): UniformCategoryKey {
+  const name = itemName || "";
+  const code = itemCode || "";
+  if (name.includes("照服") || code.includes("照服")) return "照服";
+  if (name.includes("護士") || code.includes("護士")) return "護士";
+  if (name.includes("行政") || code.includes("行政")) return "行政";
+  if (name.includes("廚師") || code.includes("廚師")) return "廚師";
+  if (name.includes("工務") || code.includes("工務")) return "工務";
+  if (name.includes("幼兒園") || name.includes("幼") || code.includes("幼")) return "幼兒園";
+  return "OTHER";
+}
+
+function extractSize(item: ActiveItemOption): string {
+  if (item.size) return item.size.trim().toUpperCase();
+  const match = item.item_name.match(/-[男女]?([A-Za-z0-9]+)$/);
+  return match ? match[1].toUpperCase() : "";
+}
 
 type DraftLine = { item_id: string; quantity: string; reason: string };
 type Payload = { p_warehouse_id: string; p_occurred_on: string; p_note: string; p_lines: AdjustmentLine[]; p_idempotency_key: string };
@@ -41,6 +60,9 @@ export default function InventoryAdjustmentPanel() {
   const [importing, setImporting] = useState(false);
   const [reload, setReload] = useState(0);
   const [restoredOwner, setRestoredOwner] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<UniformCategoryKey>("ALL");
+  const [sizeFilter, setSizeFilter] = useState<string>("ALL");
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const flight = useRef(false);
   const currentOwner = useRef(owner);
   useEffect(() => { currentOwner.current = owner; }, [owner]);
@@ -51,6 +73,74 @@ export default function InventoryAdjustmentPanel() {
   const balances = balanceSnapshot?.scope === scope ? balanceSnapshot.rows : {};
   const storageKey = `inventory-adjustment:${authUserId}:${accountId}`;
   const locked = busy || importing || Boolean(visible.pending || visible.result) || !ready || restoredOwner !== owner;
+
+  const categoryTabs: { key: UniformCategoryKey; label: string }[] = [
+    { key: "ALL", label: "全部" },
+    { key: "照服", label: "照服" },
+    { key: "護士", label: "護士" },
+    { key: "行政", label: "行政" },
+    { key: "廚師", label: "廚師" },
+    { key: "工務", label: "工務" },
+    { key: "幼兒園", label: "幼兒園" },
+    { key: "OTHER", label: "其他" },
+  ];
+
+  const sizeOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const item of items) {
+      const sz = extractSize(item);
+      if (sz) set.add(sz);
+    }
+    const orderMap: Record<string, number> = {
+      "XS": 1, "S": 2, "M": 3, "L": 4, "XL": 5, "2L": 6, "3L": 7, "4L": 8, "5L": 9, "6L": 10, "F": 99,
+    };
+    return Array.from(set).sort((a, b) => (orderMap[a] ?? 50) - (orderMap[b] ?? 50) || a.localeCompare(b));
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return items.filter((item) => {
+      if (categoryFilter !== "ALL") {
+        const cat = getUniformCategory(item.item_name, item.item_code);
+        if (cat !== categoryFilter) return false;
+      }
+      if (sizeFilter !== "ALL") {
+        const sz = extractSize(item);
+        if (sz !== sizeFilter) return false;
+      }
+      if (q) {
+        const matchCode = item.item_code.toLowerCase().includes(q);
+        const matchName = item.item_name.toLowerCase().includes(q);
+        const matchSize = item.size && item.size.toLowerCase().includes(q);
+        if (!matchCode && !matchName && !matchSize) return false;
+      }
+      return true;
+    });
+  }, [categoryFilter, items, searchQuery, sizeFilter]);
+
+  function toggleItemTag(itemId: string) {
+    if (locked) return;
+    const exists = visible.lines.some((line) => line.item_id === itemId);
+    if (exists) {
+      edit({ lines: visible.lines.filter((line) => line.item_id !== itemId) });
+    } else {
+      edit({ lines: [...visible.lines, { item_id: itemId, quantity: "", reason: "" }] });
+    }
+  }
+
+  function addAllFiltered() {
+    if (locked || !filteredItems.length) return;
+    const existing = new Set(visible.lines.map((l) => l.item_id));
+    const unadded = filteredItems.filter((it) => !existing.has(it.id));
+    if (!unadded.length) return;
+    const newLines = unadded.map((it) => ({ item_id: it.id, quantity: "", reason: "" }));
+    edit({ lines: [...visible.lines, ...newLines] });
+  }
+
+  function clearAllLines() {
+    if (locked || !visible.lines.length) return;
+    edit({ lines: [] });
+  }
 
   useEffect(() => {
     if (!ready || !active) return;
@@ -163,7 +253,140 @@ export default function InventoryAdjustmentPanel() {
       <label className="field"><span>異動日期</span><input type="date" value={visible.date} disabled={locked} onChange={(event) => edit({ date: event.target.value })} /></label>
       <label className="field"><span>備註（選填）</span><input maxLength={2000} value={visible.note} disabled={locked} onChange={(event) => edit({ note: event.target.value })} /></label>
     </div>
-    <SearchableItemPicker label="選擇調整品號（可複選）" multiple disabled={locked || !items.length} options={items.map((item) => ({ id: item.id, code: item.item_code, name: item.item_name, size: item.size }))} value={visible.lines.map((line) => line.item_id)} onChange={(ids) => { if (Array.isArray(ids)) edit({ lines: ids.map((id) => visible.lines.find((line) => line.item_id === id) ?? { item_id: id, quantity: "", reason: "" }) }); }} />
+    <div className="adjustment-tag-section" style={{ margin: "16px 0", padding: "16px", background: "var(--card-subtle, #f8fbf8)", border: "1px solid var(--line, #e0e6df)", borderRadius: "14px" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "12px" }}>
+        <div>
+          <strong>標籤化選擇品號</strong>
+          <span style={{ fontSize: "13px", color: "var(--muted, #667)", marginLeft: "8px" }}>
+            （已選 {visible.lines.length} / 全部 {items.length} 項；目前符合篩選 {filteredItems.length} 項）
+          </span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+          <button
+            type="button"
+            className="secondary-button"
+            style={{ marginTop: 0, padding: "6px 14px", fontSize: "13px", fontWeight: 700 }}
+            onClick={addAllFiltered}
+            disabled={locked || !filteredItems.length || filteredItems.every((it) => visible.lines.some((l) => l.item_id === it.id))}
+          >
+            全選符合品項（{filteredItems.length} 項）
+          </button>
+          {visible.lines.length > 0 ? (
+            <button
+              type="button"
+              className="text-button"
+              style={{ padding: "6px 8px", fontSize: "13px" }}
+              onClick={clearAllLines}
+              disabled={locked}
+            >
+              清空所有品項
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", marginBottom: "12px", paddingBottom: "10px", borderBottom: "1px dashed var(--line, #e0e6df)" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px" }}>
+          <span style={{ fontSize: "12px", color: "var(--muted, #666)", fontWeight: 600 }}>類別:</span>
+          {categoryTabs.map((tab) => {
+            const activeTab = categoryFilter === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                disabled={locked}
+                onClick={() => setCategoryFilter(tab.key)}
+                style={{
+                  padding: "3px 10px",
+                  borderRadius: "12px",
+                  fontSize: "12px",
+                  cursor: locked ? "not-allowed" : "pointer",
+                  border: activeTab ? "1px solid var(--accent, #1b5e20)" : "1px solid var(--line, #ddd)",
+                  background: activeTab ? "var(--accent, #2e7d32)" : "#ffffff",
+                  color: activeTab ? "#ffffff" : "inherit",
+                  fontWeight: activeTab ? 700 : 400,
+                  transition: "all 0.15s ease",
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {sizeOptions.length > 0 ? (
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "var(--muted, #666)", fontWeight: 600 }}>
+            <span>尺寸:</span>
+            <select
+              value={sizeFilter}
+              onChange={(e) => setSizeFilter(e.target.value)}
+              disabled={locked}
+              style={{ padding: "4px 8px", fontSize: "12px", borderRadius: "8px", border: "1px solid var(--line, #ccc)" }}
+            >
+              <option value="ALL">全部尺寸</option>
+              {sizeOptions.map((sz) => (
+                <option key={sz} value={sz}>{sz}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
+        <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", flex: 1, minWidth: "160px" }}>
+          <input
+            type="search"
+            placeholder="搜尋品號、品名或尺寸…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            disabled={locked}
+            style={{ width: "100%", padding: "5px 10px", fontSize: "13px", borderRadius: "8px", border: "1px solid var(--line, #ccc)" }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", maxHeight: "220px", overflowY: "auto", padding: "4px 2px" }}>
+        {filteredItems.map((item) => {
+          const isAdded = visible.lines.some((line) => line.item_id === item.id);
+          const known = balanceSnapshot?.scope === scope;
+          const onHand = known ? (balances[item.id] ?? 0) : null;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              disabled={locked}
+              onClick={() => toggleItemTag(item.id)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "6px 12px",
+                borderRadius: "20px",
+                fontSize: "13px",
+                cursor: locked ? "not-allowed" : "pointer",
+                transition: "all 0.15s ease",
+                border: isAdded ? "1.5px solid var(--green, #2e7d32)" : "1px solid var(--line, #d0d7cf)",
+                background: isAdded ? "var(--green-subtle, #e8f5e9)" : "#ffffff",
+                color: isAdded ? "var(--green, #1b5e20)" : "inherit",
+                fontWeight: isAdded ? 700 : 400,
+              }}
+              title={isAdded ? "點擊自調整明細移除" : "點擊加入調整明細"}
+            >
+              <span style={{ fontSize: "12px", fontWeight: 800 }}>{isAdded ? "✓" : "+"}</span>
+              <span>{item.item_code}｜{item.item_name}{item.size ? `｜${item.size}` : ""}</span>
+              {onHand !== null ? (
+                <span style={{ fontSize: "11px", opacity: 0.85, background: isAdded ? "#c8e6c9" : "#f0f2f0", padding: "1px 6px", borderRadius: "10px" }}>
+                  庫存:{onHand}
+                </span>
+              ) : null}
+            </button>
+          );
+        })}
+        {filteredItems.length === 0 ? (
+          <span style={{ fontSize: "13px", color: "var(--muted, #888)", padding: "8px 0" }}>
+            {!items.length ? "目前尚未載入品號" : "沒有符合篩選條件的制服品項"}
+          </span>
+        ) : null}
+      </div>
+    </div>
     <div className="button-row"><label className="secondary-button">匯入 CSV（取代本張明細）<input type="file" accept=".csv,text/csv" disabled={locked || !items.length} onChange={(event) => { void importFile(event.target.files?.[0]); event.target.value = ""; }} /></label><button type="button" className="secondary-button" onClick={downloadSample}>下載匯入範例 CSV</button><button type="button" className="secondary-button" disabled={busy || !ready} onClick={() => setReload((value) => value + 1)}>重新載入庫存</button></div>
     <div className="table-scroll"><table><thead><tr><th>品號／品名</th><th>目前庫存</th><th>調整數量（+／−）</th><th>預計調整後</th><th>原因（必填）</th><th>操作</th></tr></thead><tbody>{visible.lines.map((line, index) => {
       const item = items.find((item) => item.id === line.item_id), before = balances[line.item_id] ?? 0;
