@@ -30,6 +30,34 @@ function taipeiToday() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
 }
 
+function generateStocktakeNo() {
+  const randomSuffix = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID().slice(0, 6).toUpperCase()
+    : Math.random().toString(36).slice(2, 8).toUpperCase();
+  return `COUNT-${taipeiToday().replaceAll("-", "")}-${randomSuffix}`;
+}
+
+function formatStocktakeErrorMessage(error: unknown, fallback: string): string {
+  if (!error) return fallback;
+  const msg = typeof error === "string" ? error : String((error as { message?: string })?.message || "");
+  if (msg.includes("stocktakes_stocktake_no_key") || msg.includes("duplicate key")) {
+    return "盤點單號已存在；系統已為您重新產生新單號，請再次點擊重試。";
+  }
+  if (msg.includes("A reason is required for a stocktake difference")) {
+    return "建立草稿失敗：實盤數量與帳面有差異的品項，必須填寫差異原因。";
+  }
+  if (msg.includes("The account cannot create this warehouse stocktake") || msg.includes("HR or WAREHOUSE role is required")) {
+    return "權限不足：目前登入帳號角色無法盤點此倉庫（HR 僅限人資倉，WAREHOUSE 僅限總倉）。";
+  }
+  if (msg.includes("Invalid stocktake line")) {
+    return "盤點明細格式錯誤，請檢查品號與實盤數量。";
+  }
+  if (msg.includes("idempotency key conflicts with another request")) {
+    return "操作衝突；請重新整理後重試。";
+  }
+  return safeSupabaseMutationErrorMessage(error as Parameters<typeof safeSupabaseMutationErrorMessage>[0], fallback);
+}
+
 function numberValue(value: string) {
   return Math.max(0, Number(value) || 0);
 }
@@ -45,7 +73,7 @@ export default function StocktakePanel() {
   const [selectedItemId, setSelectedItemId] = useState("");
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [itemTagFilter, setItemTagFilter] = useState("");
-  const [stocktakeNo, setStocktakeNo] = useState(`COUNT-${taipeiToday().replaceAll("-", "")}`);
+  const [stocktakeNo, setStocktakeNo] = useState(generateStocktakeNo);
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<StocktakeLine[]>([]);
   const [stocktake, setStocktake] = useState<Stocktake | null>(null);
@@ -235,7 +263,7 @@ export default function StocktakePanel() {
     setSelectedItemId("");
     setSelectedItemIds([]);
     setItemTagFilter("");
-    setStocktakeNo(`COUNT-${taipeiToday().replaceAll("-", "")}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`);
+    setStocktakeNo(generateStocktakeNo());
     setNote("");
     setNeedsRecountConfirmation(false);
     setMessage("本筆盤點已完成，可以建立下一張盤點單。");
@@ -359,6 +387,11 @@ export default function StocktakePanel() {
     if (!client || !selectedWarehouse || !warehouseId || !stocktakeNo.trim() || visibleLines.length === 0) {
       setMessage("請選擇倉庫、填寫盤點單號並至少加入一個品號。"); return null;
     }
+    const hasMissingReason = visibleLines.some((line) => line.counted_quantity - line.book_quantity_snapshot !== 0 && !line.reason.trim());
+    if (hasMissingReason) {
+      setMessage("實盤數量與帳面有差異的品項，請填寫差異原因後再建立草稿。");
+      return null;
+    }
     setBusy(true); setMessage("");
     const key = createKeyRef.current ?? crypto.randomUUID();
     createKeyRef.current = key;
@@ -368,7 +401,12 @@ export default function StocktakePanel() {
       p_idempotency_key: `CREATE-STOCKTAKE-${key}`, p_request_fingerprint: fingerprint(),
     });
     if (error || !data?.id) {
-      setMessage(safeSupabaseMutationErrorMessage(error, "盤點草稿結果尚未確認；請使用相同操作重試，系統會查回既有結果。"));
+      const errorMsg = formatStocktakeErrorMessage(error, "盤點草稿結果尚未確認；請使用相同操作重試，系統會查回既有結果。");
+      setMessage(errorMsg);
+      if (error && String((error as { message?: string })?.message || "").includes("duplicate key")) {
+        setStocktakeNo(generateStocktakeNo());
+        createKeyRef.current = null;
+      }
       setBusy(false);
       return null;
     }
@@ -387,6 +425,11 @@ export default function StocktakePanel() {
 
   async function updateDraft(linesToSave = lines): Promise<Stocktake | null> {
     if (!client || !stocktake || !canEdit || linesToSave.length === 0) return null;
+    const hasMissingReason = linesToSave.some((line) => line.counted_quantity - line.book_quantity_snapshot !== 0 && !line.reason.trim());
+    if (hasMissingReason) {
+      setMessage("實盤數量與帳面有差異的品項，請填寫差異原因後再保存草稿。");
+      return null;
+    }
     setBusy(true); setMessage("");
     const key = updateKeyRef.current ?? crypto.randomUUID();
     updateKeyRef.current = key;
@@ -398,7 +441,7 @@ export default function StocktakePanel() {
       p_idempotency_key: `UPDATE-STOCKTAKE-${key}`, p_request_fingerprint: requestFingerprint,
     });
     if (error || !data?.id) {
-      setMessage(safeSupabaseMutationErrorMessage(error, "盤點草稿更新結果尚未確認；請使用相同操作重試，系統會查回既有結果。"));
+      setMessage(formatStocktakeErrorMessage(error, "盤點草稿更新結果尚未確認；請使用相同操作重試，系統會查回既有結果。"));
       setBusy(false);
       return null;
     }
@@ -543,13 +586,13 @@ export default function StocktakePanel() {
       setCompletionOutcomeUnknown(outcomeUnknown);
       if (result.stocktake && result.failureStage === "post" && result.stocktake.status === "DRAFT") {
         const failureMessage = result.error
-          ? safeSupabaseMutationErrorMessage(result.error, "盤點已保存但尚未過帳；請使用相同操作重試。")
+          ? formatStocktakeErrorMessage(result.error, "盤點已保存但尚未過帳；請使用相同操作重試。")
           : "盤點完成結果尚未確認；資料已鎖定，請沿用相同資料重試，不要重新建立盤點單。";
         setMessage(savedDraftReadFailed ? `${failureMessage} 草稿明細讀回失敗，請重新查詢。` : failureMessage);
       } else {
         setMessage(outcomeUnknown
           ? "盤點完成結果尚未確認；資料已鎖定，請沿用相同資料重試，不要重新建立盤點單。"
-          : safeSupabaseMutationErrorMessage(result.error, "盤點無法完成；請檢查資料後重試。"));
+          : formatStocktakeErrorMessage(result.error, "盤點無法完成；請檢查資料後重試。"));
       }
       setBusy(false);
       return;
@@ -677,9 +720,9 @@ export default function StocktakePanel() {
         label: completionOutcomeUnknown ? "沿用相同資料重試" : displayStocktake?.status === "POSTED" ? "已完成" : needsRecountConfirmation ? "請先保存重新實盤" : "確認並完成盤點",
       }}
       secondary={!displayStocktake
-        ? <button className="secondary-button" type="button" onClick={() => void createDraft()} disabled={mutationLocked || sourceReadBlocked || visibleLines.length === 0}>{busy ? "建立中…" : sourceReadBlocked ? "載入資料中…" : "先建立盤點草稿"}</button>
+        ? <button className="secondary-button" type="button" onClick={() => void createDraft()} disabled={mutationLocked || sourceReadBlocked || visibleLines.length === 0 || visibleLines.some((line) => line.counted_quantity - line.book_quantity_snapshot !== 0 && !line.reason.trim())}>{busy ? "建立中…" : sourceReadBlocked ? "載入資料中…" : "先建立盤點草稿"}</button>
         : displayStocktake.status === "DRAFT"
-          ? <button className="secondary-button" type="button" onClick={() => void updateDraft()} disabled={mutationLocked || visibleLines.length === 0}>{busy ? "保存中…" : "保存盤點草稿"}</button>
+          ? <button className="secondary-button" type="button" onClick={() => void updateDraft()} disabled={mutationLocked || visibleLines.length === 0 || visibleLines.some((line) => line.counted_quantity - line.book_quantity_snapshot !== 0 && !line.reason.trim())}>{busy ? "保存中…" : "保存盤點草稿"}</button>
           : displayStocktake.status === "STALE_COUNT"
             ? <button className="secondary-button" type="button" onClick={() => void recaptureBook()} disabled={mutationLocked}>{busy ? "擷取中…" : "重新擷取帳面並開始重盤"}</button>
             : <button className="secondary-button" type="button" onClick={startNextStocktake} disabled={mutationLocked}>建立下一張盤點</button>}
