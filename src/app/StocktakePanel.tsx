@@ -74,7 +74,7 @@ export default function StocktakePanel() {
   const itemById = useMemo(() => new Map(scopedItems.map((item) => [item.id, item])), [scopedItems]);
   const selectedWarehouse = scopedWarehouses.find((warehouse) => warehouse.id === warehouseId);
   const visibleLines = selectedWarehouse ? lines : [];
-  const canEdit = displayStocktake?.status === "DRAFT";
+  const canEdit = !displayStocktake || displayStocktake.status === "DRAFT";
   const filteredTagItems = useMemo(() => {
     const q = itemTagFilter.trim().toLowerCase();
     if (!q) return scopedItems;
@@ -667,7 +667,7 @@ export default function StocktakePanel() {
       </div>
     ) : null}
     <label className="field reason-field"><span>盤點備註（選填）</span><input value={note} onChange={(event) => { resetOperationKeys(); setNote(event.target.value); }} disabled={mutationLocked || displayStocktake?.status === "POSTED"} maxLength={2000} /></label>
-    {visibleLines.length > 0 ? <div className="summary-list">{visibleLines.map((line) => { const item = itemById.get(line.item_id); const difference = line.counted_quantity - line.book_quantity_snapshot; return <div className="summary-row" key={line.item_id}><span><strong>{item?.item_code ?? line.item_id}｜{item?.item_name ?? "品號"}</strong><small>帳面 {line.book_quantity_snapshot}／版本 {line.balance_version_snapshot}／差額 {difference}</small></span><label className="field"><span className="sr-only">實盤量</span><input type="number" min={0} value={line.counted_quantity} disabled={mutationLocked || !canEdit} onChange={(event) => updateLine(line.item_id, "counted_quantity", event.target.value)} /></label><label className="field"><span className="sr-only">差異原因</span><input value={line.reason} disabled={mutationLocked || !canEdit} onChange={(event) => updateLine(line.item_id, "reason", event.target.value)} placeholder={difference === 0 ? "無差異" : "差異原因（必填）"} maxLength={500} /></label>{!displayStocktake ? <button className="text-button" type="button" onClick={() => removeLine(line.item_id)} disabled={mutationLocked}>移除</button> : null}</div>; })}</div> : <p className="auth-message">請先加入要盤點的品號。</p>}
+    {visibleLines.length > 0 ? <div className="summary-list">{visibleLines.map((line) => { const item = itemById.get(line.item_id); const difference = line.counted_quantity - line.book_quantity_snapshot; const hasDiff = difference !== 0; return <div className="summary-row" key={line.item_id}><span><strong>{item?.item_code ?? line.item_id}｜{item?.item_name ?? "品號"}</strong><small>帳面 {line.book_quantity_snapshot}／版本 {line.balance_version_snapshot}／差額 {difference}</small></span><label className="field"><span className="sr-only">實盤量</span><input type="number" min={0} value={line.counted_quantity} disabled={mutationLocked || !canEdit} onChange={(event) => updateLine(line.item_id, "counted_quantity", event.target.value)} /></label><label className="field"><span className="sr-only">差異原因</span><input value={hasDiff ? line.reason : ""} disabled={mutationLocked || !canEdit || !hasDiff} onChange={(event) => updateLine(line.item_id, "reason", event.target.value)} placeholder={hasDiff ? "差異原因（必填）" : "無差異"} maxLength={500} /></label>{!displayStocktake ? <button className="text-button" type="button" onClick={() => removeLine(line.item_id)} disabled={mutationLocked}>移除</button> : null}</div>; })}</div> : <p className="auth-message">請先加入要盤點的品號。</p>}
     <WorkflowActionBar
       primary={{
         onClick: () => void completeStocktake(),
