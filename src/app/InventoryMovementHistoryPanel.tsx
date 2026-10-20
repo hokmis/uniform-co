@@ -128,7 +128,7 @@ export default function InventoryMovementHistoryPanel() {
         () => Promise.all([
           client
             .from("v_inventory_history")
-            .select("ledger_entry_id,posting_id,line_no,warehouse_id,warehouse_code,warehouse_name,warehouse_purpose,item_id,item_code,item_name,unit,posting_kind,movement_kind,quantity_delta,occurred_on,source_no,posted_by_name,posted_at,current_on_hand_quantity")
+            .select("ledger_entry_id,posting_id,line_no,warehouse_id,warehouse_code,warehouse_name,warehouse_purpose,item_id,item_code,item_name,unit,posting_kind,movement_kind,quantity_delta,occurred_on,source_no,posted_by_name,posted_at,current_on_hand_quantity,on_hand_after_entry")
             .in("posting_kind", [
               "WAREHOUSE_SHIPMENT",
               "REPLENISHMENT",
@@ -463,7 +463,7 @@ export default function InventoryMovementHistoryPanel() {
         <span className="status-pill">流水紀錄</span>
       </div>
       <p className="auth-message">
-        即時追蹤全系統所有影響兩倉數量的進出貨與庫存異動，包含員工需求發貨、額外補庫調撥、需求預留、制服退回、廠商採購入庫、倉庫盤點盈虧、庫存調整及各類更正作業。
+        即時追蹤全系統所有影響兩倉數量的進出貨與庫存異動，包含員工需求發貨、額外補庫調撥、需求預留、制服退回、廠商採購入庫、倉庫盤點盈虧、庫存調整及各類更正作業。每筆紀錄顯示該筆單據完成時之當下兩倉剩餘量，即時呈現庫存演變歷程。
       </p>
 
       <div className="inventory-toolbar hr-request-history-toolbar">
@@ -833,7 +833,7 @@ export default function InventoryMovementHistoryPanel() {
             className: "numeric-cell",
             render: (row) => (
               <>
-                <strong>{row.hrOnHand}</strong>
+                <strong title={`此筆單據異動完成時，人資倉之當下剩餘量：${row.hrOnHand} ${row.unit}`}>{row.hrOnHand}</strong>
                 <small className="table-secondary" style={{ marginLeft: 4 }}>{row.unit}</small>
               </>
             ),
@@ -845,7 +845,7 @@ export default function InventoryMovementHistoryPanel() {
             className: "numeric-cell",
             render: (row) => (
               <>
-                <strong>{row.generalOnHand}</strong>
+                <strong title={`此筆單據異動完成時，總倉之當下剩餘量：${row.generalOnHand} ${row.unit}`}>{row.generalOnHand}</strong>
                 <small className="table-secondary" style={{ marginLeft: 4 }}>{row.unit}</small>
               </>
             ),

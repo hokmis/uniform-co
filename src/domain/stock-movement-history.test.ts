@@ -168,7 +168,7 @@ describe("stock-movement-history", () => {
     expect(retRow.hrOnHand).toBe(30);
     expect(retRow.generalOnHand).toBe(50);
 
-    // 2026-09-30 人資發放更正
+    // 2026-09-30 人資發放更正（扣 1 件後，當下剩餘 27 件）
     const corrRow = rows[1];
     expect(corrRow.postingKind).toBe("HR_ISSUE_CORRECTION");
     expect(corrRow.postingKindLabel).toBe("人資發放更正");
@@ -178,7 +178,7 @@ describe("stock-movement-history", () => {
     expect(corrRow.size).toBe("2L");
     expect(corrRow.hrDelta).toBe(-1);
     expect(corrRow.generalDelta).toBe(0);
-    expect(corrRow.hrOnHand).toBe(30);
+    expect(corrRow.hrOnHand).toBe(27);
     expect(corrRow.generalOnHand).toBe(50);
 
     // 2026-09-28 額外補庫
@@ -194,7 +194,7 @@ describe("stock-movement-history", () => {
     expect(repRow.hrOnHand).toBe(25);
     expect(repRow.generalOnHand).toBe(20);
 
-    // 2026-09-25 員工需求發貨
+    // 2026-09-25 員工需求發貨（發貨後，人資倉當下剩餘 28 件，總倉 50 件）
     const shpRow = rows[3];
     expect(shpRow.postingKind).toBe("WAREHOUSE_SHIPMENT");
     expect(shpRow.postingKindLabel).toBe("員工需求發貨");
@@ -204,32 +204,38 @@ describe("stock-movement-history", () => {
     expect(shpRow.size).toBe("2L");
     expect(shpRow.hrDelta).toBe(2);
     expect(shpRow.generalDelta).toBe(-10);
-    expect(shpRow.hrOnHand).toBe(30);
+    expect(shpRow.hrOnHand).toBe(28);
     expect(shpRow.generalOnHand).toBe(50);
 
-    // 2026-09-23 庫存調整
+    // 2026-09-23 庫存調整（調整後，人資倉當下剩餘 26 件，總倉 60 件）
     const adjRow = rows[4];
     expect(adjRow.postingKind).toBe("ADJUSTMENT");
     expect(adjRow.postingKindLabel).toBe("庫存調整");
     expect(adjRow.sourceNo).toBe("ADJ-2026-001");
     expect(adjRow.hrDelta).toBe(5);
     expect(adjRow.generalDelta).toBe(0);
+    expect(adjRow.hrOnHand).toBe(26);
+    expect(adjRow.generalOnHand).toBe(60);
 
-    // 2026-09-22 倉庫盤點盈虧
+    // 2026-09-22 倉庫盤點盈虧（盤點後，人資倉當下 5 件，總倉 40 件）
     const stkRow = rows[5];
     expect(stkRow.postingKind).toBe("STOCKTAKE");
     expect(stkRow.postingKindLabel).toBe("倉庫盤點盈虧");
     expect(stkRow.sourceNo).toBe("STK-2026-001");
     expect(stkRow.hrDelta).toBe(0);
     expect(stkRow.generalDelta).toBe(-2);
+    expect(stkRow.hrOnHand).toBe(5);
+    expect(stkRow.generalOnHand).toBe(40);
 
-    // 2026-09-20 廠商採購入庫
+    // 2026-09-20 廠商採購入庫（入庫後，人資倉當下 21 件，總倉 60 件）
     const rcpRow = rows[6];
     expect(rcpRow.postingKind).toBe("RECEIPT");
     expect(rcpRow.postingKindLabel).toBe("廠商採購入庫");
     expect(rcpRow.sourceNo).toBe("RCP-2026-001");
     expect(rcpRow.hrDelta).toBe(0);
     expect(rcpRow.generalDelta).toBe(100);
+    expect(rcpRow.hrOnHand).toBe(21);
+    expect(rcpRow.generalOnHand).toBe(60);
   });
 
   it("filters stock movements by query, posting kind, and date range", () => {
@@ -270,7 +276,7 @@ describe("stock-movement-history", () => {
     expect(sortedByGeneralDelta[0].generalDelta).toBe(100); // 採購 +100
 
     const sortedByGeneralOnHand = sortStockMovements(rows, "general_on_hand", "desc");
-    expect(sortedByGeneralOnHand[0].generalOnHand).toBe(50);
+    expect(sortedByGeneralOnHand[0].generalOnHand).toBe(60); // 採購入庫與庫存調整時總倉當下結餘達 60
   });
 
   it("aggregates pending submitted HR requests as reservation rows with negative HR delta", () => {
@@ -301,7 +307,7 @@ describe("stock-movement-history", () => {
     expect(resRow.size).toBe("2L");
     expect(resRow.hrDelta).toBe(-2);
     expect(resRow.generalDelta).toBe(0);
-    expect(resRow.hrOnHand).toBe(30);
+    expect(resRow.hrOnHand).toBe(28); // 30 件扣除待發貨預留 2 件後投影剩餘 28 件
     expect(resRow.generalOnHand).toBe(50);
   });
 

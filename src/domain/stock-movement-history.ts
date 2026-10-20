@@ -128,8 +128,13 @@ export function aggregateStockMovements(
     }
   }
 
+  type InternalStockMovementRow = StockMovementRow & {
+    isPending?: boolean;
+    sortOrder?: number;
+  };
+
   // 以 posting_id + "_" + item_id 聚合
-  const groupMap = new Map<string, StockMovementRow>();
+  const groupMap = new Map<string, InternalStockMovementRow>();
 
   // 1. 處理待發貨需求（需求預留）：人資倉增減量 -issue_quantity
   for (const req of pendingRequestRows) {
@@ -149,8 +154,6 @@ export function aggregateStockMovements(
     const itemName = String(req.item_name ?? itemCode);
     const unit = String(req.unit ?? avail?.unit ?? "件");
     const size = avail?.size || "—";
-    const hrOnHand = avail?.hrOnHand ?? 0;
-    const generalOnHand = avail?.generalOnHand ?? 0;
     const sourceNo = String(req.request_no ?? "—");
     const distributionDate = String(req.distribution_date ?? "").slice(0, 10);
     const createdAt = String(req.created_at ?? distributionDate);
@@ -171,12 +174,14 @@ export function aggregateStockMovements(
       unit,
       hrDelta: -issueQty,
       generalDelta: 0,
-      hrOnHand,
-      generalOnHand,
+      hrOnHand: 0,
+      generalOnHand: 0,
+      isPending: true,
     });
   }
 
   // 2. 處理全系統所有影響兩倉數量的不可變過帳流水
+  let historySeq = 0;
   for (const h of historyRows) {
     const rawPostingKind = String(h.posting_kind ?? "");
     const movementKind = String(h.movement_kind ?? "");
@@ -229,8 +234,6 @@ export function aggregateStockMovements(
       const itemName = String(h.item_name ?? itemCode);
       const unit = String(h.unit ?? avail?.unit ?? "件");
       const size = avail?.size || (typeof h.size === "string" ? h.size : "—");
-      const hrOnHand = avail?.hrOnHand ?? (warehousePurpose === "HR" ? (Number(h.current_on_hand_quantity) || 0) : 0);
-      const generalOnHand = avail?.generalOnHand ?? (warehousePurpose === "GENERAL" ? (Number(h.current_on_hand_quantity) || 0) : 0);
       const sourceNo = String(h.source_no ?? "—");
       const occurredOn = String(h.occurred_on ?? "").slice(0, 10);
       const postedAt = String(h.posted_at ?? occurredOn);
@@ -252,8 +255,10 @@ export function aggregateStockMovements(
         unit,
         hrDelta: 0,
         generalDelta: 0,
-        hrOnHand,
-        generalOnHand,
+        hrOnHand: 0,
+        generalOnHand: 0,
+        isPending: false,
+        sortOrder: historySeq++,
       };
       groupMap.set(groupKey, row);
     }
@@ -262,6 +267,60 @@ export function aggregateStockMovements(
       row.hrDelta += delta;
     } else if (warehousePurpose === "GENERAL") {
       row.generalDelta += delta;
+    }
+  }
+
+  // 3. 依品項 (itemId) 分組，精確推算每筆異動發生時的「當下兩倉剩餘量」
+  const itemRowsMap = new Map<string, InternalStockMovementRow[]>();
+  for (const row of groupMap.values()) {
+    let list = itemRowsMap.get(row.itemId);
+    if (!list) {
+      list = [];
+      itemRowsMap.set(row.itemId, list);
+    }
+    list.push(row);
+  }
+
+  for (const [itemId, rows] of itemRowsMap.entries()) {
+    const avail = availabilityMap.get(itemId);
+    const currentHr = avail?.hrOnHand ?? 0;
+    const currentGeneral = avail?.generalOnHand ?? 0;
+
+    const postedRows = rows.filter((r) => !r.isPending);
+    const pendingRows = rows.filter((r) => r.isPending);
+
+    // 已過帳紀錄：按時間由舊到新排序 (postedAt asc)，若時間相同則按流水先後排序
+    postedRows.sort((a, b) => {
+      const timeA = Date.parse(a.postedAt) || (a.occurredOn ? Date.parse(a.occurredOn) : 0) || 0;
+      const timeB = Date.parse(b.postedAt) || (b.occurredOn ? Date.parse(b.occurredOn) : 0) || 0;
+      if (timeA !== timeB) return timeA - timeB;
+      return (b.sortOrder ?? 0) - (a.sortOrder ?? 0);
+    });
+
+    // 從最新一筆過帳紀錄往前回推每一步的當下庫存
+    let runningHr = currentHr;
+    let runningGeneral = currentGeneral;
+    for (let i = postedRows.length - 1; i >= 0; i--) {
+      const r = postedRows[i];
+      r.hrOnHand = runningHr;
+      r.generalOnHand = runningGeneral;
+      runningHr -= r.hrDelta;
+      runningGeneral -= r.generalDelta;
+    }
+
+    // 待發貨需求預留：尚未實際過帳，自當前現有庫存往後扣減投影
+    pendingRows.sort((a, b) => {
+      const timeA = Date.parse(a.postedAt) || 0;
+      const timeB = Date.parse(b.postedAt) || 0;
+      return timeA - timeB;
+    });
+    let projHr = currentHr;
+    let projGeneral = currentGeneral;
+    for (const r of pendingRows) {
+      projHr += r.hrDelta;
+      projGeneral += r.generalDelta;
+      r.hrOnHand = projHr;
+      r.generalOnHand = projGeneral;
     }
   }
 
