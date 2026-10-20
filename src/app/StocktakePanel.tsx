@@ -12,6 +12,7 @@ import { attemptOptionalRpc } from "@/src/lib/optional-rpc";
 import { isSupabaseSessionSyncError, retrySupabaseQueriesAfterSessionRefresh, safeSupabaseMutationErrorMessage, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import WorkflowActionBar from "./WorkflowActionBar";
+import SearchableItemPicker from "./SearchableItemPicker";
 
 type Warehouse = { id: string; code: string; name: string; purpose: "HR" | "GENERAL" };
 type Item = { id: string; item_code: string; item_name: string; unit: string; size: string | null };
@@ -43,6 +44,8 @@ export default function StocktakePanel() {
   const [balances, setBalances] = useState<Record<string, Balance>>({});
   const [warehouseId, setWarehouseId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+  const [itemTagFilter, setItemTagFilter] = useState("");
   const [stocktakeNo, setStocktakeNo] = useState(`COUNT-${taipeiToday().replaceAll("-", "")}`);
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<StocktakeLine[]>([]);
@@ -73,6 +76,15 @@ export default function StocktakePanel() {
   const selectedWarehouse = scopedWarehouses.find((warehouse) => warehouse.id === warehouseId);
   const visibleLines = selectedWarehouse ? lines : [];
   const canEdit = displayStocktake?.status === "DRAFT";
+  const filteredTagItems = useMemo(() => {
+    const q = itemTagFilter.trim().toLowerCase();
+    if (!q) return scopedItems;
+    return scopedItems.filter((item) =>
+      item.item_code.toLowerCase().includes(q) ||
+      item.item_name.toLowerCase().includes(q) ||
+      (item.size && item.size.toLowerCase().includes(q))
+    );
+  }, [itemTagFilter, scopedItems]);
   const balancesLoading = isReadPendingForSelection(
     warehouseId,
     balanceLoadingWarehouseId,
@@ -107,6 +119,8 @@ export default function StocktakePanel() {
         setBalances({});
         setWarehouseId("");
         setSelectedItemId("");
+        setSelectedItemIds([]);
+        setItemTagFilter("");
         setLines([]);
         setStocktake(null);
         setNeedsRecountConfirmation(false);
@@ -211,6 +225,8 @@ export default function StocktakePanel() {
     setBalances({});
     setLines([]);
     setSelectedItemId("");
+    setSelectedItemIds([]);
+    setItemTagFilter("");
   }
 
   function startNextStocktake() {
@@ -218,24 +234,95 @@ export default function StocktakePanel() {
     setStocktake(null);
     setLines([]);
     setSelectedItemId("");
+    setSelectedItemIds([]);
+    setItemTagFilter("");
     setStocktakeNo(`COUNT-${taipeiToday().replaceAll("-", "")}-${crypto.randomUUID().slice(0, 6).toUpperCase()}`);
     setNote("");
     setNeedsRecountConfirmation(false);
     setMessage("本筆盤點已完成，可以建立下一張盤點單。");
   }
 
-  function addLine() {
-    if (completionOutcomeUnknown || !selectedWarehouse || !selectedItemId || visibleLines.some((line) => line.item_id === selectedItemId)) return;
-    const balance = balances[selectedItemId] ?? { item_id: selectedItemId, on_hand_quantity: 0, version: 0 };
+  function addLine(itemId?: string) {
+    const idToAdd = typeof itemId === "string" && itemId ? itemId : selectedItemId;
+    if (completionOutcomeUnknown || !selectedWarehouse || !idToAdd || visibleLines.some((line) => line.item_id === idToAdd)) return;
+    const balance = balances[idToAdd] ?? { item_id: idToAdd, on_hand_quantity: 0, version: 0 };
     setLines((current) => [...current, {
-      item_id: selectedItemId,
+      item_id: idToAdd,
       book_quantity_snapshot: balance.on_hand_quantity,
       balance_version_snapshot: balance.version,
       counted_quantity: balance.on_hand_quantity,
       reason: "",
     }]);
-    setSelectedItemId("");
+    if (idToAdd === selectedItemId) setSelectedItemId("");
     resetOperationKeys();
+  }
+
+  function appendStocktakeItems(idsToAdd: string[] = selectedItemIds) {
+    if (completionOutcomeUnknown || !selectedWarehouse || idsToAdd.length === 0) return;
+    const existingIds = new Set(lines.map((line) => line.item_id));
+    const toAdd = idsToAdd.filter((id) => !existingIds.has(id));
+    if (toAdd.length === 0) {
+      setSelectedItemIds([]);
+      return;
+    }
+    const newLines: StocktakeLine[] = toAdd.map((id) => {
+      const balance = balances[id] ?? { item_id: id, on_hand_quantity: 0, version: 0 };
+      return {
+        item_id: id,
+        book_quantity_snapshot: balance.on_hand_quantity,
+        balance_version_snapshot: balance.version,
+        counted_quantity: balance.on_hand_quantity,
+        reason: "",
+      };
+    });
+    setLines((current) => [...current, ...newLines]);
+    setSelectedItemIds([]);
+    resetOperationKeys();
+  }
+
+  function addAllItems() {
+    if (completionOutcomeUnknown || !selectedWarehouse || scopedItems.length === 0) return;
+    const existingIds = new Set(lines.map((line) => line.item_id));
+    const unaddedItems = scopedItems.filter((item) => !existingIds.has(item.id));
+    if (unaddedItems.length === 0) return;
+    const newLines: StocktakeLine[] = unaddedItems.map((item) => {
+      const balance = balances[item.id] ?? { item_id: item.id, on_hand_quantity: 0, version: 0 };
+      return {
+        item_id: item.id,
+        book_quantity_snapshot: balance.on_hand_quantity,
+        balance_version_snapshot: balance.version,
+        counted_quantity: balance.on_hand_quantity,
+        reason: "",
+      };
+    });
+    setLines((current) => [...current, ...newLines]);
+    setSelectedItemIds([]);
+    resetOperationKeys();
+  }
+
+  function removeAllItems() {
+    if (stocktake || completionOutcomeUnknown) return;
+    resetOperationKeys();
+    setLines([]);
+    setSelectedItemIds([]);
+  }
+
+  function toggleItemTag(itemId: string) {
+    if (stocktake || completionOutcomeUnknown || !selectedWarehouse) return;
+    const isAdded = visibleLines.some((line) => line.item_id === itemId);
+    if (isAdded) {
+      removeLine(itemId);
+    } else {
+      const balance = balances[itemId] ?? { item_id: itemId, on_hand_quantity: 0, version: 0 };
+      setLines((current) => [...current, {
+        item_id: itemId,
+        book_quantity_snapshot: balance.on_hand_quantity,
+        balance_version_snapshot: balance.version,
+        counted_quantity: balance.on_hand_quantity,
+        reason: "",
+      }]);
+      resetOperationKeys();
+    }
   }
 
   function updateLine(itemId: string, field: "counted_quantity" | "reason", value: string) {
@@ -497,9 +584,91 @@ export default function StocktakePanel() {
     <div className="form-grid">
       <label className="field"><span>盤點倉庫</span><select value={warehouseId} onChange={(event) => changeWarehouse(event.target.value)} disabled={mutationLocked || sourceReadBlocked || Boolean(displayStocktake)}><option value="">{masterDataReadBlocked && masterDataLoading ? "載入倉庫中…" : masterDataReadBlocked ? "暫不可用" : "請選擇"}</option>{scopedWarehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code}｜{warehouse.name}（{warehouse.purpose === "HR" ? "人資倉" : "總倉"}）</option>)}</select></label>
       <label className="field"><span>盤點單號</span><input value={stocktakeNo} onChange={(event) => { resetOperationKeys(); setStocktakeNo(event.target.value); }} disabled={mutationLocked || Boolean(stocktake)} maxLength={80} /></label>
-      <label className="field"><span>加入品號</span><select value={selectedItemId} onChange={(event) => setSelectedItemId(event.target.value)} disabled={mutationLocked || sourceReadBlocked || Boolean(displayStocktake) || !selectedWarehouse}><option value="">{sourceReadBlocked ? "載入品號／帳面中…" : "請選擇品號"}</option>{scopedItems.filter((item) => !visibleLines.some((line) => line.item_id === item.id)).map((item) => <option key={item.id} value={item.id}>{item.item_code}｜{item.item_name}{item.size ? `｜${item.size}` : ""}</option>)}</select></label>
-      <div className="field"><span>&nbsp;</span><button className="secondary-button" type="button" onClick={addLine} disabled={mutationLocked || sourceReadBlocked || Boolean(displayStocktake) || !selectedItemId || !selectedWarehouse}>{sourceReadBlocked ? "載入帳面中…" : "加入盤點品號"}</button></div>
+      <div className="field"><span>批次加入品號（可搜尋複選）</span><SearchableItemPicker label="盤點品號" placeholder="搜尋品號、品名或尺寸" options={scopedItems.filter((item) => !visibleLines.some((line) => line.item_id === item.id)).map((item) => ({ id: item.id, code: item.item_code, name: item.item_name, size: item.size, detail: `帳面 ${balances[item.id]?.on_hand_quantity ?? 0}` }))} value={selectedItemIds} multiple onChange={(value) => setSelectedItemIds(Array.isArray(value) ? value : [value])} disabled={mutationLocked || sourceReadBlocked || Boolean(displayStocktake) || !selectedWarehouse} /></div>
+      <div className="field"><span>&nbsp;</span><button className="secondary-button" type="button" onClick={() => appendStocktakeItems()} disabled={mutationLocked || sourceReadBlocked || Boolean(displayStocktake) || selectedItemIds.length === 0 || !selectedWarehouse}>{sourceReadBlocked ? "載入帳面中…" : `加入 ${selectedItemIds.length} 個品號`}</button></div>
     </div>
+    {selectedWarehouse && !displayStocktake ? (
+      <div className="stocktake-tag-section" style={{ margin: "16px 0", padding: "16px", background: "var(--card-subtle, #f8fbf8)", border: "1px solid var(--line, #e0e6df)", borderRadius: "14px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "10px", marginBottom: "12px" }}>
+          <div>
+            <strong>標籤化品號選擇</strong>
+            <span style={{ fontSize: "13px", color: "var(--muted, #667)", marginLeft: "8px" }}>
+              （已加入 {visibleLines.length} / 全部 {scopedItems.length} 項）
+            </span>
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+            <input
+              type="search"
+              placeholder="搜尋品號標籤…"
+              value={itemTagFilter}
+              onChange={(e) => setItemTagFilter(e.target.value)}
+              disabled={mutationLocked || sourceReadBlocked}
+              style={{ padding: "6px 10px", fontSize: "13px", borderRadius: "8px", border: "1px solid var(--line, #ccc)" }}
+            />
+            <button
+              type="button"
+              className="secondary-button"
+              style={{ marginTop: 0, padding: "6px 14px", fontSize: "13px", fontWeight: 700 }}
+              onClick={addAllItems}
+              disabled={mutationLocked || sourceReadBlocked || scopedItems.length === 0 || visibleLines.length === scopedItems.length}
+            >
+              全選目前全部品項（{scopedItems.length} 項）
+            </button>
+            {visibleLines.length > 0 ? (
+              <button
+                type="button"
+                className="text-button"
+                style={{ padding: "6px 8px", fontSize: "13px" }}
+                onClick={removeAllItems}
+                disabled={mutationLocked}
+              >
+                清空所有品項
+              </button>
+            ) : null}
+          </div>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", maxHeight: "220px", overflowY: "auto", padding: "4px 2px" }}>
+          {filteredTagItems.map((item) => {
+            const isAdded = visibleLines.some((line) => line.item_id === item.id);
+            const bookQty = balances[item.id]?.on_hand_quantity ?? 0;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => toggleItemTag(item.id)}
+                disabled={mutationLocked || sourceReadBlocked}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 12px",
+                  borderRadius: "20px",
+                  fontSize: "13px",
+                  cursor: mutationLocked || sourceReadBlocked ? "not-allowed" : "pointer",
+                  transition: "all 0.15s ease",
+                  border: isAdded ? "1.5px solid var(--green, #2e7d32)" : "1px solid var(--line, #d0d7cf)",
+                  background: isAdded ? "var(--green-subtle, #e8f5e9)" : "#ffffff",
+                  color: isAdded ? "var(--green, #1b5e20)" : "inherit",
+                  fontWeight: isAdded ? 700 : 400,
+                }}
+                title={isAdded ? "點擊自盤點清單移除" : "點擊加入盤點清單"}
+              >
+                <span style={{ fontSize: "12px", fontWeight: 800 }}>{isAdded ? "✓" : "+"}</span>
+                <span>{item.item_code}｜{item.item_name}{item.size ? `｜${item.size}` : ""}</span>
+                <span style={{ fontSize: "11px", opacity: 0.85, background: isAdded ? "#c8e6c9" : "#f0f2f0", padding: "1px 6px", borderRadius: "10px" }}>
+                  帳面:{bookQty}
+                </span>
+              </button>
+            );
+          })}
+          {filteredTagItems.length === 0 ? (
+            <span style={{ fontSize: "13px", color: "var(--muted, #888)", padding: "8px 0" }}>
+              {scopedItems.length === 0 ? "目前倉庫沒有可盤點品號" : "沒有符合搜尋條件的品號標籤"}
+            </span>
+          ) : null}
+        </div>
+      </div>
+    ) : null}
     <label className="field reason-field"><span>盤點備註（選填）</span><input value={note} onChange={(event) => { resetOperationKeys(); setNote(event.target.value); }} disabled={mutationLocked || displayStocktake?.status === "POSTED"} maxLength={2000} /></label>
     {visibleLines.length > 0 ? <div className="summary-list">{visibleLines.map((line) => { const item = itemById.get(line.item_id); const difference = line.counted_quantity - line.book_quantity_snapshot; return <div className="summary-row" key={line.item_id}><span><strong>{item?.item_code ?? line.item_id}｜{item?.item_name ?? "品號"}</strong><small>帳面 {line.book_quantity_snapshot}／版本 {line.balance_version_snapshot}／差額 {difference}</small></span><label className="field"><span className="sr-only">實盤量</span><input type="number" min={0} value={line.counted_quantity} disabled={mutationLocked || !canEdit} onChange={(event) => updateLine(line.item_id, "counted_quantity", event.target.value)} /></label><label className="field"><span className="sr-only">差異原因</span><input value={line.reason} disabled={mutationLocked || !canEdit} onChange={(event) => updateLine(line.item_id, "reason", event.target.value)} placeholder={difference === 0 ? "無差異" : "差異原因（必填）"} maxLength={500} /></label>{!displayStocktake ? <button className="text-button" type="button" onClick={() => removeLine(line.item_id)} disabled={mutationLocked}>移除</button> : null}</div>; })}</div> : <p className="auth-message">請先加入要盤點的品號。</p>}
     <WorkflowActionBar
