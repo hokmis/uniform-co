@@ -144,8 +144,8 @@ export default function WorkspaceTopbar({
             className="sidebar-toggle-btn"
             type="button"
             onClick={onToggleSidebar}
-            title={sidebarCollapsed ? "彈出選單" : "收起選單"}
-            aria-label={sidebarCollapsed ? "彈出選單" : "收起選單"}
+            title={sidebarCollapsed ? "展開選單" : "收起選單"}
+            aria-label={sidebarCollapsed ? "展開選單" : "收起選單"}
           >
             <SidebarToggleIcon collapsed={sidebarCollapsed} />
           </button>

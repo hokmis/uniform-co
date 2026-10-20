@@ -297,8 +297,8 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
             type="button"
             className="sidebar-brand-toggle"
             onClick={toggleSidebar}
-            title="收起選單"
-            aria-label="收起選單"
+            title={sidebarCollapsed ? "展開選單" : "收起選單"}
+            aria-label={sidebarCollapsed ? "展開選單" : "收起選單"}
           >
             <svg
               width="18"
@@ -313,7 +313,7 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
             >
               <rect width="18" height="18" x="3" y="3" rx="2" />
               <path d="M9 3v18" />
-              <path d="m16 15-3-3 3-3" />
+              {sidebarCollapsed ? <path d="m14 9 3 3-3 3" /> : <path d="m16 15-3-3 3-3" />}
             </svg>
           </button>
         </div>
@@ -329,6 +329,7 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
               role="tab"
               aria-selected={activeWorkspace === workspace.id}
               aria-controls={`workspace-${workspace.id}`}
+              title={sidebarCollapsed ? workspace.label : undefined}
               onPointerEnter={() => workspacePrefetchIntent.schedule(workspace.id)}
               onPointerLeave={() => workspacePrefetchIntent.cancel(workspace.id)}
               onFocus={() => workspacePrefetchIntent.schedule(workspace.id)}
@@ -339,7 +340,19 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
               <span>{workspace.label}</span>
             </button>
           ))}
-          {guideNavigationVisible ? <button className={initialSystemGuide ? "active" : ""} type="button" aria-label="開啟系統說明" aria-current={initialSystemGuide ? "page" : undefined} onClick={() => router.push("/system-guide")}><span className="app-nav-icon"><SystemGuideIcon /></span><span>系統說明</span></button> : null}
+          {guideNavigationVisible ? (
+            <button
+              className={initialSystemGuide ? "active" : ""}
+              type="button"
+              title={sidebarCollapsed ? "系統說明" : undefined}
+              aria-label="開啟系統說明"
+              aria-current={initialSystemGuide ? "page" : undefined}
+              onClick={() => router.push("/system-guide")}
+            >
+              <span className="app-nav-icon"><SystemGuideIcon /></span>
+              <span>系統說明</span>
+            </button>
+          ) : null}
         </nav>
 
         <div className="app-sidebar-bottom">

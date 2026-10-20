@@ -175,7 +175,7 @@ body {
 }
 
 .app-shell.sidebar-collapsed {
-  grid-template-columns: 0px minmax(0, 1fr);
+  grid-template-columns: 68px minmax(0, 1fr);
 }
 
 .app-sidebar {
@@ -194,14 +194,14 @@ body {
 }
 
 .app-shell.sidebar-collapsed .app-sidebar {
-  width: 0;
-  min-width: 0;
-  padding-left: 0;
-  padding-right: 0;
-  overflow: hidden;
-  opacity: 0;
-  transform: translateX(-100%);
-  pointer-events: none;
+  width: 68px;
+  min-width: 68px;
+  max-width: 68px;
+  padding: 20px 8px;
+  overflow: visible;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
 }
 
 .app-brand {
@@ -853,7 +853,7 @@ body {
 
 @media (max-width: 1060px) {
   .app-shell { grid-template-columns: 100px minmax(0, 1fr); }
-  .app-shell.sidebar-collapsed { grid-template-columns: 0px minmax(0, 1fr); }
+  .app-shell.sidebar-collapsed { grid-template-columns: 68px minmax(0, 1fr); }
   .app-main { padding-right: 28px; padding-left: 28px; }
 }
 
@@ -2478,5 +2478,211 @@ html[data-appearance="sh"] input:focus-visible {
   justify-content: space-between;
   height: 100%;
 }
+
+/* ==========================================================================
+   SIDEBAR COLLAPSED STATE ACROSS ALL APPEARANCES (AP, MX, GS, MB, SH)
+   ========================================================================== */
+
+.app-shell.sidebar-collapsed,
+html[data-appearance] .app-shell.sidebar-collapsed,
+html[data-appearance="current"] .app-shell.sidebar-collapsed,
+html[data-appearance="previous"] .app-shell.sidebar-collapsed,
+html[data-appearance="ga"] .app-shell.sidebar-collapsed,
+html[data-appearance="mb"] .app-shell.sidebar-collapsed,
+html[data-appearance="sh"] .app-shell.sidebar-collapsed {
+  grid-template-columns: 68px minmax(0, 1fr) !important;
+}
+
+.app-shell.sidebar-collapsed .app-sidebar,
+html[data-appearance] .app-shell.sidebar-collapsed .app-sidebar,
+html[data-appearance="current"] .app-shell.sidebar-collapsed .app-sidebar,
+html[data-appearance="previous"] .app-shell.sidebar-collapsed .app-sidebar,
+html[data-appearance="ga"] .app-shell.sidebar-collapsed .app-sidebar,
+html[data-appearance="mb"] .app-shell.sidebar-collapsed .app-sidebar,
+html[data-appearance="sh"] .app-shell.sidebar-collapsed .app-sidebar {
+  width: 68px !important;
+  min-width: 68px !important;
+  max-width: 68px !important;
+  padding: 20px 8px !important;
+  box-sizing: border-box !important;
+  overflow-x: hidden !important;
+  opacity: 1 !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}
+
+/* Brand area collapsed: hide logo text and mark, center toggle button */
+.app-shell.sidebar-collapsed .app-brand,
+html[data-appearance] .app-shell.sidebar-collapsed .app-brand {
+  justify-content: center !important;
+  padding: 0 0 16px 0 !important;
+  gap: 0 !important;
+}
+
+.app-shell.sidebar-collapsed .app-brand-main,
+html[data-appearance] .app-shell.sidebar-collapsed .app-brand-main {
+  display: none !important;
+}
+
+.app-shell.sidebar-collapsed .sidebar-brand-toggle,
+html[data-appearance] .app-shell.sidebar-collapsed .sidebar-brand-toggle {
+  margin: 0 auto !important;
+  width: 36px !important;
+  height: 36px !important;
+  display: inline-flex !important;
+}
+
+/* Navigation: hide label and text, keep icons centered */
+.app-shell.sidebar-collapsed .app-nav-label,
+html[data-appearance] .app-shell.sidebar-collapsed .app-nav-label {
+  display: none !important;
+}
+
+.app-shell.sidebar-collapsed .app-nav,
+html[data-appearance] .app-shell.sidebar-collapsed .app-nav {
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 0 !important;
+  width: 100% !important;
+}
+
+.app-shell.sidebar-collapsed .app-nav button,
+html[data-appearance] .app-shell.sidebar-collapsed .app-nav button {
+  width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  padding: 0 !important;
+  margin: 0 auto !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-direction: row !important;
+  border-radius: 10px !important;
+  position: relative !important;
+}
+
+.app-shell.sidebar-collapsed .app-nav button > span:not(.app-nav-icon),
+html[data-appearance] .app-shell.sidebar-collapsed .app-nav button > span:not(.app-nav-icon) {
+  display: none !important;
+}
+
+.app-shell.sidebar-collapsed .app-nav-icon,
+html[data-appearance] .app-shell.sidebar-collapsed .app-nav-icon {
+  width: 22px !important;
+  height: 22px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 0 !important;
+}
+
+.app-shell.sidebar-collapsed .app-nav button::after,
+html[data-appearance] .app-shell.sidebar-collapsed .app-nav button::after {
+  display: none !important;
+}
+
+/* Bottom user area */
+.app-shell.sidebar-collapsed .app-sidebar-bottom,
+html[data-appearance] .app-shell.sidebar-collapsed .app-sidebar-bottom {
+  padding: 12px 0 0 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+}
+
+.app-shell.sidebar-collapsed .app-user-chip,
+html[data-appearance] .app-shell.sidebar-collapsed .app-user-chip {
+  justify-content: center !important;
+  padding: 0 !important;
+  margin: 0 auto !important;
+  width: 44px !important;
+}
+
+.app-shell.sidebar-collapsed .app-user-chip > div,
+html[data-appearance] .app-shell.sidebar-collapsed .app-user-chip > div {
+  display: none !important;
+}
+
+.app-shell.sidebar-collapsed .app-avatar,
+html[data-appearance] .app-shell.sidebar-collapsed .app-avatar {
+  margin: 0 auto !important;
+}
+
+.app-shell.sidebar-collapsed .sidebar-signout,
+html[data-appearance] .app-shell.sidebar-collapsed .sidebar-signout {
+  width: 44px !important;
+  height: 30px !important;
+  padding: 0 !important;
+  font-size: 11px !important;
+  text-align: center !important;
+  margin: 8px auto 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Workspace main content expansion */
+.app-shell.sidebar-collapsed .app-main,
+html[data-appearance] .app-shell.sidebar-collapsed .app-main {
+  max-width: none !important;
+  width: 100% !important;
+}
+
+/* Appearance theme specific toggle button styles in topbar */
+html[data-appearance="previous"] .sidebar-toggle-btn {
+  border: 1px solid #414039 !important;
+  border-radius: 7px !important;
+  background: #302f2a !important;
+  color: #f6f2e9 !important;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, .2) !important;
+}
+html[data-appearance="previous"] .sidebar-toggle-btn:hover {
+  background: var(--accent) !important;
+  border-color: var(--accent) !important;
+  color: #fff !important;
+}
+
+html[data-appearance="ga"] .sidebar-toggle-btn {
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  border-radius: 10px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: #d6e2d9 !important;
+}
+html[data-appearance="ga"] .sidebar-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-color: rgba(255, 255, 255, 0.32) !important;
+  color: #fff !important;
+}
+
+html[data-appearance="mb"] .sidebar-toggle-btn {
+  border: 1px solid rgba(0, 0, 0, 0.12) !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  color: #1a1a1a !important;
+}
+html[data-appearance="mb"] .sidebar-toggle-btn:hover {
+  background: #f0f0ed !important;
+  border-color: rgba(0, 0, 0, 0.25) !important;
+}
+
+html[data-appearance="sh"] .sidebar-toggle-btn {
+  border: 1px solid #e4e4e7 !important;
+  border-radius: 6px !important;
+  background: #ffffff !important;
+  color: #18181b !important;
+}
+html[data-appearance="sh"] .sidebar-toggle-btn:hover {
+  background: #f4f4f5 !important;
+  border-color: #d4d4d8 !important;
+}
+
+/* Mobile responsive preservation */
+@media (max-width: 560px) {
+  .app-shell.sidebar-collapsed .app-sidebar,
+  html[data-appearance] .app-shell.sidebar-collapsed .app-sidebar {
+    display: none !important;
+  }
+}
+
 
 
