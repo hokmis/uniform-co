@@ -19,6 +19,7 @@ import { useWorkspaceMotion } from "./use-workspace-motion";
 import { accountLabelFromUser } from "@/src/lib/account-login";
 import { resolvePostLogoutEntry } from "@/src/domain/auth-navigation";
 import { createWorkspacePrefetchIntent } from "@/src/domain/workspace-prefetch";
+import { resolveAllowedWorkspaces } from "@/src/domain/account-roles";
 
 const SIDEBAR_STORAGE_KEY = "app_sidebar_collapsed";
 
@@ -163,6 +164,19 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
   const identity = useWorkspaceIdentity(client, user);
   const systemGuide = useSystemGuideAccess(client, user, session, identity);
   const { theme: appearanceTheme, setTheme: setAppearanceTheme } = useAppearanceTheme();
+  const allowedWorkspaceIds = useMemo<WorkspaceId[]>(() => {
+    if (identity.loading && identity.roles.length === 0) {
+      return workspaceDefinitions.map((w) => w.id);
+    }
+    const resolved = resolveAllowedWorkspaces(identity.roles);
+    return resolved.length > 0 ? (resolved as WorkspaceId[]) : (workspaceDefinitions.map((w) => w.id));
+  }, [identity.loading, identity.roles]);
+
+  const visibleWorkspaces = useMemo(() => {
+    const allowedSet = new Set(allowedWorkspaceIds);
+    return workspaceDefinitions.filter((workspace) => allowedSet.has(workspace.id));
+  }, [allowedWorkspaceIds]);
+
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("overview");
   const activeWorkspaceRef = useRef(activeWorkspace);
   const [activeModuleByWorkspace, setActiveModuleByWorkspace] = useState<Partial<Record<WorkspaceId, string>>>({});
@@ -203,8 +217,11 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
   useEffect(() => {
     const syncWorkspace = () => {
       const nextWorkspace = workspaceFromUrl();
-      activeWorkspaceRef.current = nextWorkspace;
-      setActiveWorkspace(nextWorkspace);
+      const validWorkspace = allowedWorkspaceIds.includes(nextWorkspace)
+        ? nextWorkspace
+        : (allowedWorkspaceIds[0] ?? "overview");
+      activeWorkspaceRef.current = validWorkspace;
+      setActiveWorkspace(validWorkspace);
     };
     syncWorkspace();
     window.addEventListener("hashchange", syncWorkspace);
@@ -213,7 +230,19 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
       window.removeEventListener("hashchange", syncWorkspace);
       window.removeEventListener("popstate", syncWorkspace);
     };
-  }, []);
+  }, [allowedWorkspaceIds]);
+
+  useEffect(() => {
+    if (initialSystemGuide) return;
+    if (allowedWorkspaceIds.length > 0 && !allowedWorkspaceIds.includes(activeWorkspace)) {
+      const fallback = allowedWorkspaceIds[0] ?? "overview";
+      activeWorkspaceRef.current = fallback;
+      setActiveWorkspace(fallback);
+      if (typeof window !== "undefined" && window.location.hash !== `#${fallback}`) {
+        window.history.replaceState({}, "", `#${fallback}`);
+      }
+    }
+  }, [activeWorkspace, allowedWorkspaceIds, initialSystemGuide]);
 
   useEffect(() => {
     if (!client || !user || !systemGuide.allowed) return;
@@ -225,25 +254,26 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
   useEffect(() => () => workspacePrefetchIntent.cancelAll(), [workspacePrefetchIntent]);
 
   const selectWorkspace = useCallback((id: WorkspaceId, anchor?: string) => {
-    workspacePrefetchIntent.cancel(id);
-    prefetchWorkspace(id);
-    const definition = workspaceDefinitions.find((workspace) => workspace.id === id) ?? workspaceDefinitions[0];
+    const targetId = allowedWorkspaceIds.includes(id) ? id : (allowedWorkspaceIds[0] ?? "overview");
+    workspacePrefetchIntent.cancel(targetId);
+    prefetchWorkspace(targetId);
+    const definition = workspaceDefinitions.find((workspace) => workspace.id === targetId) ?? workspaceDefinitions[0];
     const nextModule = anchor && definition.modules.some((module) => module.anchor === anchor)
       ? anchor
       : definition.modules[0].anchor;
     if (initialSystemGuide) {
-      router.push(`/#${id}`);
+      router.push(`/#${targetId}`);
       return;
     }
-    const workspaceChanged = activeWorkspaceRef.current !== id;
-    activeWorkspaceRef.current = id;
-    setActiveWorkspace(id);
-    setActiveModuleByWorkspace((current) => current[id] === nextModule ? current : { ...current, [id]: nextModule });
-    if (window.location.hash !== `#${id}`) {
-      window.history.pushState({}, "", `#${id}`);
+    const workspaceChanged = activeWorkspaceRef.current !== targetId;
+    activeWorkspaceRef.current = targetId;
+    setActiveWorkspace(targetId);
+    setActiveModuleByWorkspace((current) => current[targetId] === nextModule ? current : { ...current, [targetId]: nextModule });
+    if (window.location.hash !== `#${targetId}`) {
+      window.history.pushState({}, "", `#${targetId}`);
     }
     if (workspaceChanged) window.scrollTo({ top: 0, behavior: "auto" });
-  }, [initialSystemGuide, router, workspacePrefetchIntent]);
+  }, [allowedWorkspaceIds, initialSystemGuide, router, workspacePrefetchIntent]);
 
   const workspacePanels = useMemo(() => workspaceDefinitions.map((workspace) => {
     const workspaceModule = activeModuleByWorkspace[workspace.id] ?? workspace.modules[0].anchor;
@@ -320,7 +350,7 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
 
         <p className="app-nav-label">WORKSPACE</p>
         <nav className="app-nav" aria-label="主要工作區">
-          {workspaceDefinitions.map((workspace) => (
+          {visibleWorkspaces.map((workspace) => (
             <button
               key={workspace.id}
               id={`workspace-tab-${workspace.id}`}
@@ -385,6 +415,7 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
           onSignOut={handleSignOut}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebar={toggleSidebar}
+          allowedWorkspaceIds={allowedWorkspaceIds}
         />
 
         <div className="workspace-mobile-switcher">
@@ -398,7 +429,7 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
               else if (target?.kind === "workspace") selectWorkspace(target.workspaceId);
             }}
           >
-            {workspaceDefinitions.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.label}</option>)}
+            {visibleWorkspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.label}</option>)}
             {guideNavigationVisible ? <option value="system-guide">系統說明</option> : null}
           </select>
         </div>

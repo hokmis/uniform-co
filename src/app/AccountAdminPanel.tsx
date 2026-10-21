@@ -10,7 +10,11 @@ import {
   type AccountDirectorySortKey,
   type AccountDirectoryStatusFilter,
 } from "@/src/domain/account-directory";
-import { accountHasEffectiveRole, effectiveAccountRoles } from "@/src/domain/account-roles";
+import {
+  accountHasEffectiveRole,
+  effectiveAccountRoles,
+  getWorkspacePermissionDetails,
+} from "@/src/domain/account-roles";
 import { applyAccountAdminLocalResult, type AccountAdminLocalAccount, type AccountAdminLocalRoleRow, type AccountAdminLocalScopeRow } from "@/src/domain/account-admin-local-state";
 import { loadAccountDirectory } from "@/src/lib/account-directory-read";
 import { loadOrganizationMasterData } from "@/src/lib/master-data-cache";
@@ -32,6 +36,53 @@ type OperationResult = { ok: boolean; account?: Account; warning?: string; error
 type AccountAdminTab = "directory" | "create" | "manage";
 
 const roles: Role[] = ["SYSTEM_ADMIN", "HR", "WAREHOUSE", "PROCUREMENT", "CEO", "DEMAND_COORDINATOR"];
+
+function WorkspacePermissionPreview({ roleCodes }: { roleCodes: Role[] }) {
+  const details = useMemo(() => getWorkspacePermissionDetails(roleCodes), [roleCodes]);
+  const allowedCount = details.filter((item) => item.allowed).length;
+  const isSystemAdmin = roleCodes.includes("SYSTEM_ADMIN");
+
+  return (
+    <div className="workspace-perm-panel" aria-label="工作區檢視權限即時預覽">
+      <div className="workspace-perm-header">
+        <h4>可檢視之工作區權限（隨上方角色勾選即時連動）</h4>
+        <span>已開放 {allowedCount} / {details.length} 個工作區</span>
+      </div>
+      <div className="workspace-perm-grid">
+        {details.map((item) => (
+          <div
+            key={item.workspaceId}
+            className={`workspace-perm-item ${item.allowed ? "is-allowed" : "is-denied"}`}
+          >
+            <div className="workspace-perm-title">
+              <span>{item.label}</span>
+              <span className="workspace-perm-status">{item.allowed ? "✓ 開放" : "— 未開放"}</span>
+            </div>
+            <div className="workspace-perm-reason">
+              {item.allowed ? (
+                isSystemAdmin ? (
+                  <span>由 <strong>SYSTEM_ADMIN</strong> 全權開放</span>
+                ) : (
+                  <span>由 <strong>{item.grantingRoles.join("、")}</strong> 角色授權</span>
+                )
+              ) : (
+                <span>需具備 <strong>{item.requiredRoles.join(" 或 ")}</strong> 角色</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="workspace-perm-tip">
+        💡 <strong>角色與工作區權限對照速查</strong>：
+        <code>HR</code>：總覽、人資需求、報表 ｜ 
+        <code>WAREHOUSE</code>：總覽、倉庫作業、報表 ｜ 
+        <code>PROCUREMENT</code>／<code>CEO</code>：總覽、採購與入庫、換季活動、報表 ｜ 
+        <code>DEMAND_COORDINATOR</code>：換季活動、人資需求 ｜ 
+        <code>SYSTEM_ADMIN</code>：全工作區開放。
+      </div>
+    </div>
+  );
+}
 
 type Props = { headingId?: string };
 
@@ -519,6 +570,7 @@ export default function AccountAdminPanel({ headingId }: Props) {
       <div className="role-check-grid">
         {roles.map((roleCode) => <label className="role-check" key={`create-${roleCode}`}><input type="checkbox" checked={accountHasEffectiveRole(createRoleCodes, roleCode)} onChange={(event) => toggleRole(roleCode, event.target.checked, "create")} disabled={busy || (createRoleCodes.includes("SYSTEM_ADMIN") && roleCode !== "SYSTEM_ADMIN")} /><span>{roleCode}</span></label>)}
       </div>
+      <WorkspacePermissionPreview roleCodes={createRoleCodes} />
     </fieldset>
     <div className="button-row"><button className="primary-button" type="button" onClick={() => void createAccount()} disabled={busy}>{busy ? "處理中…" : "建立帳號、登入身份與權限"}</button></div>
     </div> },
@@ -548,9 +600,11 @@ export default function AccountAdminPanel({ headingId }: Props) {
           <div className="role-check-grid">
             {roles.map((roleCode) => <label className="role-check" key={`edit-${roleCode}`}><input type="checkbox" checked={accountHasEffectiveRole(editRoleCodes, roleCode)} onChange={(event) => toggleRole(roleCode, event.target.checked, "edit")} disabled={busy || (editRoleCodes.includes("SYSTEM_ADMIN") && roleCode !== "SYSTEM_ADMIN")} /><span>{roleCode}</span></label>)}
           </div>
+          <WorkspacePermissionPreview roleCodes={editRoleCodes} />
         </fieldset>
         <div className="button-row"><button className="secondary-button" type="button" onClick={() => void setRoleValues()} disabled={busy || editRoleCodes.length === 0 || !reason.trim()}>儲存角色權限</button></div>
       </div>
+
       <div className="form-grid admin-controls">
         <label className="field"><span>操作理由（必填）</span><input value={reason} onChange={(event) => { resetOperation("profile"); resetOperation("password"); resetOperation("roles"); resetOperation("status"); resetOperation("delete"); resetOperation("scope"); resetOperation("rebind"); setReason(event.target.value); }} disabled={busy} /></label>
         <label className="field"><span>新的 Auth user UUID（重設綁定）</span><input value={newAuthUserId} onChange={(event) => { resetOperation("rebind"); setNewAuthUserId(event.target.value); }} disabled={busy} placeholder="僅在帳號移交時填寫" /></label>

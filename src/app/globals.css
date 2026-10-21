@@ -2684,5 +2684,87 @@ html[data-appearance="sh"] .sidebar-toggle-btn:hover {
   }
 }
 
+/* Workspace Permission Matrix Card in Account Admin */
+.workspace-perm-panel {
+  margin-top: 18px;
+  padding: 16px;
+  background: color-mix(in srgb, var(--card) 94%, var(--accent) 6%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.workspace-perm-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.workspace-perm-header h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.workspace-perm-header span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.workspace-perm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+.workspace-perm-item {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  transition: all 0.15s ease-in-out;
+}
+.workspace-perm-item.is-allowed {
+  border-color: #22c55e;
+  background: color-mix(in srgb, var(--card) 92%, #22c55e 8%);
+}
+.workspace-perm-item.is-denied {
+  opacity: 0.68;
+  background: color-mix(in srgb, var(--card) 96%, #94a3b8 4%);
+}
+.workspace-perm-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.workspace-perm-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.workspace-perm-item.is-allowed .workspace-perm-status {
+  background: #dcfce7;
+  color: #15803d;
+}
+.workspace-perm-item.is-denied .workspace-perm-status {
+  background: #f1f5f9;
+  color: #64748b;
+}
+.workspace-perm-reason {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.workspace-perm-tip {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
 
 

@@ -104,12 +104,20 @@ const workspaceSearchIndex: WorkspaceSearchResult[] = workspaceDefinitions.flatM
   })),
 );
 
-export function searchWorkspaceModules(query: string): WorkspaceSearchResult[] {
+export function searchWorkspaceModules(
+  query: string,
+  allowedWorkspaceIds?: readonly WorkspaceId[],
+): WorkspaceSearchResult[] {
   const normalizedQuery = query.trim().toLocaleLowerCase();
   if (!normalizedQuery) return [];
 
+  const allowedSet = allowedWorkspaceIds ? new Set(allowedWorkspaceIds) : null;
+
   return workspaceSearchIndex
-    .filter((module) => `${module.workspaceLabel} ${module.label} ${module.keywords}`.toLocaleLowerCase().includes(normalizedQuery))
+    .filter((module) => {
+      if (allowedSet && !allowedSet.has(module.workspaceId)) return false;
+      return `${module.workspaceLabel} ${module.label} ${module.keywords}`.toLocaleLowerCase().includes(normalizedQuery);
+    })
     .slice(0, 8);
 }
 

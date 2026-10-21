@@ -19,6 +19,7 @@ type Props = {
   onSignOut?: () => Promise<void>;
   sidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  allowedWorkspaceIds?: readonly WorkspaceId[];
 };
 
 function SearchIcon() {
@@ -104,11 +105,12 @@ export default function WorkspaceTopbar({
   onOpenSystemGuide,
   sidebarCollapsed,
   onToggleSidebar,
+  allowedWorkspaceIds,
 }: Props) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const results = searchWorkspaceModules(query);
+  const results = searchWorkspaceModules(query, allowedWorkspaceIds);
 
   useEffect(() => {
     function closeTransientPanels(event: KeyboardEvent) {
