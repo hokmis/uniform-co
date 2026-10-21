@@ -136,8 +136,8 @@ export default function ReplenishmentPanel() {
       && itemsSnapshotAccountId === accountId,
   );
   const itemsReadBlocked = !hasCurrentItemSnapshot;
-  const visibleItems = hasCurrentItemSnapshot ? items : [];
-  const visibleLines = hasCurrentItemSnapshot ? lines : [{ itemId: "", quantity: 1 }];
+  const visibleItems = useMemo(() => (hasCurrentItemSnapshot ? items : []), [hasCurrentItemSnapshot, items]);
+  const visibleLines = useMemo(() => (hasCurrentItemSnapshot ? lines : [{ itemId: "", quantity: 1 }]), [hasCurrentItemSnapshot, lines]);
 
   function markDraftChanged() {
     if (operationRef.current) {

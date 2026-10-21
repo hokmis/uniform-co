@@ -177,8 +177,13 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
     return workspaceDefinitions.filter((workspace) => allowedSet.has(workspace.id));
   }, [allowedWorkspaceIds]);
 
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>("overview");
-  const activeWorkspaceRef = useRef(activeWorkspace);
+  const [requestedWorkspace, setRequestedWorkspace] = useState<WorkspaceId>("overview");
+  const activeWorkspace = useMemo(() => {
+    return allowedWorkspaceIds.includes(requestedWorkspace)
+      ? requestedWorkspace
+      : (allowedWorkspaceIds[0] ?? "overview");
+  }, [allowedWorkspaceIds, requestedWorkspace]);
+
   const [activeModuleByWorkspace, setActiveModuleByWorkspace] = useState<Partial<Record<WorkspaceId, string>>>({});
   const workspacePrefetchIntent = useMemo(() => createWorkspacePrefetchIntent(prefetchWorkspace), []);
   const activeDefinition = workspaceDefinitions.find((workspace) => workspace.id === activeWorkspace) ?? workspaceDefinitions[0];
@@ -217,32 +222,22 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
   useEffect(() => {
     const syncWorkspace = () => {
       const nextWorkspace = workspaceFromUrl();
-      const validWorkspace = allowedWorkspaceIds.includes(nextWorkspace)
-        ? nextWorkspace
-        : (allowedWorkspaceIds[0] ?? "overview");
-      activeWorkspaceRef.current = validWorkspace;
-      setActiveWorkspace(validWorkspace);
+      setRequestedWorkspace(nextWorkspace);
     };
-    syncWorkspace();
     window.addEventListener("hashchange", syncWorkspace);
     window.addEventListener("popstate", syncWorkspace);
     return () => {
       window.removeEventListener("hashchange", syncWorkspace);
       window.removeEventListener("popstate", syncWorkspace);
     };
-  }, [allowedWorkspaceIds]);
+  }, []);
 
   useEffect(() => {
-    if (initialSystemGuide) return;
-    if (allowedWorkspaceIds.length > 0 && !allowedWorkspaceIds.includes(activeWorkspace)) {
-      const fallback = allowedWorkspaceIds[0] ?? "overview";
-      activeWorkspaceRef.current = fallback;
-      setActiveWorkspace(fallback);
-      if (typeof window !== "undefined" && window.location.hash !== `#${fallback}`) {
-        window.history.replaceState({}, "", `#${fallback}`);
-      }
+    if (initialSystemGuide || typeof window === "undefined") return;
+    if (window.location.hash !== `#${activeWorkspace}`) {
+      window.history.replaceState({}, "", `#${activeWorkspace}`);
     }
-  }, [activeWorkspace, allowedWorkspaceIds, initialSystemGuide]);
+  }, [activeWorkspace, initialSystemGuide]);
 
   useEffect(() => {
     if (!client || !user || !systemGuide.allowed) return;
@@ -265,15 +260,14 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
       router.push(`/#${targetId}`);
       return;
     }
-    const workspaceChanged = activeWorkspaceRef.current !== targetId;
-    activeWorkspaceRef.current = targetId;
-    setActiveWorkspace(targetId);
+    const workspaceChanged = activeWorkspace !== targetId;
+    setRequestedWorkspace(targetId);
     setActiveModuleByWorkspace((current) => current[targetId] === nextModule ? current : { ...current, [targetId]: nextModule });
-    if (window.location.hash !== `#${targetId}`) {
+    if (typeof window !== "undefined" && window.location.hash !== `#${targetId}`) {
       window.history.pushState({}, "", `#${targetId}`);
     }
-    if (workspaceChanged) window.scrollTo({ top: 0, behavior: "auto" });
-  }, [allowedWorkspaceIds, initialSystemGuide, router, workspacePrefetchIntent]);
+    if (workspaceChanged && typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeWorkspace, allowedWorkspaceIds, initialSystemGuide, router, workspacePrefetchIntent]);
 
   const workspacePanels = useMemo(() => workspaceDefinitions.map((workspace) => {
     const workspaceModule = activeModuleByWorkspace[workspace.id] ?? workspace.modules[0].anchor;
