@@ -176,8 +176,9 @@ export default function WarehouseShipmentPanel() {
 
   async function enrichLinesWithQuantities(loadedLines: ShipmentLine[], requestId: string): Promise<ShipmentLine[]> {
     if (!client || !requestId) return loadedLines;
+    const supabase = client;
     try {
-      const { data: itemRows } = await client
+      const { data: itemRows } = await supabase
         .from("hr_request_items")
         .select("id,item_id,issue_quantity,increase_quantity")
         .eq("request_id", requestId);
@@ -242,10 +243,11 @@ export default function WarehouseShipmentPanel() {
     setDraftDirty(false);
     postKeyRef.current = null;
     setSelectedRequestNote(null);
-    if (selected.source === "HR_REQUEST") {
+    if (selected.source === "HR_REQUEST" && client) {
+      const supabase = client;
       void (async () => {
         try {
-          const { data } = await client
+          const { data } = await supabase
             .from("hr_requests")
             .select("note")
             .eq("id", selected.id)
