@@ -37,6 +37,7 @@ import {
   extractUniformSize,
   compareUniformItems,
 } from "@/src/domain/uniform-size";
+import { autoBalanceIssueAndIncreaseLines } from "@/src/domain/hr-request-auto-balance";
 import { useWorkspaceSession } from "./workspace-session";
 import { usePanelActivity } from "./RetainedPanelSet";
 import ReturnedHrRequestPicker from "./ReturnedHrRequestPicker";
@@ -585,12 +586,16 @@ export default function HrRequestWorkbench() {
     return () => { active = false; };
   }, [accountId, client, dataReloadToken, hasSession, identityError, identityLoading, panelActive]);
 
+  const autoBalanced = useMemo(() => {
+    return autoBalanceIssueAndIncreaseLines(visibleLines, increases, visibleItemOptions);
+  }, [visibleLines, increases, visibleItemOptions]);
+
   const result = useMemo(() => {
     try {
       if (dataReadBlocked) {
         throw new HrRequestValidationError("員工與制服品號選項尚未載入，請稍候或重新整理資料");
       }
-      const issueLines: IssueLineDraft[] = visibleLines.map((line) => {
+      const issueLines: IssueLineDraft[] = autoBalanced.adjustedIssueLines.map((line) => {
         const emp = visibleEmployeeOptions.find((employee) => employee.employeeId === line.employeeId)
           ?? (line.departmentCode ? findEmployeeForDepartment(visibleEmployeeOptions, line.departmentCode) : undefined)
           ?? visibleEmployeeOptions[0];
@@ -605,20 +610,22 @@ export default function HrRequestWorkbench() {
       }
       const increaseLines = visibleItemOptions.map((item) => ({
         item,
-        quantity: increases[item.itemId] ?? 0,
+        quantity: autoBalanced.adjustedIncreases[item.itemId] ?? 0,
       }));
       return {
         summary: summarizeHrRequest(issueLines, increaseLines),
         error: "",
+        autoAdjustedItems: autoBalanced.autoAdjustedItems,
       };
     } catch (error) {
       return {
         summary: null,
         error:
           error instanceof HrRequestValidationError ? error.message : "需求單資料無法檢查",
+        autoAdjustedItems: autoBalanced.autoAdjustedItems,
       };
     }
-  }, [dataReadBlocked, increases, visibleEmployeeOptions, visibleItemOptions, visibleLines]);
+  }, [autoBalanced, dataReadBlocked, visibleEmployeeOptions, visibleItemOptions]);
 
   function setDepartmentItemQuantity(deptCode: string, itemId: string, qty: number) {
     if (dataReadBlocked || visibleItemOptions.length === 0) return;
@@ -680,8 +687,15 @@ export default function HrRequestWorkbench() {
     const operation = operationRef.current ?? createHrRequestOperation(() => crypto.randomUUID());
     operationRef.current = operation;
     const submissionRoute = resolveHrRequestSubmissionRoute(operation.draftId, requestEntryState);
+    // 方案 1 全自動智慧適配：當發放總量超過人資倉現貨時，超額部分自動轉為總倉增庫調撥
+    const balanced = autoBalanceIssueAndIncreaseLines(
+      visibleLines.filter((line) => line.quantity > 0 && Boolean(line.itemId)),
+      increases,
+      visibleItemOptions,
+    );
+
     // 方案 B：自動合併同員工與同品號的發放數量，徹底避免觸發 (request_id, employee_id, item_id) 唯一約束
-    const rawIssueLines = visibleLines
+    const rawIssueLines = balanced.adjustedIssueLines
       .filter((line) => line.quantity > 0 && Boolean(line.itemId))
       .map((line) => {
         const resolvedEmpId = line.employeeId
@@ -721,8 +735,21 @@ export default function HrRequestWorkbench() {
       quantity,
     }));
     const increasePayload = visibleItemOptions
-      .map((item) => ({ itemId: item.itemId, quantity: increases[item.itemId] ?? 0 }))
+      .map((item) => ({ itemId: item.itemId, quantity: balanced.adjustedIncreases[item.itemId] ?? 0 }))
       .filter((line) => line.quantity > 0 && Boolean(line.itemId));
+
+    const autoAdjustNotes: string[] = [];
+    for (const [itemId, autoQty] of Object.entries(balanced.autoAdjustedItems)) {
+      if (autoQty > 0) {
+        const item = visibleItemOptions.find((i) => i.itemId === itemId);
+        const itemName = item ? `${item.itemCode} ${item.itemName}（${item.size || "不分尺寸"}）` : itemId;
+        autoAdjustNotes.push(`${itemName}：人資倉現貨僅 ${item?.hrOnHand ?? 0} 件，不足之 ${autoQty} 件已自動轉為總倉增庫調撥`);
+      }
+    }
+    const autoAdjustRemark = autoAdjustNotes.length > 0
+      ? `【系統自動轉增庫說明】\n${autoAdjustNotes.join("\n")}`
+      : "";
+
     const unitMap: Record<number, string> = {};
     Array.from(aggregatedIssueMap.values()).forEach((entry, index) => {
       if (entry.departments.length > 0) {
@@ -743,8 +770,9 @@ export default function HrRequestWorkbench() {
       .replace(/<!--unit_breakdown:.*?-->/g, "")
       .replace(/<!--unit_map:.*?-->/g, "")
       .trim();
+    const noteWithAutoAdjust = [cleanUserNote, autoAdjustRemark].filter(Boolean).join("\n\n");
     const tags = [unitMapTag, breakdownTag].filter(Boolean).join("\n");
-    const normalizedNote = cleanUserNote ? `${cleanUserNote}\n${tags}`.trim() : (tags || null);
+    const normalizedNote = noteWithAutoAdjust ? `${noteWithAutoAdjust}\n${tags}`.trim() : (tags || null);
     if (typeof window !== "undefined") {
       try {
         if (Object.keys(unitMap).length > 0) {
@@ -869,10 +897,12 @@ export default function HrRequestWorkbench() {
       }
     }
     if (!submission.error && submission.failureStage === null && request?.status === "SUBMITTED") {
+      const autoAdjustCount = Object.keys(balanced.autoAdjustedItems).length;
+      const autoAdjustMsg = autoAdjustCount > 0 ? "（部分品項因人資倉現貨不足，已自動轉為總倉增庫調撥）" : "";
       setSubmitMessage(
         request.inventory_policy === "ISSUE_ON_SUBMIT"
-          ? `已送出 ${request.request_no}，人資倉發放量已即時扣庫；增庫量等待倉庫調入。如需修改請由倉庫退回或在下方載入修改。`
-          : `已送出 ${request.request_no}，庫存預留已由伺服器重算。`
+          ? `已送出 ${request.request_no}，人資倉發放量已即時扣庫；增庫量等待倉庫調入${autoAdjustMsg}。如需修改請由倉庫退回或在下方載入修改。`
+          : `已送出 ${request.request_no}，庫存預留已由伺服器重算${autoAdjustMsg}。`
       );
       window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
     } else {
@@ -1753,31 +1783,39 @@ export default function HrRequestWorkbench() {
                   查無符合目前分類或條件的品號；請調整分類頁籤、篩選條件或點擊「重設篩選」。
                 </p>
               ) : null}
-              {pagedIncreaseItems.map((item) => (
-                <label className="increase-row" key={item.itemId}>
-                  <span>
-                    {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
-                    <small>
-                      人資倉 {item.hrOnHand} ／總倉 {item.generalOnHand}／有效預留 {item.activeReserved}
-                    </small>
-                  </span>
-                  <input
-                    min={0}
-                    step={1}
-                    type="number"
-                    value={increases[item.itemId] ?? 0}
-                    onChange={(event) => {
-                      markDraftChanged();
-                      setIncreases((current) => ({
-                        ...current,
-                        [item.itemId]: Number(event.target.value) || 0,
-                      }));
-                    }}
-                    disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                    aria-label={`${item.itemCode} 增庫量`}
-                  />
-                </label>
-              ))}
+              {pagedIncreaseItems.map((item) => {
+                const autoQty = autoBalanced.autoAdjustedItems[item.itemId] ?? 0;
+                return (
+                  <label className="increase-row" key={item.itemId}>
+                    <span>
+                      {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
+                      {autoQty > 0 ? (
+                        <span style={{ fontSize: "11px", color: "#0284c7", background: "#e0f2fe", padding: "1px 6px", borderRadius: "4px", marginLeft: "6px", fontWeight: 600 }}>
+                          發放不足自動轉增庫 +{autoQty}
+                        </span>
+                      ) : null}
+                      <small>
+                        人資倉 {item.hrOnHand} ／總倉 {item.generalOnHand}／有效預留 {item.activeReserved}
+                      </small>
+                    </span>
+                    <input
+                      min={0}
+                      step={1}
+                      type="number"
+                      value={increases[item.itemId] ?? 0}
+                      onChange={(event) => {
+                        markDraftChanged();
+                        setIncreases((current) => ({
+                          ...current,
+                          [item.itemId]: Number(event.target.value) || 0,
+                        }));
+                      }}
+                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                      aria-label={`${item.itemCode} 增庫量`}
+                    />
+                  </label>
+                );
+              })}
               {totalIncreasePages > 1 ? (
                 <div className="button-row pagination-controls" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "12px" }}>
                   <span style={{ fontSize: "13px", color: "var(--muted, #666)" }}>
@@ -1906,8 +1944,34 @@ export default function HrRequestWorkbench() {
           </div>
         ) : (
           <>
+            {result.autoAdjustedItems && Object.keys(result.autoAdjustedItems).length > 0 && (
+              <div
+                style={{
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderRadius: "8px",
+                  padding: "10px 12px",
+                  marginBottom: "12px",
+                  fontSize: "13px",
+                  color: "#166534",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "8px",
+                  lineHeight: "1.4",
+                }}
+              >
+                <span style={{ fontSize: "16px", lineHeight: "1" }}>💡</span>
+                <div>
+                  <strong>智慧庫存適配：部分品項已自動轉增庫調撥</strong>
+                  <div style={{ fontSize: "12px", color: "#15803d", marginTop: "2px" }}>
+                    所填發放量超過人資倉現有量之部分，已自動轉為向總倉申請增庫調撥，兩倉合計充足可順暢送單！
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="summary-list" style={{ marginTop: 0, borderTop: "none" }}>
               {result.summary?.summaries.map((summary) => {
+                const autoAdjustedQty = result.autoAdjustedItems?.[summary.item.itemId] ?? 0;
                 const itemDeptLabels = Array.from(
                   new Set(
                     visibleLines
@@ -1981,8 +2045,18 @@ export default function HrRequestWorkbench() {
                       </div>
                       <span style={{ fontSize: "12px", color: "var(--muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
                         發放 {summary.issueQuantity} ＋ 增庫 {summary.increaseQuantity}
+                        {autoAdjustedQty > 0 && (
+                          <span style={{ marginLeft: "4px", color: "#0284c7", fontWeight: 600 }}>
+                            （含自動轉增庫 {autoAdjustedQty}）
+                          </span>
+                        )}
                       </span>
                     </div>
+                    {autoAdjustedQty > 0 && (
+                      <div style={{ fontSize: "12px", color: "#0369a1", background: "#f0f9ff", padding: "4px 8px", borderRadius: "4px", marginTop: "2px", border: "1px solid #bae6fd" }}>
+                        💡 人資倉現貨僅 {summary.item.hrOnHand} 件，缺額 {autoAdjustedQty} 件已自動轉為總倉增庫調撥
+                      </div>
+                    )}
                     <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "8px" }}>
                       <strong style={{ fontSize: "12px", color: summary.requestedTransferQuantity > 0 ? "var(--accent)" : "inherit" }}>
                         調庫 {summary.requestedTransferQuantity}／兩倉總可用 {summary.availableToRequest}
