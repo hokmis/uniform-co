@@ -27,7 +27,17 @@ type ShipmentLine = WarehouseShipmentLineEdit & {
   maximum_transfer_quantity_snapshot: number;
   actual_transfer_quantity: number;
   short_ship_reason_code: string | null;
+  issue_quantity?: number;
+  increase_quantity?: number;
 };
+
+function cleanDisplayNote(note: string | null | undefined): string {
+  if (!note) return "";
+  return note
+    .replace(/<!--unit_breakdown:.*?-->/g, "")
+    .replace(/<!--unit_map:.*?-->/g, "")
+    .trim();
+}
 
 type Reason = { code: string; label: string };
 type CreatedShipment = { id: string; shipment_no: string | null; created_by: string | null; lines: ShipmentLine[] };
@@ -48,6 +58,7 @@ export default function WarehouseShipmentPanel() {
   const [lines, setLines] = useState<ShipmentLine[]>([]);
   const [reasons, setReasons] = useState<Reason[]>([]);
   const [message, setMessage] = useState("");
+  const [selectedRequestNote, setSelectedRequestNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [returnPending, setReturnPending] = useState(false);
   const [posted, setPosted] = useState(false);
@@ -163,6 +174,29 @@ export default function WarehouseShipmentPanel() {
     return result.data;
   }
 
+  async function enrichLinesWithQuantities(loadedLines: ShipmentLine[], requestId: string): Promise<ShipmentLine[]> {
+    if (!client || !requestId) return loadedLines;
+    try {
+      const { data: itemRows } = await client
+        .from("hr_request_items")
+        .select("id,item_id,issue_quantity,increase_quantity")
+        .eq("request_id", requestId);
+      if (itemRows && itemRows.length > 0) {
+        const itemMap = new Map((itemRows as Array<{ id: string; item_id: string; issue_quantity: number; increase_quantity: number }>).map((r) => [String(r.id), r]));
+        const itemIdMap = new Map((itemRows as Array<{ id: string; item_id: string; issue_quantity: number; increase_quantity: number }>).map((r) => [String(r.item_id), r]));
+        return loadedLines.map((line) => {
+          const match = (line.hr_request_item_id ? itemMap.get(line.hr_request_item_id) : undefined) ?? itemIdMap.get(line.item_id);
+          return {
+            ...line,
+            issue_quantity: Number(match?.issue_quantity ?? 0),
+            increase_quantity: Number(match?.increase_quantity ?? 0),
+          };
+        });
+      }
+    } catch {}
+    return loadedLines;
+  }
+
   async function loadReplenishmentLines(nextRequestId: string) {
     if (!client) return [];
     const result = await loadReplenishmentShipmentLines(client, nextRequestId);
@@ -207,6 +241,21 @@ export default function WarehouseShipmentPanel() {
     setPosted(false);
     setDraftDirty(false);
     postKeyRef.current = null;
+    setSelectedRequestNote(null);
+    if (selected.source === "HR_REQUEST") {
+      void (async () => {
+        try {
+          const { data } = await client
+            .from("hr_requests")
+            .select("note")
+            .eq("id", selected.id)
+            .maybeSingle();
+          if (data?.note) {
+            setSelectedRequestNote(data.note);
+          }
+        } catch {}
+      })();
+    }
     if (selected.source === "REPLENISHMENT") {
       postKeyRef.current = window.localStorage.getItem(`${shipmentOperationStoragePrefix}:post:replenishment:${selected.id}`);
       setDetailsLoading(true);
@@ -233,12 +282,13 @@ export default function WarehouseShipmentPanel() {
     setDetailsLoading(true);
     try {
       const loadedLines = await loadShipmentLines(selected.shipment_id, selected.id);
+      const linesWithMeta = await enrichLinesWithQuantities(loadedLines, selected.id);
       if (!readController.isCurrent(readSequence)) return;
       setShipmentId(selected.shipment_id);
       setShipmentNo(selected.shipment_no ?? "");
       setShipmentOwnerId(selected.shipment_created_by ?? "");
-      setLines(loadedLines);
-      persistedLinesRef.current = loadedLines;
+      setLines(linesWithMeta);
+      persistedLinesRef.current = linesWithMeta;
       setDraftDirty(false);
       setPosted(selected.shipment_status === "POSTED");
       postKeyRef.current = window.localStorage.getItem(`${shipmentOperationStoragePrefix}:post:${selected.shipment_id}`);
@@ -280,11 +330,12 @@ export default function WarehouseShipmentPanel() {
     setDetailsLoading(true);
     try {
       const loadedLines = await loadShipmentLines(data.id, selected.id);
+      const linesWithMeta = await enrichLinesWithQuantities(loadedLines, selected.id);
       setShipmentId(data.id);
       setShipmentNo(data.shipment_no ?? shipmentNo.trim());
       setShipmentOwnerId(data.created_by ?? accountId);
-      setLines(loadedLines);
-      persistedLinesRef.current = loadedLines;
+      setLines(linesWithMeta);
+      persistedLinesRef.current = linesWithMeta;
       setDraftDirty(false);
       setPosted(false);
       setRequests((current) => current.map((request) => request.queue_key === selected.queue_key ? {
@@ -296,7 +347,7 @@ export default function WarehouseShipmentPanel() {
       } : request));
       setMessage(`已建立理貨草稿 ${data.shipment_no ?? ""}，請核對實際調庫量。`);
       if (!options.keepBusy) setBusy(false);
-      return { id: data.id as string, shipment_no: data.shipment_no ?? (shipmentNo.trim() || null), created_by: data.created_by ?? accountId ?? null, lines: loadedLines };
+      return { id: data.id as string, shipment_no: data.shipment_no ?? (shipmentNo.trim() || null), created_by: data.created_by ?? accountId ?? null, lines: linesWithMeta };
     } catch (error) {
       setMessage("理貨草稿已建立，但明細載入失敗；請重新整理後再試。" );
       setBusy(false);
@@ -466,6 +517,7 @@ export default function WarehouseShipmentPanel() {
     setShipmentOwnerId("");
     setLines([]);
     persistedLinesRef.current = [];
+    setSelectedRequestNote(null);
     setPosted(false);
     setDraftDirty(false);
     setMessage("上一筆倉庫作業已完成，請從左側選取下一筆待發貨或補庫單。");
@@ -507,7 +559,7 @@ export default function WarehouseShipmentPanel() {
                 tableClassName="warehouse-shipment-table"
                 emptyState={<p className="empty-state">目前沒有可處理的已送出需求或補庫單。</p>}
                 columns={[
-                  { id: "request", label: "來源單據", locked: true, render: (row) => <><strong>{row.requestNo}</strong><span className="table-secondary">{row.source === "REPLENISHMENT" ? "額外補庫" : "人資發貨"}／日期 {row.distributionDate}</span></>, sortKey: "request_no" },
+                  { id: "request", label: "來源單據", locked: true, render: (row) => <><strong>{row.requestNo}</strong><span className="table-secondary">{row.source === "REPLENISHMENT" ? "額外補庫" : "人資需求／調撥"}／日期 {row.distributionDate}</span></>, sortKey: "request_no" },
                   { id: "status", label: "狀態", render: (row) => <span className={`status-pill ${row.shipmentStatus === "POSTED" ? "success" : row.shipmentStatus === "DRAFT" ? "danger" : ""}`}>{row.shipmentStatus === "POSTED" ? "已完成" : row.shipmentStatus === "DRAFT" ? "已有草稿" : "待建立"}</span> },
                   { id: "version", label: "來源版本", render: (row) => row.rowVersion, sortKey: "row_version", className: "numeric-cell" },
                   { id: "action", label: "操作", locked: true, render: (row) => <button className="text-button" type="button" onClick={() => void chooseRequest(row.id)} disabled={busy || returnPending || (draftDirty && row.id !== requestKey)}>{row.id === requestKey ? "目前作業中" : row.shipmentStatus === "DRAFT" ? "恢復草稿" : "選取"}</button> },
@@ -517,9 +569,93 @@ export default function WarehouseShipmentPanel() {
         <div className="warehouse-shipment-editor">
           <div className="panel-heading"><div><p className="eyebrow">PICK & COMPLETE</p><h3>理貨工作區</h3></div></div>
           <div className="metric"><span>已選來源單據</span><strong>{selectedRequest?.request_no ?? "請從左側選取"}</strong><small>{selectedRequest ? `${selectedRequest.source === "REPLENISHMENT" ? "送出日" : "發放日"} ${selectedRequest.distribution_date}／來源版本 ${selectedRequest.row_version}` : "尚未載入需求"}</small></div>
+          {cleanDisplayNote(selectedRequestNote) ? (
+            <div
+              style={{
+                background: "#f0fdf4",
+                border: "1px solid #bbf7d0",
+                borderRadius: "8px",
+                padding: "10px 14px",
+                margin: "12px 0",
+                fontSize: "13px",
+                color: "#166534",
+                lineHeight: "1.5",
+                whiteSpace: "pre-line",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: 700, marginBottom: "4px" }}>
+                <span>📋</span>
+                <span>單據備註與調撥說明</span>
+              </div>
+              <div>{cleanDisplayNote(selectedRequestNote)}</div>
+            </div>
+          ) : null}
           {selectedRequest?.source === "HR_REQUEST" ? <label className="field"><span>發貨單號（選填）</span><input value={shipmentNo} onChange={(event) => setShipmentNo(event.target.value)} disabled={Boolean(shipmentId) || busy || returnPending || detailsLoading} placeholder="SHIP-20260812-001" /></label> : selectedRequest?.source === "REPLENISHMENT" ? <p className="auth-message">補庫單不需要另建發貨草稿；請直接核對調庫量後確認完成，系統會在同一筆交易內重新鎖定總倉庫存。</p> : null}
           {lines.length > 0
-            ? <div className="summary-list">{lines.map((line) => <div className="summary-row" key={line.id}><span><strong>{line.item_code_snapshot ?? line.item_id}｜{line.item_name_snapshot ?? "制服品號"}</strong><small>總倉調庫需求 {line.requested_transfer_quantity_snapshot}／總倉當下上限 {line.maximum_transfer_quantity_snapshot}／單位 {line.unit_snapshot ?? "—"}</small></span><label className="field"><span className="sr-only">實際調庫量</span><input type="number" min={0} max={line.maximum_transfer_quantity_snapshot} value={line.actual_transfer_quantity} disabled={posted || busy || returnPending || detailsLoading || !canEditShipment} onChange={(event) => updateLine(line.id, "actual_transfer_quantity", event.target.value)} /></label><label className="field"><span className="sr-only">短發原因</span><select value={line.short_ship_reason_code ?? ""} disabled={posted || busy || returnPending || detailsLoading || !canEditShipment || line.actual_transfer_quantity >= line.requested_transfer_quantity_snapshot} onChange={(event) => updateLine(line.id, "short_ship_reason_code", event.target.value)}><option value="">短發原因</option>{reasons.map((reason) => <option key={reason.code} value={reason.code}>{reason.label}</option>)}</select></label></div>)}</div>
+            ? (
+              <div className="summary-list">
+                {lines.map((line) => (
+                  <div className="summary-row" key={line.id} style={{ alignItems: "flex-start" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                        <strong>{line.item_code_snapshot ?? line.item_id}｜{line.item_name_snapshot ?? "制服品號"}</strong>
+                        {line.increase_quantity != null && line.increase_quantity > 0 && (
+                          <span
+                            style={{
+                              fontSize: "11px",
+                              background: "#e0f2fe",
+                              color: "#0369a1",
+                              padding: "1px 6px",
+                              borderRadius: "4px",
+                              fontWeight: 600,
+                            }}
+                          >
+                            含增庫 {line.increase_quantity} 件
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--muted)", display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "center" }}>
+                        <span>總倉調庫需求 <strong>{line.requested_transfer_quantity_snapshot}</strong> 件</span>
+                        {(line.issue_quantity != null || line.increase_quantity != null) && (
+                          <span style={{ background: "#f8fafc", border: "1px solid #e2e8f0", padding: "1px 6px", borderRadius: "4px", color: "#475569" }}>
+                            發放需求 {line.issue_quantity ?? 0} 件 ＋ 增庫需求 {line.increase_quantity ?? 0} 件
+                          </span>
+                        )}
+                      </div>
+                      <small style={{ color: "var(--muted)" }}>
+                        總倉當下上限 {line.maximum_transfer_quantity_snapshot}／單位 {line.unit_snapshot ?? "—"}
+                      </small>
+                    </div>
+                    <label className="field" style={{ minWidth: "100px", margin: 0 }}>
+                      <span className="sr-only">實際調庫量</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={line.maximum_transfer_quantity_snapshot}
+                        value={line.actual_transfer_quantity}
+                        disabled={posted || busy || returnPending || detailsLoading || !canEditShipment}
+                        onChange={(event) => updateLine(line.id, "actual_transfer_quantity", event.target.value)}
+                      />
+                    </label>
+                    <label className="field" style={{ minWidth: "120px", margin: 0 }}>
+                      <span className="sr-only">短發原因</span>
+                      <select
+                        value={line.short_ship_reason_code ?? ""}
+                        disabled={posted || busy || returnPending || detailsLoading || !canEditShipment || line.actual_transfer_quantity >= line.requested_transfer_quantity_snapshot}
+                        onChange={(event) => updateLine(line.id, "short_ship_reason_code", event.target.value)}
+                      >
+                        <option value="">短發原因</option>
+                        {reasons.map((reason) => (
+                          <option key={reason.code} value={reason.code}>
+                            {reason.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ))}
+              </div>
+            )
             : <p className="empty-state">請先從左側選取需求並建立或恢復理貨草稿。</p>}
           {!canEditShipment && shipmentId ? <p className="auth-message">此草稿由其他倉庫帳號建立，明細為唯讀；若數量已核對完成，仍可依權限確認完成。</p> : null}
           <WorkflowActionBar
@@ -541,6 +677,7 @@ export default function WarehouseShipmentPanel() {
             onReturned={() => {
               setRequestKey(""); setShipmentId(""); setShipmentNo(""); setShipmentOwnerId("");
               setLines([]); persistedLinesRef.current = []; setDraftDirty(false); postKeyRef.current = null;
+              setSelectedRequestNote(null);
               setQueueReloadToken((value) => value + 1);
               notifyInventoryDataChanged(); window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
             }}
