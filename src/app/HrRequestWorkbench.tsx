@@ -887,6 +887,8 @@ export default function HrRequestWorkbench() {
           fallbackMessage = "送出失敗：選取單位的代表員工資料不存在或未啟用，請至員工管理確認。";
         } else if (rawError.includes("HR role is required")) {
           fallbackMessage = "送出失敗：目前登入帳號未具備人資（HR）權限。";
+        } else if (rawError.includes("HR_INSUFFICIENT_ISSUE_STOCK")) {
+          fallbackMessage = "送出失敗：人資倉現有庫存不足以支應所申請的發放量。請先確認該品項在人資倉的現貨數量，或至「倉庫作業」調撥補充人資倉。";
         } else {
           fallbackMessage = `送出失敗（${rawError}）；再次按下會沿用相同冪等鍵查回結果。`;
         }
