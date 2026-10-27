@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import RetainedPanelSet from "../RetainedPanelSet";
 import WorkspacePanelLoading from "../WorkspacePanelLoading";
 
+const InventoryAvailabilityPanel = dynamic(() => import("../InventoryAvailabilityPanel"), { loading: () => <WorkspacePanelLoading label="正在載入兩倉可用量" /> });
 const HrRequestHistoryPanel = dynamic(() => import("../HrRequestHistoryPanel"), { loading: () => <WorkspacePanelLoading label="正在載入需求查詢" /> });
 const ReplenishmentPanel = dynamic(() => import("../ReplenishmentPanel"), { loading: () => <WorkspacePanelLoading label="正在載入額外補庫" /> });
 const ReturnPanel = dynamic(() => import("../ReturnPanel"), { loading: () => <WorkspacePanelLoading label="正在載入員工退回" /> });
@@ -21,9 +22,10 @@ export default function HrWorkspace({ activeModule }: Props) {
       eyebrow="REQUEST WORKBENCH"
       title="需求與發放準備"
       headingId="hr-request-title"
-      description="依任務切換需求單、補庫或員工退回；送出與正式過帳仍由各自受保護 RPC 依兩倉數量與來源單據驗證。"
+      description="依任務切換需求單、兩倉可用量、補庫或員工退回；送出與正式過帳仍由各自受保護 RPC 依兩倉數量與來源單據驗證。"
       tabs={[
         { id: "request", label: "新增員工制服需求單", content: <HrRequestWorkbench /> },
+        { id: "availability", label: "兩倉可用量", content: <InventoryAvailabilityPanel /> },
         { id: "history", label: "需求查詢", content: <HrRequestHistoryPanel /> },
         { id: "replenishment", label: "額外補庫", content: <ReplenishmentPanel /> },
         { id: "return", label: "員工退回", content: <ReturnPanel /> },

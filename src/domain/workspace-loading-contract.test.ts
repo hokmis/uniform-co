@@ -6,7 +6,7 @@ const source = readFileSync(resolve(process.cwd(), "src/app/WorkspaceShell.tsx")
 const workspaceTargets = {
   OverviewWorkspace: ["OrganizationManagementPanel", "ProductManagementPanel", "DurableImportPanel"],
   AccountWorkspace: [],
-  HrWorkspace: ["HrRequestHistoryPanel", "ReplenishmentPanel", "ReturnPanel", "HrIssueCorrectionPanel", "ReturnCorrectionPanel", "EmployeeManagementPanel"],
+  HrWorkspace: ["InventoryAvailabilityPanel", "HrRequestHistoryPanel", "ReplenishmentPanel", "ReturnPanel", "HrIssueCorrectionPanel", "ReturnCorrectionPanel", "EmployeeManagementPanel"],
   WarehouseWorkspace: ["WarehouseShipmentPanel", "StocktakePanel", "WarehouseTransferCorrectionPanel", "StocktakeCorrectionPanel"],
   ProcurementWorkspace: ["ProcurementReasonCodePanel", "PurchaseReceiptCorrectionPanel", "PurchaseReceiptPanel"],
   ReportsWorkspace: ["PdfArtifactPanel", "ErpExportPanel"],
