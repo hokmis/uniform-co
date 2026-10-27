@@ -86,4 +86,45 @@ describe("autoBalanceIssueAndIncreaseLines", () => {
     expect(result.adjustedIncreases).toEqual({ "item-1": 1 });
     expect(result.autoAdjustedItems).toEqual({ "item-1": 1 });
   });
+
+  it("does not auto-balance and preserves original issue lines when both warehouses have zero stock", () => {
+    const zeroStockItem: UniformItemSnapshot = {
+      ...testItem1,
+      hrOnHand: 0,
+      generalOnHand: 0,
+      activeReserved: 0,
+    };
+    const lines = [
+      { employeeId: "emp-1", itemId: "item-1", quantity: 58, departmentCode: "02" },
+    ];
+    const result = autoBalanceIssueAndIncreaseLines(lines, {}, [zeroStockItem]);
+
+    // 發放明細維持原樣（不被轉為增庫，維持發放詞彙與數量）
+    expect(result.adjustedIssueLines).toEqual([
+      { employeeId: "emp-1", itemId: "item-1", quantity: 58, departmentCode: "02" },
+    ]);
+    expect(result.adjustedIncreases).toEqual({});
+    expect(result.autoAdjustedItems).toEqual({});
+  });
+
+  it("does not auto-balance when combined inventory across both warehouses is insufficient", () => {
+    // 人資倉 2 件，總倉 5 件，合計 7 件；但請領 50 件
+    const limitedItem: UniformItemSnapshot = {
+      ...testItem1,
+      hrOnHand: 2,
+      generalOnHand: 5,
+      activeReserved: 0,
+    };
+    const lines = [
+      { employeeId: "emp-1", itemId: "item-1", quantity: 50, departmentCode: "DEPT-A" },
+    ];
+    const result = autoBalanceIssueAndIncreaseLines(lines, {}, [limitedItem]);
+
+    // 兩倉合計不足以滿足總量時，維持原發放明細，不轉增庫
+    expect(result.adjustedIssueLines).toEqual([
+      { employeeId: "emp-1", itemId: "item-1", quantity: 50, departmentCode: "DEPT-A" },
+    ]);
+    expect(result.adjustedIncreases).toEqual({});
+    expect(result.autoAdjustedItems).toEqual({});
+  });
 });

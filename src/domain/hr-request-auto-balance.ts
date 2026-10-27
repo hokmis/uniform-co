@@ -37,18 +37,29 @@ export function autoBalanceIssueAndIncreaseLines<T extends AutoBalanceInputLine>
     }
   }
 
-  // 2. 判斷各品項是否超過 hrOnHand
+  // 2. 判斷各品項是否可進行智慧轉增庫
   const remainingHrQuota = new Map<string, number>();
   for (const [itemId, totalRequested] of issueByItem.entries()) {
     const item = itemOptions.find((opt) => opt.itemId === itemId);
     const hrOnHand = item ? Math.max(0, item.hrOnHand) : 0;
-    if (totalRequested > hrOnHand) {
-      const excess = totalRequested - hrOnHand;
+    const generalOnHand = item ? Math.max(0, item.generalOnHand) : 0;
+    const activeReserved = item ? Math.max(0, item.activeReserved) : 0;
+    const combinedAvailable = Math.max(0, hrOnHand + generalOnHand - activeReserved);
+    const userIncrease = increases[itemId] ?? 0;
+
+    // 只有在請領量超過人資倉現有量、總倉有現貨可供調撥，且兩倉合計足以支應總需求時，
+    // 才將超額部分智慧轉為總倉增庫調撥
+    const isSufficientInBoth = totalRequested + userIncrease <= combinedAvailable;
+    const excess = totalRequested - hrOnHand;
+
+    if (totalRequested > hrOnHand && generalOnHand > 0 && isSufficientInBoth) {
       autoAdjustedItems[itemId] = excess;
       resultIncreases[itemId] = (resultIncreases[itemId] ?? 0) + excess;
       remainingHrQuota.set(itemId, hrOnHand);
     } else {
-      remainingHrQuota.set(itemId, hrOnHand);
+      // 兩倉無庫存、總倉無現貨、或兩倉合計不足（超出可申請量）：
+      // 維持原始發放明細與數量，不自動轉增庫，由送出前檢查標示超額
+      remainingHrQuota.set(itemId, totalRequested);
     }
   }
 

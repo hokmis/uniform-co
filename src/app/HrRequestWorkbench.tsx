@@ -668,17 +668,19 @@ export default function HrRequestWorkbench() {
     });
   }
 
-  function handleSummaryIssueQtyChange(itemId: string, newTotalQty: number) {
+  function handleSummaryIssueQtyChange(itemId: string, newTotalQty: number, isDelta = false) {
     if (dataReadBlocked) return;
     markDraftChanged();
     setLines((current) => {
-      if (newTotalQty <= 0) {
+      const itemLines = current.filter((l) => l.itemId === itemId && l.quantity > 0);
+      const currentTotal = itemLines.reduce((sum, l) => sum + l.quantity, 0);
+      const targetQty = isDelta ? Math.max(0, currentTotal + newTotalQty) : newTotalQty;
+
+      if (targetQty <= 0) {
         return current.filter((l) => l.itemId !== itemId);
       }
 
-      const itemLines = current.filter((l) => l.itemId === itemId && l.quantity > 0);
-      const currentTotal = itemLines.reduce((sum, l) => sum + l.quantity, 0);
-      const diff = newTotalQty - currentTotal;
+      const diff = targetQty - currentTotal;
       if (diff === 0) return current;
 
       if (itemLines.length === 0) {
@@ -690,7 +692,7 @@ export default function HrRequestWorkbench() {
             lineId: `line-${selectedDeptCode}-${itemId}`,
             departmentCode: selectedDeptCode,
             itemId,
-            quantity: newTotalQty,
+            quantity: targetQty,
             employeeId: matchedEmp?.employeeId ?? "",
           },
         ];
@@ -699,7 +701,7 @@ export default function HrRequestWorkbench() {
       if (itemLines.length === 1) {
         return current.map((l) => {
           if (l.itemId === itemId && l.departmentCode === itemLines[0].departmentCode) {
-            return { ...l, quantity: newTotalQty };
+            return { ...l, quantity: targetQty };
           }
           return l;
         });
@@ -733,13 +735,17 @@ export default function HrRequestWorkbench() {
     });
   }
 
-  function handleSummaryIncreaseQtyChange(itemId: string, newQty: number) {
+  function handleSummaryIncreaseQtyChange(itemId: string, deltaOrQty: number, isDelta = false) {
     if (dataReadBlocked) return;
     markDraftChanged();
-    setIncreases((current) => ({
-      ...current,
-      [itemId]: Math.max(0, newQty),
-    }));
+    setIncreases((current) => {
+      const currentVal = current[itemId] ?? 0;
+      const targetVal = isDelta ? Math.max(0, currentVal + deltaOrQty) : Math.max(0, deltaOrQty);
+      return {
+        ...current,
+        [itemId]: targetVal,
+      };
+    });
   }
 
   function handleRemoveItemCompletely(itemId: string) {
@@ -2165,7 +2171,7 @@ export default function HrRequestWorkbench() {
                                 type="button"
                                 title={summary.issueQuantity <= 1 ? "減為 0（移除品項）" : "減少 1 件"}
                                 disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                                onClick={() => handleSummaryIssueQtyChange(summary.item.itemId, summary.issueQuantity - 1)}
+                                onClick={() => handleSummaryIssueQtyChange(summary.item.itemId, -1, true)}
                                 style={{
                                   width: "28px",
                                   height: "28px",
@@ -2190,7 +2196,7 @@ export default function HrRequestWorkbench() {
                                 value={summary.issueQuantity}
                                 onChange={(e) => {
                                   const val = parseInt(e.target.value, 10);
-                                  handleSummaryIssueQtyChange(summary.item.itemId, isNaN(val) || val <= 0 ? 0 : val);
+                                  handleSummaryIssueQtyChange(summary.item.itemId, isNaN(val) || val <= 0 ? 0 : val, false);
                                 }}
                                 disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
                                 style={{
@@ -2210,7 +2216,7 @@ export default function HrRequestWorkbench() {
                                 type="button"
                                 title="增加 1 件"
                                 disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                                onClick={() => handleSummaryIssueQtyChange(summary.item.itemId, summary.issueQuantity + 1)}
+                                onClick={() => handleSummaryIssueQtyChange(summary.item.itemId, 1, true)}
                                 style={{
                                   width: "28px",
                                   height: "28px",
@@ -2251,7 +2257,7 @@ export default function HrRequestWorkbench() {
                                 type="button"
                                 title={summary.increaseQuantity <= 1 ? "減為 0（移除增庫）" : "減少 1 件"}
                                 disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                                onClick={() => handleSummaryIncreaseQtyChange(summary.item.itemId, summary.increaseQuantity - 1)}
+                                onClick={() => handleSummaryIncreaseQtyChange(summary.item.itemId, -1, true)}
                                 style={{
                                   width: "28px",
                                   height: "28px",
@@ -2276,7 +2282,7 @@ export default function HrRequestWorkbench() {
                                 value={summary.increaseQuantity}
                                 onChange={(e) => {
                                   const val = parseInt(e.target.value, 10);
-                                  handleSummaryIncreaseQtyChange(summary.item.itemId, isNaN(val) || val <= 0 ? 0 : val);
+                                  handleSummaryIncreaseQtyChange(summary.item.itemId, isNaN(val) || val <= 0 ? 0 : val, false);
                                 }}
                                 disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
                                 style={{
@@ -2296,7 +2302,7 @@ export default function HrRequestWorkbench() {
                                 type="button"
                                 title="增加 1 件"
                                 disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                                onClick={() => handleSummaryIncreaseQtyChange(summary.item.itemId, summary.increaseQuantity + 1)}
+                                onClick={() => handleSummaryIncreaseQtyChange(summary.item.itemId, 1, true)}
                                 style={{
                                   width: "28px",
                                   height: "28px",
