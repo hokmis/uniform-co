@@ -28,6 +28,7 @@ import { useWorkspaceSession } from "./workspace-session";
 import { retrySupabaseQueriesAfterSessionRefresh } from "@/src/lib/supabase-session";
 import type { AccountScopedReadOutcome } from "@/src/domain/account-scoped-read";
 import { useAccountScopedReadSnapshot } from "./use-account-scoped-read-snapshot";
+import ItemShortageModal, { type ItemShortageRow } from "./ItemShortageModal";
 
 const EMPTY_INVENTORY_ROWS: InventoryAvailabilityRow[] = [];
 
@@ -220,8 +221,33 @@ export default function InventoryAvailabilityPanel() {
     return sortInventoryAvailability(rows, sortKey, sortDirection);
   }, [category, genderFilter, query, seasonFilter, sizeFilter, sortDirection, sortKey, statusFilter, uniformCategory, visibleRows]);
 
+  const [showAttentionModal, setShowAttentionModal] = useState(false);
+
   const availableCount = visibleRows.filter((row) => inventoryAvailabilityStatus(row) === "AVAILABLE").length;
   const attentionCount = visibleRows.filter((row) => ["OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row))).length;
+
+  const attentionRows: ItemShortageRow[] = useMemo(() => {
+    return visibleRows
+      .filter((row) => ["OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row)))
+      .map((row) => {
+        const status = inventoryAvailabilityStatus(row);
+        return {
+          itemId: row.itemId,
+          itemCode: row.itemCode,
+          itemName: row.itemName,
+          unit: row.unit,
+          size: row.size,
+          category: row.category,
+          hrOnHand: row.hrOnHand,
+          generalOnHand: row.generalOnHand,
+          combinedOnHand: row.combinedOnHand,
+          activeReserved: row.activeReserved,
+          availableToRequest: row.availableToRequest,
+          statusLabel: inventoryAvailabilityStatusLabel(status),
+          isDataError: status === "DATA_ERROR",
+        };
+      });
+  }, [visibleRows]);
 
   function toggleSort(nextKey: InventoryAvailabilitySortKey) {
     if (sortKey === nextKey) setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
@@ -267,7 +293,28 @@ export default function InventoryAvailabilityPanel() {
       <div className="management-catalog-metrics inventory-availability-metrics" aria-label="庫存摘要">
         <div className="metric"><span>可讀取品號</span><strong>{visibleRows.length}</strong><small>目前帳號可見範圍</small></div>
         <div className="metric"><span>可申請品號</span><strong>{availableCount}</strong><small>可申請量大於零</small></div>
-        <div className="metric"><span>需注意品號</span><strong>{attentionCount}</strong><small>缺貨或資料異常</small></div>
+        <button
+          type="button"
+          className="metric"
+          onClick={() => setShowAttentionModal(true)}
+          title="點擊查看缺貨或資料異常品項清單"
+          style={{
+            cursor: "pointer",
+            textAlign: "left",
+            border: attentionCount > 0 ? "1px solid #fecaca" : "1px solid var(--line, #e2e8f0)",
+            background: attentionCount > 0 ? "#fff5f5" : "#f5f8f3",
+            transition: "all 0.15s ease",
+            padding: "16px",
+            font: "inherit",
+          }}
+        >
+          <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>需注意品號</span>
+            <span style={{ fontSize: "11px", color: attentionCount > 0 ? "var(--danger, #dc2626)" : "var(--muted)", fontWeight: 700 }}>點擊查看 🔍</span>
+          </span>
+          <strong style={{ color: attentionCount > 0 ? "var(--danger, #dc2626)" : "inherit" }}>{attentionCount}</strong>
+          <small style={{ color: attentionCount > 0 ? "var(--danger, #dc2626)" : undefined }}>缺貨或資料異常（點擊顯示清單）</small>
+        </button>
         <div className="metric"><span>商品分類</span><strong>{categories.length}</strong><small>依目前可讀取主檔統計</small></div>
       </div>
 
@@ -508,6 +555,24 @@ export default function InventoryAvailabilityPanel() {
           { id: "available", label: "可申請量", sortKey: "available_to_request", render: (row) => <strong>{row.availableToRequest} {row.unit}</strong> },
           { id: "status", label: "狀態", sortKey: "status", locked: true, render: (row) => { const status = inventoryAvailabilityStatus(row); return <span className={`status-pill ${statusTone(status)}`}>{inventoryAvailabilityStatusLabel(status)}</span>; } },
         ]}
+      />
+      <ItemShortageModal
+        isOpen={showAttentionModal}
+        onClose={() => setShowAttentionModal(false)}
+        title="需注意品號清單（缺貨或資料異常）"
+        subtitle="以下品項目前無可申請量或庫存資料異常，請確認庫存或進貨補庫"
+        items={attentionRows}
+        onFilterInTable={() => {
+          setShowAttentionModal(false);
+          setStatusFilter("OUT_OF_STOCK");
+          setPage(1);
+          if (typeof document !== "undefined") {
+            const tableElem = document.querySelector(".inventory-availability-table");
+            if (tableElem) {
+              tableElem.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          }
+        }}
       />
     </section>
   );

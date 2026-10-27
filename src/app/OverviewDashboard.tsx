@@ -12,6 +12,7 @@ import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
 import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
+import ItemShortageModal, { type ItemShortageRow } from "./ItemShortageModal";
 
 type Row = Record<string, unknown>;
 
@@ -82,7 +83,48 @@ function percent(value: number, total: number): number {
   return Math.min(100, Math.max(0, Math.round((value / total) * 100)));
 }
 
-function Metric({ label, value, note, tone }: { label: string; value: string | number; note: string; tone: "default" | "blue" | "amber" | "red" }) {
+function Metric({
+  label,
+  value,
+  note,
+  tone,
+  clickable,
+  onClick,
+}: {
+  label: string;
+  value: string | number;
+  note: string;
+  tone: "default" | "blue" | "amber" | "red";
+  clickable?: boolean;
+  onClick?: () => void;
+}) {
+  if (clickable && onClick) {
+    return (
+      <button
+        type="button"
+        className={`overview-stat ${tone}`}
+        onClick={onClick}
+        title={`點擊查看${label}品項清單`}
+        style={{
+          cursor: "pointer",
+          textAlign: "left",
+          font: "inherit",
+          width: "100%",
+          padding: "19px 20px",
+          transition: "transform 0.1s ease, box-shadow 0.15s ease",
+        }}
+      >
+        <span style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span>{label}</span>
+          <span style={{ fontSize: "11px", fontWeight: 700, color: tone === "red" ? "var(--danger)" : "inherit" }}>
+            點擊查看 🔍
+          </span>
+        </span>
+        <strong>{value}</strong>
+        <small>{note}</small>
+      </button>
+    );
+  }
   return (
     <article className={`overview-stat ${tone}`}>
       <span>{label}</span>
@@ -337,6 +379,70 @@ export default function OverviewDashboard({ onNavigate }: Props) {
     };
   }, [visibleData]);
 
+  const [showAbnormalModal, setShowAbnormalModal] = useState(false);
+  const [enrichedAbnormalItems, setEnrichedAbnormalItems] = useState<ItemShortageRow[] | null>(null);
+  const [abnormalLoading, setAbnormalLoading] = useState(false);
+
+  const lowAvailabilityRows: ItemShortageRow[] = useMemo(() => {
+    return visibleData.availability
+      .filter((row) => numberValue(row.available_to_request_quantity) <= 0)
+      .map((row) => {
+        const avail = numberValue(row.available_to_request_quantity);
+        return {
+          itemCode: textValue(row.item_code),
+          itemName: textValue(row.item_name),
+          combinedOnHand: numberValue(row.combined_on_hand_quantity),
+          activeReserved: numberValue(row.active_reserved_quantity),
+          availableToRequest: avail,
+          statusLabel: avail < 0 ? "資料異常" : "無可申請量",
+          isDataError: avail < 0,
+        };
+      });
+  }, [visibleData.availability]);
+
+  useEffect(() => {
+    if (!showAbnormalModal || !client) return;
+    let active = true;
+    setAbnormalLoading(true);
+    void (async () => {
+      try {
+        const { data: queryData, error } = await client
+          .from("v_item_availability")
+          .select("item_code,item_name,unit,size,category,hr_on_hand_quantity,general_on_hand_quantity,combined_on_hand_quantity,active_reserved_quantity,available_to_request_quantity")
+          .lte("available_to_request_quantity", 0)
+          .order("item_code");
+        if (!active) return;
+        if (!error && queryData && queryData.length > 0) {
+          const enriched: ItemShortageRow[] = (queryData as unknown as Array<Record<string, unknown>>).map((r) => {
+            const avail = numberValue(r.available_to_request_quantity);
+            return {
+              itemCode: textValue(r.item_code),
+              itemName: textValue(r.item_name),
+              unit: textValue(r.unit),
+              size: r.size ? String(r.size) : null,
+              category: r.category ? String(r.category) : null,
+              hrOnHand: numberValue(r.hr_on_hand_quantity),
+              generalOnHand: numberValue(r.general_on_hand_quantity),
+              combinedOnHand: numberValue(r.combined_on_hand_quantity),
+              activeReserved: numberValue(r.active_reserved_quantity),
+              availableToRequest: avail,
+              statusLabel: avail < 0 ? "資料異常" : "無可申請量",
+              isDataError: avail < 0,
+            };
+          });
+          setEnrichedAbnormalItems(enriched);
+        }
+      } catch {
+        // non-blocking fallback to lowAvailabilityRows
+      } finally {
+        if (active) setAbnormalLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [showAbnormalModal, client]);
+
   return (
     <section className="overview-dashboard" id="overview-dashboard-title" aria-label="營運總覽儀表板" aria-busy={readPresentation.busy}>
       <div className="overview-dashboard-heading">
@@ -353,7 +459,14 @@ export default function OverviewDashboard({ onNavigate }: Props) {
         <Metric label="待處理工作" value={readPresentation.showCorePlaceholder ? "—" : derived.pendingWork} note="需求、發貨與入庫佇列" tone="default" />
         <Metric label="本月發放件數" value={readPresentation.showActivityPlaceholder ? "—" : derived.monthlyIssued} note="由發放歷史即時計算" tone="blue" />
         <Metric label="待入庫數量" value={readPresentation.showCorePlaceholder ? "—" : derived.remainingToAccept} note="採購進度尚未驗收" tone="amber" />
-        <Metric label="可申請量異常" value={readPresentation.showCorePlaceholder ? "—" : derived.lowAvailability} note="品號可申請量小於等於 0" tone="red" />
+        <Metric
+          label="可申請量異常"
+          value={readPresentation.showCorePlaceholder ? "—" : derived.lowAvailability}
+          note="品號可申請量小於等於 0（點擊查看）"
+          tone="red"
+          clickable={!readPresentation.showCorePlaceholder}
+          onClick={() => setShowAbnormalModal(true)}
+        />
       </div>
 
       <div className="overview-dashboard-grid">
@@ -401,6 +514,21 @@ export default function OverviewDashboard({ onNavigate }: Props) {
           {readPresentation.showActivityPlaceholder ? <p className="overview-empty-state">活動摘要載入中…</p> : visibleData.audit.length > 0 ? <div className="overview-activity-list">{visibleData.audit.slice(0, 3).map((row) => <div className="overview-activity-row" key={textValue(row.id)}><span className="overview-activity-dot" aria-hidden="true" /><div><p><strong>{textValue(row.action, "狀態變更")}</strong>／{textValue(row.entity_table, "正式資料")}</p><small>{dateLabel(row.occurred_at)}・{textValue(row.actor_account_id, "系統")}</small></div></div>)}</div> : <p className="overview-empty-state">目前沒有可顯示的活動摘要，或目前角色沒有稽核報表讀取權限。</p>}
         </section>
       </div>
+      <ItemShortageModal
+        isOpen={showAbnormalModal}
+        onClose={() => {
+          setShowAbnormalModal(false);
+          setEnrichedAbnormalItems(null);
+        }}
+        title="可申請量異常品項清單（缺量）"
+        subtitle="以下品項目前兩倉合計扣除預留後，可申請量小於等於 0"
+        items={enrichedAbnormalItems ?? lowAvailabilityRows}
+        loading={abnormalLoading}
+        onNavigateToWarehouse={() => {
+          setShowAbnormalModal(false);
+          onNavigate("warehouse", "warehouse-inventory-title");
+        }}
+      />
     </section>
   );
 }
