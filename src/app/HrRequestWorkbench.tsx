@@ -664,6 +664,90 @@ export default function HrRequestWorkbench() {
     });
   }
 
+  function handleSummaryIssueQtyChange(itemId: string, newTotalQty: number) {
+    if (dataReadBlocked) return;
+    markDraftChanged();
+    setLines((current) => {
+      if (newTotalQty <= 0) {
+        return current.filter((l) => l.itemId !== itemId);
+      }
+
+      const itemLines = current.filter((l) => l.itemId === itemId && l.quantity > 0);
+      const currentTotal = itemLines.reduce((sum, l) => sum + l.quantity, 0);
+      const diff = newTotalQty - currentTotal;
+      if (diff === 0) return current;
+
+      if (itemLines.length === 0) {
+        const matchedEmp = findEmployeeForDepartment(visibleEmployeeOptions, selectedDeptCode)
+          ?? visibleEmployeeOptions[0];
+        return [
+          ...current,
+          {
+            lineId: `line-${selectedDeptCode}-${itemId}`,
+            departmentCode: selectedDeptCode,
+            itemId,
+            quantity: newTotalQty,
+            employeeId: matchedEmp?.employeeId ?? "",
+          },
+        ];
+      }
+
+      if (itemLines.length === 1) {
+        return current.map((l) => {
+          if (l.itemId === itemId && l.departmentCode === itemLines[0].departmentCode) {
+            return { ...l, quantity: newTotalQty };
+          }
+          return l;
+        });
+      }
+
+      if (diff > 0) {
+        let added = false;
+        return current.map((l) => {
+          if (!added && l.itemId === itemId && l.departmentCode === itemLines[itemLines.length - 1].departmentCode) {
+            added = true;
+            return { ...l, quantity: l.quantity + diff };
+          }
+          return l;
+        });
+      } else {
+        let toDeduct = Math.abs(diff);
+        const copy = [...current];
+        for (let i = copy.length - 1; i >= 0 && toDeduct > 0; i--) {
+          if (copy[i].itemId === itemId && copy[i].quantity > 0) {
+            if (copy[i].quantity <= toDeduct) {
+              toDeduct -= copy[i].quantity;
+              copy[i] = { ...copy[i], quantity: 0 };
+            } else {
+              copy[i] = { ...copy[i], quantity: copy[i].quantity - toDeduct };
+              toDeduct = 0;
+            }
+          }
+        }
+        return copy.filter((l) => l.quantity > 0);
+      }
+    });
+  }
+
+  function handleSummaryIncreaseQtyChange(itemId: string, newQty: number) {
+    if (dataReadBlocked) return;
+    markDraftChanged();
+    setIncreases((current) => ({
+      ...current,
+      [itemId]: Math.max(0, newQty),
+    }));
+  }
+
+  function handleRemoveItemCompletely(itemId: string) {
+    if (dataReadBlocked) return;
+    markDraftChanged();
+    setLines((current) => current.filter((l) => l.itemId !== itemId));
+    setIncreases((current) => ({
+      ...current,
+      [itemId]: 0,
+    }));
+  }
+
   async function submitRequest() {
     if (returnedDraftLoading) return;
     if (!client) {
@@ -2043,14 +2127,212 @@ export default function HrRequestWorkbench() {
                           </span>
                         </span>
                       </div>
-                      <span style={{ fontSize: "15px", fontWeight: 500, color: "var(--muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
-                        發放 <strong style={{ color: "var(--ink)", fontWeight: 700 }}>{summary.issueQuantity}</strong> ＋ 增庫 <strong style={{ color: "var(--ink)", fontWeight: 700 }}>{summary.increaseQuantity}</strong>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {/* 發放數量調整 */}
+                        {summary.issueQuantity > 0 && (
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                            <span style={{ fontSize: "14px", fontWeight: 700, color: "var(--ink)" }}>發放</span>
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                border: "1px solid #cbd5e1",
+                                borderRadius: "6px",
+                                overflow: "hidden",
+                                background: "#fff",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                title={summary.issueQuantity <= 1 ? "減為 0（移除品項）" : "減少 1 件"}
+                                disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                                onClick={() => handleSummaryIssueQtyChange(summary.item.itemId, summary.issueQuantity - 1)}
+                                style={{
+                                  width: "28px",
+                                  height: "28px",
+                                  border: "none",
+                                  borderRight: "1px solid #cbd5e1",
+                                  background: summary.issueQuantity <= 1 ? "#fee2e2" : "#f8fafc",
+                                  color: summary.issueQuantity <= 1 ? "#dc2626" : "var(--ink)",
+                                  cursor: "pointer",
+                                  fontWeight: 800,
+                                  fontSize: "16px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  padding: 0,
+                                }}
+                              >
+                                -
+                              </button>
+                              <input
+                                type="number"
+                                min={0}
+                                value={summary.issueQuantity}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value, 10);
+                                  handleSummaryIssueQtyChange(summary.item.itemId, isNaN(val) || val <= 0 ? 0 : val);
+                                }}
+                                disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                                style={{
+                                  width: "46px",
+                                  height: "28px",
+                                  border: "none",
+                                  textAlign: "center",
+                                  fontSize: "15px",
+                                  fontWeight: 700,
+                                  color: "var(--ink)",
+                                  padding: "0 2px",
+                                  background: "#fff",
+                                }}
+                                aria-label={`${summary.item.itemCode} 發放量調整`}
+                              />
+                              <button
+                                type="button"
+                                title="增加 1 件"
+                                disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                                onClick={() => handleSummaryIssueQtyChange(summary.item.itemId, summary.issueQuantity + 1)}
+                                style={{
+                                  width: "28px",
+                                  height: "28px",
+                                  border: "none",
+                                  borderLeft: "1px solid #cbd5e1",
+                                  background: "#f8fafc",
+                                  color: "var(--ink)",
+                                  cursor: "pointer",
+                                  fontWeight: 800,
+                                  fontSize: "16px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  padding: 0,
+                                }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 增庫數量調整 */}
+                        {summary.increaseQuantity > 0 && (
+                          <div style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                            <span style={{ fontSize: "14px", fontWeight: 700, color: "#0284c7" }}>增庫</span>
+                            <div
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                border: "1px solid #93c5fd",
+                                borderRadius: "6px",
+                                overflow: "hidden",
+                                background: "#fff",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                title={summary.increaseQuantity <= 1 ? "減為 0（移除增庫）" : "減少 1 件"}
+                                disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                                onClick={() => handleSummaryIncreaseQtyChange(summary.item.itemId, summary.increaseQuantity - 1)}
+                                style={{
+                                  width: "28px",
+                                  height: "28px",
+                                  border: "none",
+                                  borderRight: "1px solid #93c5fd",
+                                  background: summary.increaseQuantity <= 1 ? "#fee2e2" : "#f0f9ff",
+                                  color: summary.increaseQuantity <= 1 ? "#dc2626" : "#0284c7",
+                                  cursor: "pointer",
+                                  fontWeight: 800,
+                                  fontSize: "16px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  padding: 0,
+                                }}
+                              >
+                                -
+                              </button>
+                              <input
+                                type="number"
+                                min={0}
+                                value={summary.increaseQuantity}
+                                onChange={(e) => {
+                                  const val = parseInt(e.target.value, 10);
+                                  handleSummaryIncreaseQtyChange(summary.item.itemId, isNaN(val) || val <= 0 ? 0 : val);
+                                }}
+                                disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                                style={{
+                                  width: "46px",
+                                  height: "28px",
+                                  border: "none",
+                                  textAlign: "center",
+                                  fontSize: "15px",
+                                  fontWeight: 700,
+                                  color: "#0284c7",
+                                  padding: "0 2px",
+                                  background: "#fff",
+                                }}
+                                aria-label={`${summary.item.itemCode} 增庫量調整`}
+                              />
+                              <button
+                                type="button"
+                                title="增加 1 件"
+                                disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                                onClick={() => handleSummaryIncreaseQtyChange(summary.item.itemId, summary.increaseQuantity + 1)}
+                                style={{
+                                  width: "28px",
+                                  height: "28px",
+                                  border: "none",
+                                  borderLeft: "1px solid #93c5fd",
+                                  background: "#f0f9ff",
+                                  color: "#0284c7",
+                                  cursor: "pointer",
+                                  fontWeight: 800,
+                                  fontSize: "16px",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  padding: 0,
+                                }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* 自動轉增庫標記 */}
                         {autoAdjustedQty > 0 && (
-                          <span style={{ marginLeft: "6px", color: "#0284c7", fontWeight: 600, fontSize: "14px" }}>
-                            （含自動轉增庫 {autoAdjustedQty}）
+                          <span style={{ color: "#0284c7", fontWeight: 600, fontSize: "13px", background: "#f0f9ff", padding: "3px 7px", borderRadius: "4px", border: "1px solid #bae6fd" }}>
+                            含轉增庫 {autoAdjustedQty}
                           </span>
                         )}
-                      </span>
+
+                        {/* 快速移除按鈕 */}
+                        <button
+                          type="button"
+                          title="移除此品項（數量歸零）"
+                          disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                          onClick={() => handleRemoveItemCompletely(summary.item.itemId)}
+                          style={{
+                            border: "1px solid #fecaca",
+                            background: "#fff5f5",
+                            color: "#dc2626",
+                            borderRadius: "6px",
+                            padding: "5px 9px",
+                            fontSize: "13px",
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            lineHeight: "1",
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          <span>🗑️</span>
+                          <span>移除</span>
+                        </button>
+                      </div>
                     </div>
                     {autoAdjustedQty > 0 && (
                       <div style={{ fontSize: "13px", color: "#0369a1", background: "#f0f9ff", padding: "6px 10px", borderRadius: "5px", marginTop: "2px", border: "1px solid #bae6fd" }}>
