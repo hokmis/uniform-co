@@ -2057,6 +2057,7 @@ export default function HrRequestWorkbench() {
                   </div>
                 </div>
               </div>
+            )}
             {(!result.summary || result.summary.summaries.length === 0) && (
               <p className="empty-state">尚未填寫任何發放或增庫數量。請在左側填寫申請數量。</p>
             )}
