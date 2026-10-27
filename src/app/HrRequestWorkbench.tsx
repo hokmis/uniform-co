@@ -1527,26 +1527,100 @@ export default function HrRequestWorkbench() {
               {pagedIssueItems.map((item) => {
                 const currentQty = departmentItemQtyMap[`${selectedDeptCode}__${item.itemId}`] ?? 0;
                 return (
-                  <label className="increase-row" key={`issue-${selectedDeptCode}-${item.itemId}`}>
+                  <div
+                    className="increase-row"
+                    key={`issue-${selectedDeptCode}-${item.itemId}`}
+                    style={{ gridTemplateColumns: "1fr auto" }}
+                  >
                     <span>
                       {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
                       <small>
                         人資倉 {item.hrOnHand} ／總倉 {item.generalOnHand}／有效預留 {item.activeReserved}
                       </small>
                     </span>
-                    <input
-                      min={0}
-                      step={1}
-                      type="number"
-                      value={currentQty}
-                      onChange={(event) => {
-                        const val = Number(event.target.value) || 0;
-                        setDepartmentItemQuantity(selectedDeptCode, item.itemId, val);
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        border: "1px solid #cbd5e1",
+                        borderRadius: "6px",
+                        overflow: "hidden",
+                        background: "#fff",
                       }}
-                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                      aria-label={`${selectedDept.display} ${item.itemCode} 發放量`}
-                    />
-                  </label>
+                    >
+                      <button
+                        type="button"
+                        title={currentQty <= 1 ? "減為 0" : "減少 1 件"}
+                        disabled={currentQty <= 0 || submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                        onClick={() => setDepartmentItemQuantity(selectedDeptCode, item.itemId, Math.max(0, currentQty - 1))}
+                        style={{
+                          width: "28px",
+                          height: "28px",
+                          border: "none",
+                          borderRight: "1px solid #cbd5e1",
+                          background: currentQty <= 0 ? "#f8fafc" : currentQty === 1 ? "#fee2e2" : "#f8fafc",
+                          color: currentQty <= 0 ? "#94a3b8" : currentQty === 1 ? "#dc2626" : "var(--ink)",
+                          cursor: currentQty <= 0 ? "not-allowed" : "pointer",
+                          fontWeight: 800,
+                          fontSize: "16px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 0,
+                        }}
+                      >
+                        -
+                      </button>
+                      <input
+                        min={0}
+                        step={1}
+                        type="number"
+                        value={currentQty}
+                        onChange={(event) => {
+                          const val = Number(event.target.value) || 0;
+                          setDepartmentItemQuantity(selectedDeptCode, item.itemId, Math.max(0, val));
+                        }}
+                        disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                        style={{
+                          width: "46px",
+                          height: "28px",
+                          border: "none",
+                          outline: "none",
+                          textAlign: "center",
+                          fontSize: "15px",
+                          fontWeight: 700,
+                          color: currentQty > 0 ? "var(--ink)" : "var(--muted, #666)",
+                          padding: "0 2px",
+                          background: "#fff",
+                          borderRadius: 0,
+                        }}
+                        aria-label={`${selectedDept.display} ${item.itemCode} 發放量`}
+                      />
+                      <button
+                        type="button"
+                        title="增加 1 件"
+                        disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                        onClick={() => setDepartmentItemQuantity(selectedDeptCode, item.itemId, currentQty + 1)}
+                        style={{
+                          width: "28px",
+                          height: "28px",
+                          border: "none",
+                          borderLeft: "1px solid #cbd5e1",
+                          background: "#f8fafc",
+                          color: "var(--ink)",
+                          cursor: "pointer",
+                          fontWeight: 800,
+                          fontSize: "16px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 0,
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
 
@@ -1879,8 +1953,13 @@ export default function HrRequestWorkbench() {
               ) : null}
               {pagedIncreaseItems.map((item) => {
                 const autoQty = autoBalanced.autoAdjustedItems[item.itemId] ?? 0;
+                const incQty = increases[item.itemId] ?? 0;
                 return (
-                  <label className="increase-row" key={item.itemId}>
+                  <div
+                    className="increase-row"
+                    key={item.itemId}
+                    style={{ gridTemplateColumns: "1fr auto" }}
+                  >
                     <span>
                       {item.itemCode}｜{item.itemName}（{item.size || "不分尺寸"}）
                       {autoQty > 0 ? (
@@ -1892,22 +1971,104 @@ export default function HrRequestWorkbench() {
                         人資倉 {item.hrOnHand} ／總倉 {item.generalOnHand}／有效預留 {item.activeReserved}
                       </small>
                     </span>
-                    <input
-                      min={0}
-                      step={1}
-                      type="number"
-                      value={increases[item.itemId] ?? 0}
-                      onChange={(event) => {
-                        markDraftChanged();
-                        setIncreases((current) => ({
-                          ...current,
-                          [item.itemId]: Number(event.target.value) || 0,
-                        }));
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        border: "1px solid #93c5fd",
+                        borderRadius: "6px",
+                        overflow: "hidden",
+                        background: "#fff",
                       }}
-                      disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
-                      aria-label={`${item.itemCode} 增庫量`}
-                    />
-                  </label>
+                    >
+                      <button
+                        type="button"
+                        title={incQty <= 1 ? "減為 0" : "減少 1 件"}
+                        disabled={incQty <= 0 || submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                        onClick={() => {
+                          markDraftChanged();
+                          setIncreases((current) => ({
+                            ...current,
+                            [item.itemId]: Math.max(0, incQty - 1),
+                          }));
+                        }}
+                        style={{
+                          width: "28px",
+                          height: "28px",
+                          border: "none",
+                          borderRight: "1px solid #93c5fd",
+                          background: incQty <= 0 ? "#f8fafc" : incQty === 1 ? "#fee2e2" : "#f0f9ff",
+                          color: incQty <= 0 ? "#94a3b8" : incQty === 1 ? "#dc2626" : "#0284c7",
+                          cursor: incQty <= 0 ? "not-allowed" : "pointer",
+                          fontWeight: 800,
+                          fontSize: "16px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 0,
+                        }}
+                      >
+                        -
+                      </button>
+                      <input
+                        min={0}
+                        step={1}
+                        type="number"
+                        value={incQty}
+                        onChange={(event) => {
+                          markDraftChanged();
+                          setIncreases((current) => ({
+                            ...current,
+                            [item.itemId]: Math.max(0, Number(event.target.value) || 0),
+                          }));
+                        }}
+                        disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                        style={{
+                          width: "46px",
+                          height: "28px",
+                          border: "none",
+                          outline: "none",
+                          textAlign: "center",
+                          fontSize: "15px",
+                          fontWeight: 700,
+                          color: incQty > 0 ? "#0284c7" : "var(--muted, #666)",
+                          padding: "0 2px",
+                          background: "#fff",
+                          borderRadius: 0,
+                        }}
+                        aria-label={`${item.itemCode} 增庫量`}
+                      />
+                      <button
+                        type="button"
+                        title="增加 1 件"
+                        disabled={submitting || submissionRecovering || (Boolean(submittedRequestId) && !editingSubmitted)}
+                        onClick={() => {
+                          markDraftChanged();
+                          setIncreases((current) => ({
+                            ...current,
+                            [item.itemId]: incQty + 1,
+                          }));
+                        }}
+                        style={{
+                          width: "28px",
+                          height: "28px",
+                          border: "none",
+                          borderLeft: "1px solid #93c5fd",
+                          background: "#f0f9ff",
+                          color: "#0284c7",
+                          cursor: "pointer",
+                          fontWeight: 800,
+                          fontSize: "16px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 0,
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
               {totalIncreasePages > 1 ? (
