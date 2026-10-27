@@ -2027,10 +2027,10 @@ export default function HrRequestWorkbench() {
           <p className="empty-state">主檔資料載入後，這裡會顯示需求量、可用庫存與品號彙總。</p>
         ) : (
           <>
-            {result.error ? (
+            {result.error && Object.keys(result.exceededErrors).length === 0 ? (
               <div className="error-box" role="alert" style={{ marginBottom: "14px" }}>
                 <strong>這張需求單需要修正</strong>
-                <span>{result.error}。已在下方標記超出申請量的品項，請直接調整數量或移除該品項。</span>
+                <span>{result.error}</span>
               </div>
             ) : null}
             {result.autoAdjustedItems && Object.keys(result.autoAdjustedItems).length > 0 && (
