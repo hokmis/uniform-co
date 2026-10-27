@@ -1030,47 +1030,47 @@ export default function ReplenishmentPanel() {
                   display: "flex",
                   flexDirection: "column",
                   alignItems: "stretch",
-                  gap: "6px",
-                  padding: "10px 0",
+                  gap: "8px",
+                  padding: "12px 0",
                   borderBottom: "1px solid var(--line, #e2e8f0)",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flex: 1, minWidth: 0 }}>
                     <span
                       style={{
                         display: "inline-block",
-                        fontSize: "12px",
+                        fontSize: "14px",
                         fontWeight: 600,
                         background: "var(--accent, #1a73e8)",
                         color: "#fff",
-                        padding: "2px 7px",
+                        padding: "3px 8px",
                         borderRadius: "4px",
                         lineHeight: "1.3",
                       }}
                     >
                       {item.category}
                     </span>
-                    <strong style={{ fontSize: "14px", color: "var(--ink, #1e293b)", fontWeight: 700 }}>
+                    <strong style={{ fontSize: "18px", color: "var(--ink, #1e293b)", fontWeight: 800, letterSpacing: "-0.01em" }}>
                       {item.item_code}
                     </strong>
-                    <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink, #1e293b)" }}>
+                    <span style={{ fontSize: "16px", fontWeight: 700, color: "var(--ink, #1e293b)" }}>
                       {item.item_name}
-                      <span style={{ fontSize: "12px", fontWeight: 400, color: "var(--muted, #64748b)", marginLeft: "4px" }}>
+                      <span style={{ fontSize: "15px", fontWeight: 500, color: "var(--muted, #64748b)", marginLeft: "4px" }}>
                         ／{item.displaySize}
                       </span>
                     </span>
                   </div>
-                  <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--accent, #d8744a)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                  <span style={{ fontSize: "15px", fontWeight: 700, color: "var(--accent, #d8744a)", whiteSpace: "nowrap", flexShrink: 0 }}>
                     申請 {item.quantity} 件
                   </span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", fontSize: "12px", color: "var(--muted, #64748b)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", fontSize: "14px", color: "var(--muted, #64748b)" }}>
                   <span>
-                    人資現有：<strong style={{ color: item.hrStock <= 0 ? "#dc2626" : "var(--ink, #1e293b)" }}>{item.hrStock}</strong> 件
+                    人資現有：<strong style={{ color: item.hrStock <= 0 ? "#dc2626" : "var(--ink, #1e293b)", fontWeight: 700 }}>{item.hrStock}</strong> 件
                   </span>
                   <span>
-                    總倉現有：<strong style={{ color: item.generalStock <= 0 ? "#dc2626" : "var(--ink, #1e293b)" }}>{item.generalStock}</strong> 件
+                    總倉現有：<strong style={{ color: item.generalStock <= 0 ? "#dc2626" : "var(--ink, #1e293b)", fontWeight: 700 }}>{item.generalStock}</strong> 件
                   </span>
                 </div>
               </div>

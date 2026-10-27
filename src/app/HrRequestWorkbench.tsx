@@ -1994,22 +1994,22 @@ export default function HrRequestWorkbench() {
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "stretch",
-                      gap: "6px",
-                      padding: "10px 0",
+                      gap: "8px",
+                      padding: "12px 0",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap", flex: 1, minWidth: 0 }}>
                         {itemDeptLabels.map((dept) => (
                           <span
                             key={dept}
                             style={{
                               display: "inline-block",
-                              fontSize: "13px",
-                              fontWeight: 400,
+                              fontSize: "14px",
+                              fontWeight: 600,
                               background: "var(--accent, #1a73e8)",
                               color: "#fff",
-                              padding: "2px 7px",
+                              padding: "3px 8px",
                               borderRadius: "4px",
                               lineHeight: "1.3",
                             }}
@@ -2021,11 +2021,11 @@ export default function HrRequestWorkbench() {
                           <span
                             style={{
                               display: "inline-block",
-                              fontSize: "13px",
-                              fontWeight: 400,
+                              fontSize: "14px",
+                              fontWeight: 600,
                               background: "#f1f5f9",
                               color: "#64748b",
-                              padding: "2px 7px",
+                              padding: "3px 8px",
                               borderRadius: "4px",
                               lineHeight: "1.3",
                             }}
@@ -2033,32 +2033,32 @@ export default function HrRequestWorkbench() {
                             增庫
                           </span>
                         )}
-                        <strong style={{ fontSize: "14px", color: "var(--ink)", fontWeight: 700 }}>
+                        <strong style={{ fontSize: "18px", color: "var(--ink)", fontWeight: 800, letterSpacing: "-0.01em" }}>
                           {summary.item.itemCode}
                         </strong>
-                        <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--ink)" }}>
+                        <span style={{ fontSize: "16px", fontWeight: 700, color: "var(--ink)" }}>
                           {summary.item.itemName}
-                          <span style={{ fontSize: "12px", fontWeight: 400, color: "var(--muted)", marginLeft: "4px" }}>
+                          <span style={{ fontSize: "15px", fontWeight: 500, color: "var(--muted)", marginLeft: "4px" }}>
                             ／{summary.item.size || "不分尺寸"}
                           </span>
                         </span>
                       </div>
-                      <span style={{ fontSize: "12px", color: "var(--muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
-                        發放 {summary.issueQuantity} ＋ 增庫 {summary.increaseQuantity}
+                      <span style={{ fontSize: "15px", fontWeight: 500, color: "var(--muted)", whiteSpace: "nowrap", flexShrink: 0 }}>
+                        發放 <strong style={{ color: "var(--ink)", fontWeight: 700 }}>{summary.issueQuantity}</strong> ＋ 增庫 <strong style={{ color: "var(--ink)", fontWeight: 700 }}>{summary.increaseQuantity}</strong>
                         {autoAdjustedQty > 0 && (
-                          <span style={{ marginLeft: "4px", color: "#0284c7", fontWeight: 600 }}>
+                          <span style={{ marginLeft: "6px", color: "#0284c7", fontWeight: 600, fontSize: "14px" }}>
                             （含自動轉增庫 {autoAdjustedQty}）
                           </span>
                         )}
                       </span>
                     </div>
                     {autoAdjustedQty > 0 && (
-                      <div style={{ fontSize: "12px", color: "#0369a1", background: "#f0f9ff", padding: "4px 8px", borderRadius: "4px", marginTop: "2px", border: "1px solid #bae6fd" }}>
+                      <div style={{ fontSize: "13px", color: "#0369a1", background: "#f0f9ff", padding: "6px 10px", borderRadius: "5px", marginTop: "2px", border: "1px solid #bae6fd" }}>
                         💡 人資倉現貨僅 {summary.item.hrOnHand} 件，缺額 {autoAdjustedQty} 件已自動轉為總倉增庫調撥
                       </div>
                     )}
                     <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "8px" }}>
-                      <strong style={{ fontSize: "12px", color: summary.requestedTransferQuantity > 0 ? "var(--accent)" : "inherit" }}>
+                      <strong style={{ fontSize: "15px", fontWeight: 700, color: summary.requestedTransferQuantity > 0 ? "var(--accent)" : "inherit" }}>
                         調庫 {summary.requestedTransferQuantity}／兩倉總可用 {summary.availableToRequest}
                       </strong>
                     </div>
