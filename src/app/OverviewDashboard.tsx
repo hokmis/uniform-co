@@ -400,48 +400,42 @@ export default function OverviewDashboard({ onNavigate }: Props) {
       });
   }, [visibleData.availability]);
 
-  useEffect(() => {
-    if (!showAbnormalModal || !client) return;
-    let active = true;
+  const handleOpenAbnormalModal = async () => {
+    setShowAbnormalModal(true);
+    if (!client) return;
     setAbnormalLoading(true);
-    void (async () => {
-      try {
-        const { data: queryData, error } = await client
-          .from("v_item_availability")
-          .select("item_code,item_name,unit,size,category,hr_on_hand_quantity,general_on_hand_quantity,combined_on_hand_quantity,active_reserved_quantity,available_to_request_quantity")
-          .lte("available_to_request_quantity", 0)
-          .order("item_code");
-        if (!active) return;
-        if (!error && queryData && queryData.length > 0) {
-          const enriched: ItemShortageRow[] = (queryData as unknown as Array<Record<string, unknown>>).map((r) => {
-            const avail = numberValue(r.available_to_request_quantity);
-            return {
-              itemCode: textValue(r.item_code),
-              itemName: textValue(r.item_name),
-              unit: textValue(r.unit),
-              size: r.size ? String(r.size) : null,
-              category: r.category ? String(r.category) : null,
-              hrOnHand: numberValue(r.hr_on_hand_quantity),
-              generalOnHand: numberValue(r.general_on_hand_quantity),
-              combinedOnHand: numberValue(r.combined_on_hand_quantity),
-              activeReserved: numberValue(r.active_reserved_quantity),
-              availableToRequest: avail,
-              statusLabel: avail < 0 ? "資料異常" : "無可申請量",
-              isDataError: avail < 0,
-            };
-          });
-          setEnrichedAbnormalItems(enriched);
-        }
-      } catch {
-        // non-blocking fallback to lowAvailabilityRows
-      } finally {
-        if (active) setAbnormalLoading(false);
+    try {
+      const { data: queryData, error } = await client
+        .from("v_item_availability")
+        .select("item_code,item_name,unit,size,category,hr_on_hand_quantity,general_on_hand_quantity,combined_on_hand_quantity,active_reserved_quantity,available_to_request_quantity")
+        .lte("available_to_request_quantity", 0)
+        .order("item_code");
+      if (!error && queryData && queryData.length > 0) {
+        const enriched: ItemShortageRow[] = (queryData as unknown as Array<Record<string, unknown>>).map((r) => {
+          const avail = numberValue(r.available_to_request_quantity);
+          return {
+            itemCode: textValue(r.item_code),
+            itemName: textValue(r.item_name),
+            unit: textValue(r.unit),
+            size: r.size ? String(r.size) : null,
+            category: r.category ? String(r.category) : null,
+            hrOnHand: numberValue(r.hr_on_hand_quantity),
+            generalOnHand: numberValue(r.general_on_hand_quantity),
+            combinedOnHand: numberValue(r.combined_on_hand_quantity),
+            activeReserved: numberValue(r.active_reserved_quantity),
+            availableToRequest: avail,
+            statusLabel: avail < 0 ? "資料異常" : "無可申請量",
+            isDataError: avail < 0,
+          };
+        });
+        setEnrichedAbnormalItems(enriched);
       }
-    })();
-    return () => {
-      active = false;
-    };
-  }, [showAbnormalModal, client]);
+    } catch {
+      // non-blocking fallback to lowAvailabilityRows
+    } finally {
+      setAbnormalLoading(false);
+    }
+  };
 
   return (
     <section className="overview-dashboard" id="overview-dashboard-title" aria-label="營運總覽儀表板" aria-busy={readPresentation.busy}>
@@ -465,7 +459,7 @@ export default function OverviewDashboard({ onNavigate }: Props) {
           note="品號可申請量小於等於 0（點擊查看）"
           tone="red"
           clickable={!readPresentation.showCorePlaceholder}
-          onClick={() => setShowAbnormalModal(true)}
+          onClick={handleOpenAbnormalModal}
         />
       </div>
 

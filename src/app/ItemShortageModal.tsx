@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 export type ItemShortageRow = {
   itemId?: string;
@@ -41,20 +41,20 @@ export default function ItemShortageModal({
 }: ItemShortageModalProps) {
   const [search, setSearch] = useState("");
 
+  const handleClose = useCallback(() => {
+    setSearch("");
+    onClose();
+  }, [onClose]);
+
   // 監聽 Esc 鍵關閉彈窗
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") handleClose();
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
-
-  // 每次開啟時重設搜尋條件
-  useEffect(() => {
-    if (isOpen) setSearch("");
-  }, [isOpen]);
+  }, [isOpen, handleClose]);
 
   const hasHrOrGeneralOnHand = useMemo(() => {
     return items.some((item) => item.hrOnHand !== undefined || item.generalOnHand !== undefined);
@@ -100,7 +100,7 @@ export default function ItemShortageModal({
         padding: "16px",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       <div
