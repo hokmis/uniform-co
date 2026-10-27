@@ -2033,7 +2033,12 @@ export default function HrRequestWorkbench() {
                 <span>{result.error}</span>
               </div>
             ) : null}
-            {result.autoAdjustedItems && Object.keys(result.autoAdjustedItems).length > 0 && (
+            {result.autoAdjustedItems &&
+              result.summary?.summaries.some((s) => {
+                const autoQty = result.autoAdjustedItems?.[s.item.itemId] ?? 0;
+                const exceeded = Boolean(result.exceededErrors?.[s.item.itemId]);
+                return autoQty > 0 && s.item.generalOnHand > 0 && !exceeded;
+              }) && (
               <div
                 style={{
                   background: "#f0fdf4",
@@ -2315,7 +2320,7 @@ export default function HrRequestWorkbench() {
                         )}
 
                         {/* 自動轉增庫標記 */}
-                        {autoAdjustedQty > 0 && (
+                        {autoAdjustedQty > 0 && summary.item.generalOnHand > 0 && !isExceeded && (
                           <span style={{ color: "#0284c7", fontWeight: 600, fontSize: "13px", background: "#f0f9ff", padding: "3px 7px", borderRadius: "4px", border: "1px solid #bae6fd" }}>
                             含轉增庫 {autoAdjustedQty}
                           </span>
@@ -2372,7 +2377,7 @@ export default function HrRequestWorkbench() {
                         </span>
                       </div>
                     )}
-                    {autoAdjustedQty > 0 && (
+                    {autoAdjustedQty > 0 && summary.item.generalOnHand > 0 && !isExceeded && (
                       <div style={{ fontSize: "13px", color: "#0369a1", background: "#f0f9ff", padding: "6px 10px", borderRadius: "5px", marginTop: "2px", border: "1px solid #bae6fd" }}>
                         💡 人資倉現貨僅 {summary.item.hrOnHand} 件，缺額 {autoAdjustedQty} 件已自動轉為總倉增庫調撥
                       </div>
@@ -2387,11 +2392,11 @@ export default function HrRequestWorkbench() {
                 );
               })}
             </div>
-            <p className="success-note">
-              {previewMode
-                ? "這是本機測試資料的送出前預覽；設定 Supabase env 並登入後才可建立正式需求。"
-                : "正式送單會優先以單次 RPC 完成草稿與送出；資料庫仍會鎖定品號、重算兩倉合計並建立預留。"}
-            </p>
+            {previewMode && (
+              <p className="success-note">
+                這是本機測試資料的送出前預覽；設定 Supabase env 並登入後才可建立正式需求。
+              </p>
+            )}
             <div className="workbench-bottom-metrics">
               <Metric label="發放總量" value={result.summary?.totalIssueQuantity ?? 0} compact />
               <Metric label="增庫總量" value={result.summary?.totalIncreaseQuantity ?? 0} compact />
