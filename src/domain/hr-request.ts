@@ -167,3 +167,88 @@ export function summarizeHrRequest(
     ),
   };
 }
+
+export type HrRequestInspectionResult = {
+  summary: HrRequestSummary;
+  exceededErrors: Record<string, string>;
+  validationError: string;
+};
+
+export function inspectHrRequest(
+  issueLines: IssueLineDraft[],
+  increases: IncreaseDraft[],
+): HrRequestInspectionResult {
+  const items = new Map<string, UniformItemSnapshot>();
+  const issueByItem = new Map<string, number>();
+
+  for (const line of issueLines) {
+    if (!line.employee || !line.item) continue;
+    items.set(line.item.itemId, line.item);
+    issueByItem.set(
+      line.item.itemId,
+      (issueByItem.get(line.item.itemId) ?? 0) + (line.quantity || 0),
+    );
+  }
+
+  const increaseByItem = new Map<string, number>();
+  for (const increase of increases) {
+    if (!increase.item || (increase.quantity || 0) <= 0) continue;
+    items.set(increase.item.itemId, increase.item);
+    const existing = increaseByItem.get(increase.item.itemId) ?? 0;
+    increaseByItem.set(increase.item.itemId, existing + increase.quantity);
+  }
+
+  const itemIds = new Set([...items.keys(), ...increaseByItem.keys()]);
+  const exceededErrors: Record<string, string> = {};
+  const summaries: RequestItemSummary[] = [];
+
+  for (const itemId of [...itemIds].sort()) {
+    const item = items.get(itemId);
+    if (!item) continue;
+
+    const issueQuantity = issueByItem.get(itemId) ?? 0;
+    const increaseQuantity = increaseByItem.get(itemId) ?? 0;
+    const combinedOnHand = (item.hrOnHand || 0) + (item.generalOnHand || 0);
+    const availableToRequest = combinedOnHand - (item.activeReserved || 0);
+    const hrDeduction = 0;
+    const transferFromGeneral = issueQuantity;
+    const requestedTransferQuantity = issueQuantity + increaseQuantity;
+    const totalDemand = issueQuantity + increaseQuantity;
+
+    if (totalDemand <= 0) continue;
+
+    if ((item.activeReserved || 0) > combinedOnHand && combinedOnHand >= 0) {
+      exceededErrors[itemId] = `品號 ${item.itemCode} 的預留量超過兩倉合計`;
+    } else if (totalDemand > availableToRequest) {
+      exceededErrors[itemId] = `品號 ${item.itemCode} 超過可申請量 ${availableToRequest}`;
+    }
+
+    summaries.push({
+      item,
+      issueQuantity,
+      increaseQuantity,
+      hrDeduction,
+      transferFromGeneral,
+      requestedTransferQuantity,
+      combinedOnHand,
+      availableToRequest,
+    });
+  }
+
+  const firstError = Object.values(exceededErrors)[0] || "";
+
+  return {
+    summary: {
+      summaries,
+      totalIssueQuantity: summaries.reduce((total, row) => total + row.issueQuantity, 0),
+      totalIncreaseQuantity: summaries.reduce((total, row) => total + row.increaseQuantity, 0),
+      totalHrDeduction: summaries.reduce((total, row) => total + row.hrDeduction, 0),
+      totalRequestedTransferQuantity: summaries.reduce(
+        (total, row) => total + row.requestedTransferQuantity,
+        0,
+      ),
+    },
+    exceededErrors,
+    validationError: firstError,
+  };
+}

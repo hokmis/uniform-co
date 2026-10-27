@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   HrRequestValidationError,
+  inspectHrRequest,
   summarizeHrRequest,
   type EmployeeSnapshot,
   type IssueLineDraft,
@@ -612,14 +613,17 @@ export default function HrRequestWorkbench() {
         item,
         quantity: autoBalanced.adjustedIncreases[item.itemId] ?? 0,
       }));
+      const inspection = inspectHrRequest(issueLines, increaseLines);
       return {
-        summary: summarizeHrRequest(issueLines, increaseLines),
-        error: "",
+        summary: inspection.summary,
+        exceededErrors: inspection.exceededErrors,
+        error: inspection.validationError,
         autoAdjustedItems: autoBalanced.autoAdjustedItems,
       };
     } catch (error) {
       return {
         summary: null,
+        exceededErrors: {},
         error:
           error instanceof HrRequestValidationError ? error.message : "需求單資料無法檢查",
         autoAdjustedItems: autoBalanced.autoAdjustedItems,
@@ -2021,13 +2025,14 @@ export default function HrRequestWorkbench() {
         ) : null}
         {dataReadBlocked ? (
           <p className="empty-state">主檔資料載入後，這裡會顯示需求量、可用庫存與品號彙總。</p>
-        ) : result.error ? (
-          <div className="error-box" role="alert">
-            <strong>這張需求單需要修正</strong>
-            <span>{result.error}</span>
-          </div>
         ) : (
           <>
+            {result.error ? (
+              <div className="error-box" role="alert" style={{ marginBottom: "14px" }}>
+                <strong>這張需求單需要修正</strong>
+                <span>{result.error}。已在下方標記超出申請量的品項，請直接調整數量或移除該品項。</span>
+              </div>
+            ) : null}
             {result.autoAdjustedItems && Object.keys(result.autoAdjustedItems).length > 0 && (
               <div
                 style={{
@@ -2052,10 +2057,14 @@ export default function HrRequestWorkbench() {
                   </div>
                 </div>
               </div>
+            {(!result.summary || result.summary.summaries.length === 0) && (
+              <p className="empty-state">尚未填寫任何發放或增庫數量。請在左側填寫申請數量。</p>
             )}
             <div className="summary-list" style={{ marginTop: 0, borderTop: "none" }}>
               {result.summary?.summaries.map((summary) => {
                 const autoAdjustedQty = result.autoAdjustedItems?.[summary.item.itemId] ?? 0;
+                const itemExceededError = result.exceededErrors?.[summary.item.itemId];
+                const isExceeded = Boolean(itemExceededError);
                 const itemDeptLabels = Array.from(
                   new Set(
                     visibleLines
@@ -2079,7 +2088,11 @@ export default function HrRequestWorkbench() {
                       flexDirection: "column",
                       alignItems: "stretch",
                       gap: "8px",
-                      padding: "12px 0",
+                      padding: "12px 10px",
+                      borderRadius: "8px",
+                      border: isExceeded ? "1.5px solid #f87171" : "1px solid transparent",
+                      background: isExceeded ? "#fff5f5" : "transparent",
+                      transition: "all 0.15s ease",
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
@@ -2334,14 +2347,39 @@ export default function HrRequestWorkbench() {
                         </button>
                       </div>
                     </div>
+                    {/* 若超出可申請量，直接在缺少品項下方提醒已超出申請量請調整數量 */}
+                    {isExceeded && (
+                      <div
+                        style={{
+                          fontSize: "14px",
+                          color: "#b91c1c",
+                          background: "#fee2e2",
+                          padding: "8px 12px",
+                          borderRadius: "6px",
+                          marginTop: "2px",
+                          border: "1px solid #fca5a5",
+                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          lineHeight: "1.4",
+                        }}
+                      >
+                        <span style={{ fontSize: "16px" }}>⚠️</span>
+                        <span>
+                          {itemExceededError}（現有兩倉可用量僅 {summary.availableToRequest} 件），已超出申請量，請調整數量或直接點擊「移除」
+                        </span>
+                      </div>
+                    )}
                     {autoAdjustedQty > 0 && (
                       <div style={{ fontSize: "13px", color: "#0369a1", background: "#f0f9ff", padding: "6px 10px", borderRadius: "5px", marginTop: "2px", border: "1px solid #bae6fd" }}>
                         💡 人資倉現貨僅 {summary.item.hrOnHand} 件，缺額 {autoAdjustedQty} 件已自動轉為總倉增庫調撥
                       </div>
                     )}
                     <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "8px" }}>
-                      <strong style={{ fontSize: "15px", fontWeight: 700, color: summary.requestedTransferQuantity > 0 ? "var(--accent)" : "inherit" }}>
+                      <strong style={{ fontSize: "15px", fontWeight: 700, color: isExceeded ? "#dc2626" : summary.requestedTransferQuantity > 0 ? "var(--accent)" : "inherit" }}>
                         調庫 {summary.requestedTransferQuantity}／兩倉總可用 {summary.availableToRequest}
+                        {isExceeded && <span style={{ marginLeft: "6px", color: "#dc2626" }}>（超出可用量）</span>}
                       </strong>
                     </div>
                   </div>
