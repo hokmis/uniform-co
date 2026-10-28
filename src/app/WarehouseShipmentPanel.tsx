@@ -779,7 +779,7 @@ export default function WarehouseShipmentPanel() {
                           disabled={posted || busy || returnPending || detailsLoading || !canEditShipment || line.actual_transfer_quantity >= line.requested_transfer_quantity_snapshot}
                           onChange={(event) => updateLine(line.id, "short_ship_reason_code", event.target.value)}
                         >
-                          <option value="">短發原因</option>
+                          <option value="">選擇短發原因</option>
                           {reasons.map((reason) => (
                             <option key={reason.code} value={reason.code}>
                               {reason.label}
