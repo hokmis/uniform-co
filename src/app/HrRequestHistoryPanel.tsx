@@ -1064,7 +1064,7 @@ export default function HrRequestHistoryPanel() {
       client={client}
       sourceNo={selected?.requestNo ?? ""}
       postingId={selected?.id}
-      postingKind={selected?.requestType === "REPLENISHMENT" ? "REPLENISHMENT" : "HR_REQUEST"}
+      postingKind={selected?.requestType === "REPLENISHMENT" ? "REPLENISHMENT" : undefined}
       canCancel={Boolean(selected && canCancelHrRequest(selected.status, roles))}
       onCancel={handleCancelFromModal}
     />
