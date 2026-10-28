@@ -758,7 +758,11 @@ export default function HrRequestDetailModal({
 
             {/* 備註 */}
             {header.note ? (() => {
-              const cleanNote = header.note.replace(/<!--unit_map:.*?-->/g, "").trim();
+              const cleanNote = header.note
+                .replace(/<!--unit_breakdown:[\s\S]*?-->/g, "")
+                .replace(/<!--unit_map:[\s\S]*?-->/g, "")
+                .replace(/<!--short_ship_notes:[\s\S]*?-->/g, "")
+                .trim();
               return cleanNote ? (
                 <div style={{ padding: "10px 14px", backgroundColor: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
                   <span style={{ fontWeight: 600, color: "#475569", fontSize: "0.85rem" }}>單據備註：</span>
