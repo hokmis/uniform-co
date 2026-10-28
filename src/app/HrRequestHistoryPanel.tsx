@@ -1275,7 +1275,7 @@ export default function HrRequestHistoryPanel() {
                         </span>
                         {hasShipment && actTransferQty !== null ? (
                           <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: isShort ? "#dc2626" : "#15803d" }}>
-                            實發調庫 {actTransferQty} 件
+                            總倉發貨 {actTransferQty} 件
                           </strong>
                         ) : (
                           <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#c65337" }}>

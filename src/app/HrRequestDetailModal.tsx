@@ -809,7 +809,7 @@ export default function HrRequestDetailModal({
                             </span>
                             {hasShipment && actTransferQty !== null ? (
                               <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: isShort ? "#dc2626" : "#15803d" }}>
-                                {header.requestType === "REPLENISHMENT" ? `實撥增庫 ${actTransferQty} 件` : `實發調庫 ${actTransferQty} 件`}
+                                {header.requestType === "REPLENISHMENT" ? `實撥增庫 ${actTransferQty} 件` : `總倉發貨 ${actTransferQty} 件`}
                               </strong>
                             ) : (
                               <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: header.requestType === "REPLENISHMENT" ? "#0369a1" : "#c65337" }}>
