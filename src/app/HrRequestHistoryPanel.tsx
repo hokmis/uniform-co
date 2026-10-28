@@ -1044,7 +1044,11 @@ export default function HrRequestHistoryPanel() {
         </div>
       </div>
       {selected.note ? (() => {
-        const cleanNote = selected.note.replace(/<!--unit_map:.*?-->/g, "").trim();
+        const cleanNote = selected.note
+          .replace(/<!--unit_breakdown:[\s\S]*?-->/g, "")
+          .replace(/<!--unit_map:[\s\S]*?-->/g, "")
+          .replace(/<!--short_ship_notes:[\s\S]*?-->/g, "")
+          .trim();
         return cleanNote ? <p className="auth-message">備註：{cleanNote}</p> : null;
       })() : null}
       {canCancelHrRequest(selected.status, roles) ? (
