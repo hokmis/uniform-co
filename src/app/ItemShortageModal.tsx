@@ -16,6 +16,7 @@ export type ItemShortageRow = {
   availableToRequest: number;
   statusLabel?: string;
   isDataError?: boolean;
+  isGeneralOutOfStock?: boolean;
 };
 
 export type ItemShortageModalProps = {
@@ -61,7 +62,11 @@ export default function ItemShortageModal({
   }, [items]);
 
   const zeroStockCount = useMemo(() => {
-    return items.filter((item) => item.availableToRequest === 0).length;
+    return items.filter((item) => item.availableToRequest === 0 && !item.isGeneralOutOfStock && item.statusLabel !== "總倉無庫存").length;
+  }, [items]);
+
+  const generalZeroCount = useMemo(() => {
+    return items.filter((item) => item.isGeneralOutOfStock || item.statusLabel === "總倉無庫存" || ((item.generalOnHand ?? 0) <= 0 && item.availableToRequest > 0)).length;
   }, [items]);
 
   const dataErrorCount = useMemo(() => {
@@ -254,6 +259,21 @@ export default function ItemShortageModal({
             >
               可申請量為 0（缺貨）：{zeroStockCount} 筆
             </span>
+            {generalZeroCount > 0 && (
+              <span
+                style={{
+                  fontSize: "12px",
+                  background: "#fff7ed",
+                  border: "1px solid #fdba74",
+                  color: "#c2410c",
+                  padding: "3px 8px",
+                  borderRadius: "6px",
+                  fontWeight: 600,
+                }}
+              >
+                總倉無庫存（需補庫）：{generalZeroCount} 筆
+              </span>
+            )}
             {dataErrorCount > 0 && (
               <span
                 style={{
@@ -412,10 +432,15 @@ export default function ItemShortageModal({
                               padding: "10px 12px",
                               textAlign: "right",
                               fontVariantNumeric: "tabular-nums",
-                              color: item.generalOnHand === 0 ? "#94a3b8" : "#0f172a",
+                              fontWeight: item.generalOnHand === 0 ? 700 : 400,
+                              color: item.generalOnHand === 0 ? "#ea580c" : "#0f172a",
+                              backgroundColor: item.generalOnHand === 0 ? "#fff7ed" : undefined,
                             }}
                           >
                             {item.generalOnHand ?? "—"}
+                            {item.generalOnHand === 0 && (
+                              <span style={{ fontSize: "10px", color: "#c2410c", marginLeft: "2px" }}>(無庫存)</span>
+                            )}
                           </td>
                         </>
                       )}
@@ -447,27 +472,35 @@ export default function ItemShortageModal({
                           textAlign: "right",
                           fontVariantNumeric: "tabular-nums",
                           fontWeight: 800,
-                          color: isNegative ? "#dc2626" : "#e11d48",
+                          color: isNegative ? "#dc2626" : item.availableToRequest === 0 ? "#e11d48" : "#d97706",
                           fontSize: "14px",
                         }}
                       >
                         {item.availableToRequest}
                       </td>
                       <td style={{ padding: "10px 12px", textAlign: "center" }}>
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "2px 8px",
-                            borderRadius: "12px",
-                            fontSize: "11px",
-                            fontWeight: 700,
-                            backgroundColor: isNegative ? "#fef2f2" : "#fee2e2",
-                            color: isNegative ? "#991b1b" : "#b91c1c",
-                            border: isNegative ? "1px solid #f87171" : "1px solid transparent",
-                          }}
-                        >
-                          {item.statusLabel || (isNegative ? "資料異常" : "無可申請量")}
-                        </span>
+                        {(() => {
+                          const isGenZero = item.isGeneralOutOfStock || item.statusLabel === "總倉無庫存";
+                          const bg = isNegative ? "#fef2f2" : isGenZero ? "#fff7ed" : "#fee2e2";
+                          const color = isNegative ? "#991b1b" : isGenZero ? "#c2410c" : "#b91c1c";
+                          const border = isNegative ? "1px solid #f87171" : isGenZero ? "1px solid #fed7aa" : "1px solid #fca5a5";
+                          return (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "2px 8px",
+                                borderRadius: "12px",
+                                fontSize: "11px",
+                                fontWeight: 700,
+                                backgroundColor: bg,
+                                color: color,
+                                border: border,
+                              }}
+                            >
+                              {item.statusLabel || (isNegative ? "資料異常" : isGenZero ? "總倉無庫存" : "無可申請量")}
+                            </span>
+                          );
+                        })()}
                       </td>
                     </tr>
                   );

@@ -323,7 +323,9 @@ export default function OverviewDashboard({ onNavigate }: Props) {
     const attentionShipments = shipments.filter((row) => row.needs_warehouse_attention === true || String(row.needs_warehouse_attention) === "true");
     const purchaseOrders = uniqueRows(visibleData.receipts, "purchase_order_id");
     const remainingToAccept = visibleData.receipts.reduce((sum, row) => sum + numberValue(row.remaining_to_accept), 0);
-    const lowAvailability = visibleData.availability.filter((row) => numberValue(row.available_to_request_quantity) <= 0).length;
+    const lowAvailability = visibleData.availability.filter((row) =>
+      numberValue(row.available_to_request_quantity) <= 0 || numberValue(row.general_on_hand_quantity) <= 0
+    ).length;
     const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).format(new Date());
     const monthlyIssued = visibleData.distributions
       .filter((row) => String(row.occurred_on ?? "").slice(0, 7) === month && numberValue(row.quantity_delta) > 0)
@@ -385,17 +387,25 @@ export default function OverviewDashboard({ onNavigate }: Props) {
 
   const lowAvailabilityRows: ItemShortageRow[] = useMemo(() => {
     return visibleData.availability
-      .filter((row) => numberValue(row.available_to_request_quantity) <= 0)
+      .filter((row) => numberValue(row.available_to_request_quantity) <= 0 || numberValue(row.general_on_hand_quantity) <= 0)
       .map((row) => {
         const avail = numberValue(row.available_to_request_quantity);
+        const gen = numberValue(row.general_on_hand_quantity);
+        let statusLabel = "無可申請量";
+        if (avail < 0) statusLabel = "資料異常";
+        else if (avail > 0 && gen <= 0) statusLabel = "總倉無庫存";
+        else if (avail <= 0 && gen <= 0) statusLabel = "全倉缺貨";
         return {
           itemCode: textValue(row.item_code),
           itemName: textValue(row.item_name),
           combinedOnHand: numberValue(row.combined_on_hand_quantity),
           activeReserved: numberValue(row.active_reserved_quantity),
           availableToRequest: avail,
-          statusLabel: avail < 0 ? "資料異常" : "無可申請量",
+          generalOnHand: gen,
+          hrOnHand: numberValue(row.hr_on_hand_quantity),
+          statusLabel,
           isDataError: avail < 0,
+          isGeneralOutOfStock: gen <= 0,
         };
       });
   }, [visibleData.availability]);
@@ -408,11 +418,16 @@ export default function OverviewDashboard({ onNavigate }: Props) {
       const { data: queryData, error } = await client
         .from("v_item_availability")
         .select("item_code,item_name,unit,size,category,hr_on_hand_quantity,general_on_hand_quantity,combined_on_hand_quantity,active_reserved_quantity,available_to_request_quantity")
-        .lte("available_to_request_quantity", 0)
+        .or("available_to_request_quantity.lte.0,general_on_hand_quantity.lte.0")
         .order("item_code");
       if (!error && queryData && queryData.length > 0) {
         const enriched: ItemShortageRow[] = (queryData as unknown as Array<Record<string, unknown>>).map((r) => {
           const avail = numberValue(r.available_to_request_quantity);
+          const gen = numberValue(r.general_on_hand_quantity);
+          let statusLabel = "無可申請量";
+          if (avail < 0) statusLabel = "資料異常";
+          else if (avail > 0 && gen <= 0) statusLabel = "總倉無庫存";
+          else if (avail <= 0 && gen <= 0) statusLabel = "全倉缺貨";
           return {
             itemCode: textValue(r.item_code),
             itemName: textValue(r.item_name),
@@ -420,12 +435,13 @@ export default function OverviewDashboard({ onNavigate }: Props) {
             size: r.size ? String(r.size) : null,
             category: r.category ? String(r.category) : null,
             hrOnHand: numberValue(r.hr_on_hand_quantity),
-            generalOnHand: numberValue(r.general_on_hand_quantity),
+            generalOnHand: gen,
             combinedOnHand: numberValue(r.combined_on_hand_quantity),
             activeReserved: numberValue(r.active_reserved_quantity),
             availableToRequest: avail,
-            statusLabel: avail < 0 ? "資料異常" : "無可申請量",
+            statusLabel,
             isDataError: avail < 0,
+            isGeneralOutOfStock: gen <= 0,
           };
         });
         setEnrichedAbnormalItems(enriched);
@@ -456,7 +472,7 @@ export default function OverviewDashboard({ onNavigate }: Props) {
         <Metric
           label="可申請量異常"
           value={readPresentation.showCorePlaceholder ? "—" : derived.lowAvailability}
-          note="品號可申請量小於等於 0（點擊查看）"
+          note="缺貨、總倉為 0 或資料異常（點擊查看）"
           tone="red"
           clickable={!readPresentation.showCorePlaceholder}
           onClick={handleOpenAbnormalModal}

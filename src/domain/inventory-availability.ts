@@ -16,7 +16,12 @@ export type InventoryAvailabilityRow = {
   availableToRequest: number;
 };
 
-export type InventoryAvailabilityStatus = "AVAILABLE" | "OUT_OF_STOCK" | "INACTIVE" | "DATA_ERROR";
+export type InventoryAvailabilityStatus =
+  | "AVAILABLE"
+  | "OUT_OF_STOCK"
+  | "GENERAL_OUT_OF_STOCK"
+  | "INACTIVE"
+  | "DATA_ERROR";
 export type InventoryAvailabilityStatusFilter = "ALL" | InventoryAvailabilityStatus;
 export type InventoryAvailabilitySortKey =
   | "item_code"
@@ -98,13 +103,16 @@ export function inventoryAvailabilityStatus(row: InventoryAvailabilityRow): Inve
   if ([row.hrOnHand, row.generalOnHand, row.combinedOnHand, row.activeReserved, row.availableToRequest].some((value) => value < 0)) {
     return "DATA_ERROR";
   }
-  return row.availableToRequest > 0 ? "AVAILABLE" : "OUT_OF_STOCK";
+  if (row.availableToRequest <= 0) return "OUT_OF_STOCK";
+  if (row.generalOnHand <= 0) return "GENERAL_OUT_OF_STOCK";
+  return "AVAILABLE";
 }
 
 export function inventoryAvailabilityStatusLabel(status: InventoryAvailabilityStatus): string {
   const labels: Record<InventoryAvailabilityStatus, string> = {
     AVAILABLE: "可申請",
     OUT_OF_STOCK: "無可申請量",
+    GENERAL_OUT_OF_STOCK: "總倉無庫存",
     INACTIVE: "已停用",
     DATA_ERROR: "資料異常",
   };

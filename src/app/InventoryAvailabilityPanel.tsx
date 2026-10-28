@@ -34,7 +34,8 @@ const EMPTY_INVENTORY_ROWS: InventoryAvailabilityRow[] = [];
 
 function statusTone(status: InventoryAvailabilityStatus): string {
   if (status === "AVAILABLE") return "success";
-  if (status === "DATA_ERROR") return "danger";
+  if (status === "DATA_ERROR" || status === "OUT_OF_STOCK") return "danger";
+  if (status === "GENERAL_OUT_OF_STOCK") return "warning";
   return "";
 }
 
@@ -224,11 +225,11 @@ export default function InventoryAvailabilityPanel() {
   const [showAttentionModal, setShowAttentionModal] = useState(false);
 
   const availableCount = visibleRows.filter((row) => inventoryAvailabilityStatus(row) === "AVAILABLE").length;
-  const attentionCount = visibleRows.filter((row) => ["OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row))).length;
+  const attentionCount = visibleRows.filter((row) => ["OUT_OF_STOCK", "GENERAL_OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row))).length;
 
   const attentionRows: ItemShortageRow[] = useMemo(() => {
     return visibleRows
-      .filter((row) => ["OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row)))
+      .filter((row) => ["OUT_OF_STOCK", "GENERAL_OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row)))
       .map((row) => {
         const status = inventoryAvailabilityStatus(row);
         return {
@@ -245,6 +246,7 @@ export default function InventoryAvailabilityPanel() {
           availableToRequest: row.availableToRequest,
           statusLabel: inventoryAvailabilityStatusLabel(status),
           isDataError: status === "DATA_ERROR",
+          isGeneralOutOfStock: status === "GENERAL_OUT_OF_STOCK",
         };
       });
   }, [visibleRows]);
@@ -313,7 +315,7 @@ export default function InventoryAvailabilityPanel() {
             <span style={{ fontSize: "11px", color: attentionCount > 0 ? "var(--danger, #dc2626)" : "var(--muted)", fontWeight: 700 }}>點擊查看 🔍</span>
           </span>
           <strong style={{ color: attentionCount > 0 ? "var(--danger, #dc2626)" : "inherit" }}>{attentionCount}</strong>
-          <small style={{ color: attentionCount > 0 ? "var(--danger, #dc2626)" : undefined }}>缺貨或資料異常（點擊顯示清單）</small>
+          <small style={{ color: attentionCount > 0 ? "var(--danger, #dc2626)" : undefined }}>缺貨、總倉無庫存或異常（點擊顯示清單）</small>
         </button>
         <div className="metric"><span>商品分類</span><strong>{categories.length}</strong><small>依目前可讀取主檔統計</small></div>
       </div>
@@ -512,6 +514,7 @@ export default function InventoryAvailabilityPanel() {
             <option value="ALL">全部</option>
             <option value="AVAILABLE">可申請</option>
             <option value="OUT_OF_STOCK">無可申請量</option>
+            <option value="GENERAL_OUT_OF_STOCK">總倉無庫存</option>
             <option value="INACTIVE">已停用</option>
             <option value="DATA_ERROR">資料異常</option>
           </select>
