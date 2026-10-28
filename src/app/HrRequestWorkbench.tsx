@@ -837,7 +837,8 @@ export default function HrRequestWorkbench() {
       if (autoQty > 0) {
         const item = visibleItemOptions.find((i) => i.itemId === itemId);
         const itemName = item ? `${item.itemCode} ${item.itemName}（${item.size || "不分尺寸"}）` : itemId;
-        autoAdjustNotes.push(`${itemName}：人資倉現貨僅 ${item?.hrOnHand ?? 0} 件，不足之 ${autoQty} 件已自動轉為總倉增庫調撥`);
+        const incQty = balanced.adjustedIncreases[itemId] ?? autoQty;
+        autoAdjustNotes.push(`${itemName}：人資倉現貨僅 ${item?.hrOnHand ?? 0} 件，缺額 ${incQty} 件已自動轉為總倉增庫調撥`);
       }
     }
     const autoAdjustRemark = autoAdjustNotes.length > 0
@@ -2546,7 +2547,7 @@ export default function HrRequestWorkbench() {
                     )}
                     {autoAdjustedQty > 0 && summary.item.generalOnHand > 0 && !isExceeded && (
                       <div style={{ fontSize: "13px", color: "#0369a1", background: "#f0f9ff", padding: "6px 10px", borderRadius: "5px", marginTop: "2px", border: "1px solid #bae6fd" }}>
-                        💡 人資倉現貨僅 {summary.item.hrOnHand} 件，缺額 {autoAdjustedQty} 件已自動轉為總倉增庫調撥
+                        💡 人資倉現貨僅 {summary.item.hrOnHand} 件，缺額 {summary.increaseQuantity} 件已自動轉為總倉增庫調撥
                       </div>
                     )}
                     <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: "8px" }}>
