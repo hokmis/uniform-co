@@ -16,7 +16,7 @@ import {
 import { hrRequestWorkflowChangedEvent } from "@/src/domain/hr-request-events";
 import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import { retrySupabaseQueriesAfterSessionRefresh, safeSupabaseReadErrorMessage } from "@/src/lib/supabase-session";
-import { getDefaultHrRequestDateRange } from "@/src/domain/hr-request-history";
+import { getDefaultHrRequestDateRange, shiftHrRequestDateRange } from "@/src/domain/hr-request-history";
 import {
   generateInventoryAuditXlsx,
   downloadInventoryAuditXlsx,
@@ -93,8 +93,9 @@ export default function InventoryMovementHistoryPanel() {
   const [rows, setRows] = useState<StockMovementRow[]>([]);
   const [query, setQuery] = useState("");
   const [selectedPostingKinds, setSelectedPostingKinds] = useState<StockMovementPostingKind[]>([]);
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const defaultDateRange = useMemo(() => getDefaultHrRequestDateRange(), []);
+  const [startDate, setStartDate] = useState(defaultDateRange.startDate);
+  const [endDate, setEndDate] = useState(defaultDateRange.endDate);
 
   const kindCounts = useMemo(() => {
     const counts: Partial<Record<StockMovementPostingKind, number>> = {};
@@ -438,6 +439,22 @@ export default function InventoryMovementHistoryPanel() {
     setPage(1);
   }
 
+  const dateRangeLabel = useMemo(() => {
+    if (startDate && endDate) {
+      return startDate === endDate ? startDate : `${startDate} ～ ${endDate}`;
+    }
+    if (startDate) return `${startDate} 起`;
+    if (endDate) return `至 ${endDate}`;
+    return "";
+  }, [endDate, startDate]);
+
+  function handleCycleShift(direction: "prev" | "next" | "current") {
+    const nextRange = shiftHrRequestDateRange(endDate, direction);
+    setStartDate(nextRange.startDate);
+    setEndDate(nextRange.endDate);
+    setPage(1);
+  }
+
   if (!client) {
     return (
       <section className="panel" aria-label="進出貨紀錄">
@@ -543,7 +560,39 @@ export default function InventoryMovementHistoryPanel() {
             aria-label="依結束年月日查詢"
           />
         </label>
-        <div className="inventory-toolbar-action" style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div className="field" style={{ minWidth: "auto", alignSelf: "flex-end" }}>
+          <span style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "4px" }}>月份週期</span>
+          <div style={{ display: "flex", gap: "4px" }}>
+            <button
+              className="secondary-button"
+              type="button"
+              style={{ padding: "6px 10px", fontSize: "13px", height: "36px", whiteSpace: "nowrap" }}
+              onClick={() => handleCycleShift("prev")}
+              title="切換至上一個月份週期（上月21日～當月20日）"
+            >
+              ◀ 上期
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              style={{ padding: "6px 10px", fontSize: "13px", height: "36px", whiteSpace: "nowrap" }}
+              onClick={() => handleCycleShift("current")}
+              title="回到目前所屬的當前週期"
+            >
+              本期
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              style={{ padding: "6px 10px", fontSize: "13px", height: "36px", whiteSpace: "nowrap" }}
+              onClick={() => handleCycleShift("next")}
+              title="切換至下一個月份週期"
+            >
+              下期 ▶
+            </button>
+          </div>
+        </div>
+        <div className="inventory-toolbar-action" style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
           <button className="secondary-button" type="button" onClick={() => void loadData()}>
             {loading ? "讀取中…" : "重新整理"}
           </button>
@@ -702,23 +751,38 @@ export default function InventoryMovementHistoryPanel() {
 
       <div className="management-catalog-result">
         <p className="muted" role="status">
-          {message || "尚未載入"}；符合條件 {sortedRows.length} 筆
+          {message || "尚未載入"}；符合條件 {sortedRows.length} 筆{dateRangeLabel ? `（${dateRangeLabel}）` : ""}
         </p>
-        {(query || selectedPostingKinds.length > 0 || startDate || endDate) ? (
-          <button
-            className="text-button"
-            type="button"
-            onClick={() => {
-              setQuery("");
-              setSelectedPostingKinds([]);
-              setStartDate("");
-              setEndDate("");
-              setPage(1);
-            }}
-          >
-            清除篩選
-          </button>
-        ) : null}
+        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+          {(startDate !== defaultDateRange.startDate || endDate !== defaultDateRange.endDate) ? (
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => {
+                setStartDate(defaultDateRange.startDate);
+                setEndDate(defaultDateRange.endDate);
+                setPage(1);
+              }}
+            >
+              套用預設區間
+            </button>
+          ) : null}
+          {(query || selectedPostingKinds.length > 0 || startDate || endDate) ? (
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => {
+                setQuery("");
+                setSelectedPostingKinds([]);
+                setStartDate("");
+                setEndDate("");
+                setPage(1);
+              }}
+            >
+              清除篩選
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <ManagementCatalogTable<StockMovementRow, StockMovementSortKey>
