@@ -25,6 +25,10 @@ type RequestItem = {
   issue_quantity: number;
   increase_quantity: number;
   requested_transfer_quantity: number;
+  actual_transfer_quantity?: number | null;
+  short_ship_reason_code?: string | null;
+  short_ship_reason_label?: string | null;
+  short_ship_note?: string | null;
 };
 
 type IssueLine = {
@@ -370,18 +374,91 @@ export default function HrRequestDetailModal({
         if (!active) return;
 
         if (detailRows) {
+          // 載入發貨單短發比對資訊
+          const shipmentLineMap = new Map<string, {
+            actual_transfer_quantity: number | null;
+            short_ship_reason_code: string | null;
+            short_ship_reason_label: string | null;
+            short_ship_note: string | null;
+          }>();
+          try {
+            const [shipmentLinesRes, reasonsRes] = await retrySupabaseQueriesAfterSessionRefresh(
+              client,
+              async () => [
+                await client
+                  .from("warehouse_shipment_lines")
+                  .select("id, hr_request_item_id, item_id, actual_transfer_quantity, short_ship_reason_code, shipment_id")
+                  .eq("hr_request_id", actualRequestId),
+                await client
+                  .from("transfer_short_ship_reasons")
+                  .select("code, label"),
+              ] as const,
+            );
+            const reasonMap = new Map<string, string>();
+            for (const r of (reasonsRes?.data ?? []) as Array<{ code: string; label: string }>) {
+              reasonMap.set(r.code, r.label);
+            }
+            let notesMap: Record<string, string> = {};
+            const linesData = (shipmentLinesRes?.data ?? []) as Array<{
+              id: string;
+              hr_request_item_id: string;
+              item_id: string;
+              actual_transfer_quantity: number | null;
+              short_ship_reason_code: string | null;
+              shipment_id: string;
+            }>;
+            const shipIds = Array.from(new Set(linesData.map((l) => l.shipment_id).filter(Boolean)));
+            if (shipIds.length > 0) {
+              const { data: shipsData } = await client
+                .from("warehouse_shipments")
+                .select("id, note")
+                .in("id", shipIds);
+              for (const s of (shipsData ?? []) as Array<{ id: string; note: string | null }>) {
+                if (s.note) {
+                  const match = s.note.match(/<!--short_ship_notes:(.*?)-->/);
+                  if (match && match[1]) {
+                    try {
+                      notesMap = { ...notesMap, ...JSON.parse(match[1]) };
+                    } catch {}
+                  }
+                }
+              }
+            }
+            for (const sl of linesData) {
+              const info = {
+                actual_transfer_quantity: sl.actual_transfer_quantity != null ? numberValue(sl.actual_transfer_quantity) : null,
+                short_ship_reason_code: sl.short_ship_reason_code ?? null,
+                short_ship_reason_label: (sl.short_ship_reason_code ? reasonMap.get(sl.short_ship_reason_code) : null) ?? sl.short_ship_reason_code ?? null,
+                short_ship_note: notesMap[sl.id] ?? null,
+              };
+              if (sl.hr_request_item_id) shipmentLineMap.set(sl.hr_request_item_id, info);
+              if (sl.item_id) shipmentLineMap.set(sl.item_id, info);
+            }
+          } catch (e) {
+            console.warn("Could not load warehouse shipment line details for modal:", e);
+          }
+
           const loadedItems: RequestItem[] = detailRows
             .filter((r) => r.detail_kind === "ITEM")
-            .map((r) => ({
-              id: String(r.detail_id ?? ""),
-              item_id: String(r.item_id ?? ""),
-              item_code_snapshot: (r.item_code_snapshot as string) || null,
-              item_name_snapshot: (r.item_name_snapshot as string) || null,
-              unit_snapshot: (r.unit_snapshot as string) || null,
-              issue_quantity: numberValue(r.issue_quantity),
-              increase_quantity: numberValue(r.increase_quantity),
-              requested_transfer_quantity: numberValue(r.requested_transfer_quantity),
-            }));
+            .map((r) => {
+              const detailId = String(r.detail_id ?? "");
+              const itemId = String(r.item_id ?? "");
+              const shipInfo = shipmentLineMap.get(detailId) ?? shipmentLineMap.get(itemId);
+              return {
+                id: detailId,
+                item_id: itemId,
+                item_code_snapshot: (r.item_code_snapshot as string) || null,
+                item_name_snapshot: (r.item_name_snapshot as string) || null,
+                unit_snapshot: (r.unit_snapshot as string) || null,
+                issue_quantity: numberValue(r.issue_quantity),
+                increase_quantity: numberValue(r.increase_quantity),
+                requested_transfer_quantity: numberValue(r.requested_transfer_quantity),
+                actual_transfer_quantity: shipInfo?.actual_transfer_quantity ?? null,
+                short_ship_reason_code: shipInfo?.short_ship_reason_code ?? null,
+                short_ship_reason_label: shipInfo?.short_ship_reason_label ?? null,
+                short_ship_note: shipInfo?.short_ship_note ?? null,
+              };
+            });
 
           const loadedLines: IssueLine[] = detailRows
             .filter((r) => r.detail_kind === "ISSUE")
@@ -699,33 +776,84 @@ export default function HrRequestDetailModal({
                 {items.length === 0 ? (
                   <p className="muted" style={{ padding: "8px 0" }}>尚無品號資料</p>
                 ) : (
-                  items.map((item) => (
-                    <div className="summary-row" key={item.id} style={{ padding: "10px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
-                          {item.item_code_snapshot ?? item.item_id}
-                        </strong>
-                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
-                          {item.item_name_snapshot ?? "制服品項"}
-                        </strong>
-                        <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
-                          （{item.unit_snapshot ?? "件"}）
-                        </span>
-                      </div>
-                      {header.requestType === "REPLENISHMENT" ? (
-                        <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0369a1" }}>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
-                      ) : (
-                        <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-                          <span style={{ fontSize: "0.95rem", color: "#64748b" }}>
-                            發放 <strong style={{ color: "#0f172a" }}>{numberValue(item.issue_quantity)}</strong> ＋ 增庫 <strong style={{ color: "#0f172a" }}>{numberValue(item.increase_quantity)}</strong>
-                          </span>
-                          <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#c65337" }}>
-                            需求 {numberValue(item.requested_transfer_quantity)} {item.unit_snapshot ?? "件"}
-                          </strong>
+                  items.map((item) => {
+                    const reqTransferQty = numberValue(item.requested_transfer_quantity);
+                    const hasShipment = item.actual_transfer_quantity != null;
+                    const actTransferQty = hasShipment ? numberValue(item.actual_transfer_quantity) : null;
+                    const isShort = hasShipment && actTransferQty !== null && actTransferQty < reqTransferQty;
+
+                    return (
+                      <div className="summary-row" key={item.id} style={{ padding: "12px 14px", alignItems: "flex-start" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                            <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
+                              {item.item_code_snapshot ?? item.item_id}
+                            </strong>
+                            <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
+                              {item.item_name_snapshot ?? "制服品項"}
+                            </strong>
+                            <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
+                              （{item.unit_snapshot ?? "件"}）
+                            </span>
+                          </div>
+                          {header.requestType !== "REPLENISHMENT" && (
+                            <div style={{ fontSize: "0.9rem", color: "#64748b" }}>
+                              發放需求 <strong>{numberValue(item.issue_quantity)}</strong> 件 ＋ 增庫需求 <strong>{numberValue(item.increase_quantity)}</strong> 件
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ))
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <span style={{ fontSize: "0.9rem", color: "#64748b" }}>
+                              {header.requestType === "REPLENISHMENT" ? `申請增庫 ${numberValue(item.increase_quantity)} 件` : `總倉調庫需求 ${reqTransferQty} 件`}
+                            </span>
+                            {hasShipment && actTransferQty !== null ? (
+                              <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: isShort ? "#dc2626" : "#15803d" }}>
+                                {header.requestType === "REPLENISHMENT" ? `實撥增庫 ${actTransferQty} 件` : `實發調庫 ${actTransferQty} 件`}
+                              </strong>
+                            ) : (
+                              <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: header.requestType === "REPLENISHMENT" ? "#0369a1" : "#c65337" }}>
+                                {header.requestType === "REPLENISHMENT" ? `增庫 ${numberValue(item.increase_quantity)} 件` : `需求 ${reqTransferQty} 件`}
+                              </strong>
+                            )}
+                          </div>
+                          {isShort && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                              <span
+                                style={{
+                                  background: "#fef2f2",
+                                  color: "#b91c1c",
+                                  border: "1px solid #fecaca",
+                                  borderRadius: "4px",
+                                  padding: "2px 8px",
+                                  fontSize: "12px",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                短發 {reqTransferQty - (actTransferQty ?? 0)} 件（{item.short_ship_reason_label ?? "短發出庫"}）
+                                {item.short_ship_note ? `：${item.short_ship_note}` : ""}
+                              </span>
+                            </div>
+                          )}
+                          {hasShipment && actTransferQty !== null && !isShort && (
+                            <span
+                              style={{
+                                background: "#f0fdf4",
+                                color: "#166534",
+                                border: "1px solid #bbf7d0",
+                                borderRadius: "4px",
+                                padding: "1px 6px",
+                                fontSize: "11px",
+                                fontWeight: 600,
+                              }}
+                            >
+                              全額調庫出庫
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
                 )}
               </div>
             </div>
