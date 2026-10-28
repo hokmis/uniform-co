@@ -83,7 +83,7 @@ async function loadLegacyCore(
     client,
     () => Promise.all([
       requested.has("availability") ? client.from("v_item_availability")
-        .select("item_code,item_name,available_to_request_quantity,combined_on_hand_quantity,active_reserved_quantity")
+        .select("item_code,item_name,available_to_request_quantity,combined_on_hand_quantity,active_reserved_quantity,general_on_hand_quantity,hr_on_hand_quantity")
         .order("item_code")
         .limit(300) : Promise.resolve(emptyResult),
       requested.has("hrRequests") ? client.from("v_hr_request_item_totals")

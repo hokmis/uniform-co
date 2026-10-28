@@ -163,6 +163,7 @@ export default function OverviewDashboard({ onNavigate }: Props) {
   const [deferredLoading, setDeferredLoading] = useState(Boolean(client && isAuthenticated));
   const [message, setMessage] = useState("登入後從正式 reporting views 讀取總覽資料");
   const [reloadRequest, setReloadRequest] = useState<{ token: number; scope: OverviewReloadScope }>({ token: 0, scope: "all" });
+  const [exactAbnormalCount, setExactAbnormalCount] = useState<number | null>(null);
   const [dataSnapshotAccountId, setDataSnapshotAccountId] = useState<string | null>(null);
   const dataSnapshotAccountIdRef = useRef<string | null>(null);
   const dataRef = useRef<DashboardData>(emptyData);
@@ -288,6 +289,20 @@ export default function OverviewDashboard({ onNavigate }: Props) {
       setMessage(totalErrors > 0
         ? preservedDeferred ? staleReadSnapshotMessage("總覽活動摘要") : `部分摘要受目前角色權限限制（${totalErrors} 個來源）`
         : "數字來自正式即時資料摘要");
+      void (async () => {
+        try {
+          const [countRes] = await retrySupabaseQueriesAfterSessionRefresh(
+            supabase,
+            async () => [await supabase
+              .from("v_item_availability")
+              .select("item_id", { count: "exact", head: true })
+              .or("available_to_request_quantity.lte.0,general_on_hand_quantity.lte.0")] as const,
+          );
+          if (active && !countRes.error && typeof countRes.count === "number") {
+            setExactAbnormalCount(countRes.count);
+          }
+        } catch {}
+      })();
     }
 
     void loadDashboard();
@@ -323,9 +338,12 @@ export default function OverviewDashboard({ onNavigate }: Props) {
     const attentionShipments = shipments.filter((row) => row.needs_warehouse_attention === true || String(row.needs_warehouse_attention) === "true");
     const purchaseOrders = uniqueRows(visibleData.receipts, "purchase_order_id");
     const remainingToAccept = visibleData.receipts.reduce((sum, row) => sum + numberValue(row.remaining_to_accept), 0);
-    const lowAvailability = visibleData.availability.filter((row) =>
-      numberValue(row.available_to_request_quantity) <= 0 || numberValue(row.general_on_hand_quantity) <= 0
-    ).length;
+    const lowAvailability = visibleData.availability.filter((row) => {
+      const avail = numberValue(row.available_to_request_quantity);
+      const hasGen = row.general_on_hand_quantity !== undefined && row.general_on_hand_quantity !== null;
+      const gen = hasGen ? numberValue(row.general_on_hand_quantity) : null;
+      return avail <= 0 || (gen !== null && gen <= 0);
+    }).length;
     const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).format(new Date());
     const monthlyIssued = visibleData.distributions
       .filter((row) => String(row.occurred_on ?? "").slice(0, 7) === month && numberValue(row.quantity_delta) > 0)
@@ -387,10 +405,16 @@ export default function OverviewDashboard({ onNavigate }: Props) {
 
   const lowAvailabilityRows: ItemShortageRow[] = useMemo(() => {
     return visibleData.availability
-      .filter((row) => numberValue(row.available_to_request_quantity) <= 0 || numberValue(row.general_on_hand_quantity) <= 0)
+      .filter((row) => {
+        const avail = numberValue(row.available_to_request_quantity);
+        const hasGen = row.general_on_hand_quantity !== undefined && row.general_on_hand_quantity !== null;
+        const gen = hasGen ? numberValue(row.general_on_hand_quantity) : null;
+        return avail <= 0 || (gen !== null && gen <= 0);
+      })
       .map((row) => {
         const avail = numberValue(row.available_to_request_quantity);
-        const gen = numberValue(row.general_on_hand_quantity);
+        const hasGen = row.general_on_hand_quantity !== undefined && row.general_on_hand_quantity !== null;
+        const gen = hasGen ? numberValue(row.general_on_hand_quantity) : 0;
         let statusLabel = "無可申請量";
         if (avail < 0) statusLabel = "資料異常";
         else if (avail > 0 && gen <= 0) statusLabel = "總倉無庫存";
@@ -471,7 +495,7 @@ export default function OverviewDashboard({ onNavigate }: Props) {
         <Metric label="待入庫數量" value={readPresentation.showCorePlaceholder ? "—" : derived.remainingToAccept} note="採購進度尚未驗收" tone="amber" />
         <Metric
           label="可申請量異常"
-          value={readPresentation.showCorePlaceholder ? "—" : derived.lowAvailability}
+          value={readPresentation.showCorePlaceholder ? "—" : (exactAbnormalCount ?? derived.lowAvailability)}
           note="缺貨、總倉為 0 或資料異常（點擊查看）"
           tone="red"
           clickable={!readPresentation.showCorePlaceholder}
