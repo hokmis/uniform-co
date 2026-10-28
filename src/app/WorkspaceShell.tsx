@@ -407,8 +407,6 @@ export default function WorkspaceShell({ initialSystemGuide = false, initialSsoB
           onNavigate={selectWorkspace}
           onOpenSystemGuide={systemGuide.allowed && !initialSystemGuide ? () => router.push("/system-guide") : undefined}
           onSignOut={handleSignOut}
-          sidebarCollapsed={sidebarCollapsed}
-          onToggleSidebar={toggleSidebar}
           allowedWorkspaceIds={allowedWorkspaceIds}
         />
 
