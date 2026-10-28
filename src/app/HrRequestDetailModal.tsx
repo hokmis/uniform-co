@@ -110,19 +110,21 @@ export default function HrRequestDetailModal({
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelFeedback, setCancelFeedback] = useState("");
 
-  useEffect(() => {
-    if (!isOpen) {
-      setCancelReasonInput("");
-      setCancelFeedback("");
-      setIsCancelling(false);
-    }
-  }, [isOpen]);
+  const handleModalClose = () => {
+    setCancelReasonInput("");
+    setCancelFeedback("");
+    setIsCancelling(false);
+    onClose();
+  };
 
   // 鍵盤 Esc 關閉
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        setCancelReasonInput("");
+        setCancelFeedback("");
+        setIsCancelling(false);
         onClose();
       }
     };
@@ -646,7 +648,7 @@ export default function HrRequestDetailModal({
         padding: "16px",
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleModalClose();
       }}
     >
       <div
@@ -713,7 +715,7 @@ export default function HrRequestDetailModal({
             <button
               type="button"
               className="text-button"
-              onClick={onClose}
+              onClick={handleModalClose}
               aria-label="關閉視窗"
               style={{
                 fontSize: "1.5rem",
@@ -1089,7 +1091,7 @@ export default function HrRequestDetailModal({
 
         {/* Modal 底部關閉按鈕 */}
         <div style={{ display: "flex", justifyContent: "flex-end", borderTop: "1px solid #e5e7eb", paddingTop: "14px", marginTop: "4px" }}>
-          <button type="button" className="secondary-button" onClick={onClose} style={{ minWidth: "90px" }}>
+          <button type="button" className="secondary-button" onClick={handleModalClose} style={{ minWidth: "90px" }}>
             關閉
           </button>
         </div>
