@@ -987,17 +987,20 @@ export default function HrRequestWorkbench() {
       operationRef.current = { ...operation, draftId: request.id };
       if (request.status === "DRAFT") {
         setRequestEntryState({ kind: "draft", requestId: request.id });
-      } else if (request.status === "SUBMITTED") {
+      } else if (request.status === "SUBMITTED" && (submission.error || submission.failureStage !== null)) {
         setRequestEntryState({ kind: "submitted", requestId: request.id, editing: false });
       }
     }
     if (!submission.error && submission.failureStage === null && request?.status === "SUBMITTED") {
+      resetEntryForm();
+      if (client) invalidateMasterDataCache(client, "hr-request");
+      setDataReloadToken((current) => current + 1);
       const autoAdjustCount = Object.keys(balanced.autoAdjustedItems).length;
       const autoAdjustMsg = autoAdjustCount > 0 ? "（部分品項因人資倉現貨不足，已自動轉為總倉增庫調撥）" : "";
       setSubmitMessage(
         request.inventory_policy === "ISSUE_ON_SUBMIT"
-          ? `已送出 ${request.request_no}，人資倉發放量已即時扣庫；增庫量等待倉庫調入${autoAdjustMsg}。如需修改請由倉庫退回或在下方載入修改。`
-          : `已送出 ${request.request_no}，庫存預留已由伺服器重算${autoAdjustMsg}。`
+          ? `已成功送出 ${request.request_no}，人資倉發放量已即時扣庫；增庫量等待倉庫調入${autoAdjustMsg}。已刷新頁面表單，可繼續新增下一筆需求。`
+          : `已成功送出 ${request.request_no}，庫存預留已由伺服器重算${autoAdjustMsg}。已刷新頁面表單，可繼續新增下一筆需求。`
       );
       window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
     } else {
