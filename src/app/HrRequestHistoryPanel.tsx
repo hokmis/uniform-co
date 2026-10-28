@@ -7,6 +7,7 @@ import {
   getDefaultHrRequestDateRange,
   hrRequestStatuses,
   hrRequestStatusLabel,
+  shiftHrRequestDateRange,
   sortHrRequestHistory,
   type HrRequestHistoryRow,
   type HrRequestHistorySortDirection,
@@ -967,6 +968,13 @@ export default function HrRequestHistoryPanel() {
     setPage(1);
   }
 
+  function handleCycleShift(direction: "prev" | "next" | "current") {
+    const nextRange = shiftHrRequestDateRange(endDate, direction);
+    setStartDate(nextRange.startDate);
+    setEndDate(nextRange.endDate);
+    setPage(1);
+  }
+
   if (!client) {
     return <section className="panel" aria-label="人資需求單查詢"><div className="panel-heading"><div><p className="eyebrow">REQUEST HISTORY</p><h2>需求單查詢</h2></div><span className="status-pill">預覽模式</span></div><p className="auth-message">登入 HR 或倉庫帳號後，這裡會顯示需求單狀態、明細、預留及發貨結果。</p></section>;
   }
@@ -995,6 +1003,38 @@ export default function HrRequestHistoryPanel() {
           aria-label="依結束年月日查詢"
         />
       </label>
+      <div className="field" style={{ minWidth: "auto", alignSelf: "flex-end" }}>
+        <span style={{ fontSize: "12px", color: "var(--muted)", marginBottom: "4px" }}>月份週期</span>
+        <div style={{ display: "flex", gap: "4px" }}>
+          <button
+            className="secondary-button"
+            type="button"
+            style={{ padding: "6px 10px", fontSize: "13px", height: "36px", whiteSpace: "nowrap" }}
+            onClick={() => handleCycleShift("prev")}
+            title="切換至上一個月份週期（上月21日～當月20日）"
+          >
+            ◀ 上期
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            style={{ padding: "6px 10px", fontSize: "13px", height: "36px", whiteSpace: "nowrap" }}
+            onClick={() => handleCycleShift("current")}
+            title="回到目前所屬的當前週期"
+          >
+            本期
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            style={{ padding: "6px 10px", fontSize: "13px", height: "36px", whiteSpace: "nowrap" }}
+            onClick={() => handleCycleShift("next")}
+            title="切換至下一個月份週期"
+          >
+            下期 ▶
+          </button>
+        </div>
+      </div>
       <div className="inventory-toolbar-action" style={{ display: "flex", gap: "8px", alignItems: "flex-end" }}>
         <button className="secondary-button" type="button" onClick={() => void loadRows()}>{loading ? "讀取中…" : "重新整理"}</button>
         <button

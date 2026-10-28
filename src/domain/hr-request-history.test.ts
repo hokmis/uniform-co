@@ -3,6 +3,7 @@ import {
   filterHrRequestHistory,
   getDefaultHrRequestDateRange,
   hrRequestStatusLabel,
+  shiftHrRequestDateRange,
   sortHrRequestHistory,
   type HrRequestHistoryRow,
 } from "./hr-request-history";
@@ -94,26 +95,59 @@ describe("HR request history rules", () => {
     expect(filterHrRequestHistory(rows, "", "ALL", "2026-09-01", "2026-09-01").map((row) => row.id)).toEqual(["1"]);
   });
 
-  it("calculates default date range as previous month 21st to current month 20th", () => {
-    // 2026-10-01 (10月) -> 上月21日(2026-09-21) 至 本月20日(2026-10-20)
-    const oct1 = new Date("2026-10-01T12:00:00+08:00");
-    expect(getDefaultHrRequestDateRange(oct1)).toEqual({
+  it("calculates default date range with 20th cutoff (before or on 20th vs after 20th)", () => {
+    // 2026-10-15 (10月15日 <= 20) -> 上月21日(2026-09-21) 至 本月20日(2026-10-20)
+    const oct15 = new Date("2026-10-15T12:00:00+08:00");
+    expect(getDefaultHrRequestDateRange(oct15)).toEqual({
       startDate: "2026-09-21",
       endDate: "2026-10-20",
     });
 
-    // 2027-01-15 (跨年1月) -> 上月21日(2026-12-21) 至 本月20日(2027-01-20)
+    // 2026-10-21 (10月21日 > 20) -> 本月21日(2026-10-21) 至 下月20日(2026-11-20)
+    const oct21 = new Date("2026-10-21T12:00:00+08:00");
+    expect(getDefaultHrRequestDateRange(oct21)).toEqual({
+      startDate: "2026-10-21",
+      endDate: "2026-11-20",
+    });
+
+    // 2026-12-25 (12月25日 > 20, 跨年) -> 本月21日(2026-12-21) 至 隔年1月20日(2027-01-20)
+    const dec25 = new Date("2026-12-25T12:00:00+08:00");
+    expect(getDefaultHrRequestDateRange(dec25)).toEqual({
+      startDate: "2026-12-21",
+      endDate: "2027-01-20",
+    });
+
+    // 2027-01-15 (跨年1月15日 <= 20) -> 上月21日(2026-12-21) 至 本月20日(2027-01-20)
     const jan15 = new Date("2027-01-15T12:00:00+08:00");
     expect(getDefaultHrRequestDateRange(jan15)).toEqual({
       startDate: "2026-12-21",
       endDate: "2027-01-20",
     });
+  });
 
-    // 2026-05-25 (5月) -> 上月21日(2026-04-21) 至 本月20日(2026-05-20)
-    const may25 = new Date("2026-05-25T12:00:00+08:00");
-    expect(getDefaultHrRequestDateRange(may25)).toEqual({
-      startDate: "2026-04-21",
-      endDate: "2026-05-20",
+  it("shifts date range to previous or next cycle correctly", () => {
+    // 從 2026-11-20 往前切換至上一期
+    expect(shiftHrRequestDateRange("2026-11-20", "prev")).toEqual({
+      startDate: "2026-09-21",
+      endDate: "2026-10-20",
+    });
+
+    // 從 2026-10-20 往後切換至下一期
+    expect(shiftHrRequestDateRange("2026-10-20", "next")).toEqual({
+      startDate: "2026-10-21",
+      endDate: "2026-11-20",
+    });
+
+    // 跨年上一期：從 2027-01-20 往前切換
+    expect(shiftHrRequestDateRange("2027-01-20", "prev")).toEqual({
+      startDate: "2026-11-21",
+      endDate: "2026-12-20",
+    });
+
+    // 跨年下一期：從 2026-12-20 往後切換
+    expect(shiftHrRequestDateRange("2026-12-20", "next")).toEqual({
+      startDate: "2026-12-21",
+      endDate: "2027-01-20",
     });
   });
 });

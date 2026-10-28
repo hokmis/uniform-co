@@ -47,6 +47,14 @@ export type HrRequestDateRange = {
   endDate?: string;
 };
 
+export function getHrRequestBillingCycle(endYear: number, endMonth: number): { startDate: string; endDate: string } {
+  const prevYear = endMonth === 1 ? endYear - 1 : endYear;
+  const prevMonth = endMonth === 1 ? 12 : endMonth - 1;
+  const startDate = `${prevYear}-${String(prevMonth).padStart(2, "0")}-21`;
+  const endDate = `${endYear}-${String(endMonth).padStart(2, "0")}-20`;
+  return { startDate, endDate };
+}
+
 export function getDefaultHrRequestDateRange(now: Date = new Date()): { startDate: string; endDate: string } {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",
@@ -57,15 +65,59 @@ export function getDefaultHrRequestDateRange(now: Date = new Date()): { startDat
   const parts = formatter.formatToParts(now);
   const yearStr = parts.find((p) => p.type === "year")?.value ?? "2026";
   const monthStr = parts.find((p) => p.type === "month")?.value ?? "10";
+  const dayStr = parts.find((p) => p.type === "day")?.value ?? "28";
   const year = parseInt(yearStr, 10);
   const month = parseInt(monthStr, 10);
+  const day = parseInt(dayStr, 10);
 
-  const prevYear = month === 1 ? year - 1 : year;
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const startDate = `${prevYear}-${String(prevMonth).padStart(2, "0")}-21`;
-  const endDate = `${year}-${String(month).padStart(2, "0")}-20`;
+  if (day > 20) {
+    // 當過了本月20號後，切換至下個區間：例如10月21日 -> 10月21日至11月20日
+    const nextYear = month === 12 ? year + 1 : year;
+    const nextMonth = month === 12 ? 1 : month + 1;
+    return getHrRequestBillingCycle(nextYear, nextMonth);
+  } else {
+    // 20號及以前：例如10月15日 -> 9月21日至10月20日
+    return getHrRequestBillingCycle(year, month);
+  }
+}
 
-  return { startDate, endDate };
+export function shiftHrRequestDateRange(
+  currentEndDate: string,
+  direction: "prev" | "next" | "current",
+  now: Date = new Date()
+): { startDate: string; endDate: string } {
+  if (direction === "current") {
+    return getDefaultHrRequestDateRange(now);
+  }
+
+  const parts = (currentEndDate || "").split("-");
+  let endYear = parseInt(parts[0], 10);
+  let endMonth = parseInt(parts[1], 10);
+
+  if (isNaN(endYear) || isNaN(endMonth) || endMonth < 1 || endMonth > 12) {
+    const def = getDefaultHrRequestDateRange(now);
+    const defParts = def.endDate.split("-");
+    endYear = parseInt(defParts[0], 10);
+    endMonth = parseInt(defParts[1], 10);
+  }
+
+  if (direction === "prev") {
+    if (endMonth === 1) {
+      endYear -= 1;
+      endMonth = 12;
+    } else {
+      endMonth -= 1;
+    }
+  } else if (direction === "next") {
+    if (endMonth === 12) {
+      endYear += 1;
+      endMonth = 1;
+    } else {
+      endMonth += 1;
+    }
+  }
+
+  return getHrRequestBillingCycle(endYear, endMonth);
 }
 
 export function filterHrRequestHistory(
