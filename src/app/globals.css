@@ -367,9 +367,11 @@ body {
 .catalog-toolbar { align-items: end; display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) auto; margin-top: 18px; }
 .catalog-toolbar-action { align-self: end; }
 .product-management-header,
-.module-workbench-header { padding-bottom: 0; }
+.module-workbench-header { padding: 16px 24px 0; }
 .product-management-header .panel-heading,
-.module-workbench-header .panel-heading { margin-bottom: 20px; }
+.module-workbench-header .panel-heading { margin-bottom: 8px; }
+.module-workbench-header .panel-heading h2 { font-size: 20px; margin-bottom: 2px; }
+.module-workbench-header .auth-message { font-size: 13px; line-height: 1.45; margin-top: 3px; max-width: 820px; }
 .product-action-bar,
 .module-workbench-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
 .product-action-bar .primary-button,
@@ -378,9 +380,9 @@ body {
 .module-workbench-actions .secondary-button,
 .product-pagination .secondary-button { margin-top: 0; }
 .product-module-tabs,
-.module-workbench-tabs { display: flex; gap: 6px; overflow-x: auto; }
+.module-workbench-tabs { display: flex; gap: 4px; overflow-x: auto; }
 .product-module-tabs button,
-.module-workbench-tabs button { align-items: center; background: transparent; border: 0; border-bottom: 3px solid transparent; color: var(--muted); cursor: pointer; display: inline-flex; font: inherit; font-size: 13px; font-weight: 800; gap: 7px; padding: 13px 16px 15px; white-space: nowrap; }
+.module-workbench-tabs button { align-items: center; background: transparent; border: 0; border-bottom: 3px solid transparent; color: var(--muted); cursor: pointer; display: inline-flex; font: inherit; font-size: 13px; font-weight: 700; gap: 6px; padding: 7px 14px 9px; white-space: nowrap; }
 .product-module-tabs button:hover,
 .module-workbench-tabs button:hover { color: var(--ink); }
 .product-module-tabs button.active,
@@ -574,7 +576,7 @@ body {
   .employee-catalog-filters { grid-template-columns: 1fr; }
   .employee-catalog-filters .field:last-child { grid-column: auto; }
   .product-management-header,
-  .module-workbench-header,
+  .module-workbench-header { padding: 14px 16px 0; }
   .product-catalog-panel { padding: 20px; }
   .product-action-bar,
   .module-workbench-actions { align-items: stretch; display: grid; grid-template-columns: 1fr; width: 100%; }
