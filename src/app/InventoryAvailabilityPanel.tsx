@@ -707,8 +707,7 @@ export default function InventoryAvailabilityPanel() {
         onClose={() => setEditingSafetyStockItem(null)}
         onSave={(newThreshold) => {
           if (!editingSafetyStockItem) return;
-          const key = editingSafetyStockItem.itemId || editingSafetyStockItem.itemCode;
-          saveSafetyStock(key, newThreshold);
+          saveSafetyStock(editingSafetyStockItem.itemCode, newThreshold, editingSafetyStockItem.itemId);
           setEditingSafetyStockItem(null);
         }}
       />

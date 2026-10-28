@@ -19,20 +19,22 @@ describe("safety-stock domain", () => {
     expect(loadSafetyStockMap()).toEqual({});
   });
 
-  it("saves and loads safety stock settings", () => {
-    saveSafetyStock("U-001", 10);
+  it("saves and loads safety stock settings with primary and secondary keys", () => {
+    saveSafetyStock("U-001", 10, "item-uuid-1");
     saveSafetyStock("U-002", 25);
 
     const map = loadSafetyStockMap();
     expect(map["U-001"]).toBe(10);
+    expect(map["item-uuid-1"]).toBe(10);
     expect(map["U-002"]).toBe(25);
 
-    // 清除設定（傳入 null 或 0）
-    saveSafetyStock("U-001", null);
+    // 清除設定（傳入 null 或 0，兩者皆清除）
+    saveSafetyStock("U-001", null, "item-uuid-1");
     expect(loadSafetyStockMap()["U-001"]).toBeUndefined();
+    expect(loadSafetyStockMap()["item-uuid-1"]).toBeUndefined();
   });
 
-  it("gets safety stock threshold matching itemId then itemCode", () => {
+  it("gets safety stock threshold matching itemCode first then itemId", () => {
     const map = { "item-123": 15, "U-999": 20 };
 
     expect(getSafetyStockThreshold({ itemId: "item-123", itemCode: "U-123" }, map)).toBe(15);

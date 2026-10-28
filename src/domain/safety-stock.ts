@@ -38,20 +38,29 @@ export function loadSafetyStockMap(): SafetyStockMap {
 /**
  * 儲存個別品項安全庫存（寫入 localStorage 並廣播事件）
  * 若 quantity 為 null 或 <= 0，代表清除該品項之安全庫存設定
+ * 支援同時傳入 secondaryKey（例如 itemCode 與 itemId 互相綁定），確保跨元件查詢均能命中
  */
-export function saveSafetyStock(itemKey: string, quantity: number | null): void {
+export function saveSafetyStock(
+  itemKey: string,
+  quantity: number | null,
+  secondaryKey?: string | null,
+): void {
   if (typeof window === "undefined" || !window.localStorage) {
     return;
   }
   try {
     const currentMap = loadSafetyStockMap();
     const cleanKey = itemKey.trim();
-    if (!cleanKey) return;
+    const cleanSec = secondaryKey ? secondaryKey.trim() : "";
+    if (!cleanKey && !cleanSec) return;
 
     if (quantity === null || quantity === undefined || Number.isNaN(quantity) || quantity <= 0) {
-      delete currentMap[cleanKey];
+      if (cleanKey) delete currentMap[cleanKey];
+      if (cleanSec) delete currentMap[cleanSec];
     } else {
-      currentMap[cleanKey] = Math.trunc(quantity);
+      const parsedQty = Math.trunc(quantity);
+      if (cleanKey) currentMap[cleanKey] = parsedQty;
+      if (cleanSec) currentMap[cleanSec] = parsedQty;
     }
 
     window.localStorage.setItem(SAFETY_STOCK_STORAGE_KEY, JSON.stringify(currentMap));
@@ -59,8 +68,9 @@ export function saveSafetyStock(itemKey: string, quantity: number | null): void 
     window.dispatchEvent(
       new CustomEvent(safetyStockChangedEvent, {
         detail: {
-          itemKey: cleanKey,
-          quantity: currentMap[cleanKey] ?? null,
+          itemKey: cleanKey || cleanSec,
+          secondaryKey: cleanSec || null,
+          quantity: quantity && quantity > 0 ? Math.trunc(quantity) : null,
         },
       }),
     );
@@ -70,18 +80,18 @@ export function saveSafetyStock(itemKey: string, quantity: number | null): void 
 }
 
 /**
- * 取得指定品項的安全庫存數值（優先比對 itemId，再比對 itemCode）
+ * 取得指定品項的安全庫存數值（優先比對 itemCode，再比對 itemId）
  */
 export function getSafetyStockThreshold(
   item: SafetyStockTarget,
   map?: SafetyStockMap | null,
 ): number | null {
   if (!map) return null;
-  if (item.itemId && map[item.itemId] !== undefined && map[item.itemId] > 0) {
-    return map[item.itemId];
-  }
   if (item.itemCode && map[item.itemCode] !== undefined && map[item.itemCode] > 0) {
     return map[item.itemCode];
+  }
+  if (item.itemId && map[item.itemId] !== undefined && map[item.itemId] > 0) {
+    return map[item.itemId];
   }
   return null;
 }

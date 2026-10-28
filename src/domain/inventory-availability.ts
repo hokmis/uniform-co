@@ -129,6 +129,32 @@ export function inventoryAvailabilityStatusLabel(status: InventoryAvailabilitySt
   return labels[status] ?? "";
 }
 
+/**
+ * 判定品項是否為需注意品項（缺貨、總倉無庫存、低於安全庫存、資料異常）
+ */
+export function isInventoryAttentionRequired(
+  row: InventoryAvailabilityRow,
+  safetyStock?: number | null,
+): boolean {
+  const status = inventoryAvailabilityStatus(row, safetyStock);
+  return ["OUT_OF_STOCK", "GENERAL_OUT_OF_STOCK", "BELOW_SAFETY_STOCK", "DATA_ERROR"].includes(status);
+}
+
+/**
+ * 計算指定清單中需注意品項總數
+ */
+export function countInventoryAttentionRows(
+  rows: readonly InventoryAvailabilityRow[],
+  safetyStockMap?: Record<string, number>,
+): number {
+  return rows.filter((row) => {
+    const threshold = safetyStockMap
+      ? (safetyStockMap[row.itemCode] ?? (row.itemId ? safetyStockMap[row.itemId] : undefined) ?? null)
+      : null;
+    return isInventoryAttentionRequired(row, threshold);
+  }).length;
+}
+
 export function inventoryAvailabilityCategories(rows: readonly InventoryAvailabilityRow[]): string[] {
   return [...new Set(rows.map((row) => row.category?.trim()).filter((value): value is string => Boolean(value)))]
     .sort((left, right) => left.localeCompare(right, "zh-TW", { numeric: true }));
