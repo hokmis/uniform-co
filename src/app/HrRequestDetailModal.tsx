@@ -83,6 +83,8 @@ export type HrRequestDetailModalProps = {
   sourceNo: string;
   postingId?: string;
   postingKind?: StockMovementPostingKind;
+  canCancel?: boolean;
+  onCancel?: (reason: string) => Promise<{ success: boolean; message?: string }>;
 };
 
 export default function HrRequestDetailModal({
@@ -92,6 +94,8 @@ export default function HrRequestDetailModal({
   sourceNo,
   postingId,
   postingKind,
+  canCancel = false,
+  onCancel,
 }: HrRequestDetailModalProps) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -102,6 +106,17 @@ export default function HrRequestDetailModal({
   const [orgMap, setOrgMap] = useState<Map<string, string>>(new Map());
   const [exporting, setExporting] = useState(false);
   const [docNotice, setDocNotice] = useState<{ kindLabel: string; isWarehouseOnly: boolean } | null>(null);
+  const [cancelReasonInput, setCancelReasonInput] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false);
+  const [cancelFeedback, setCancelFeedback] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) {
+      setCancelReasonInput("");
+      setCancelFeedback("");
+      setIsCancelling(false);
+    }
+  }, [isOpen]);
 
   // 鍵盤 Esc 關閉
   useEffect(() => {
@@ -770,6 +785,87 @@ export default function HrRequestDetailModal({
                 </div>
               ) : null;
             })() : null}
+
+            {/* 取消需求單（若符合可取消狀態） */}
+            {canCancel && header && header.requestType !== "REPLENISHMENT" && header.status !== "SHIPPED" && header.status !== "CANCELLED" ? (
+              <div
+                style={{
+                  padding: "12px 14px",
+                  backgroundColor: "#fef2f2",
+                  borderRadius: 8,
+                  border: "1px solid #fecaca",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                  <span style={{ fontWeight: 700, color: "#991b1b", fontSize: "0.85rem" }}>取消此需求單</span>
+                  <span style={{ color: "#7f1d1d", fontSize: "0.75rem" }}>（尚未完成發貨前可取消，並將全數釋放預留庫存）</span>
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <input
+                    value={cancelReasonInput}
+                    onChange={(e) => setCancelReasonInput(e.target.value)}
+                    disabled={isCancelling}
+                    maxLength={2000}
+                    placeholder="請輸入取消原因…"
+                    style={{
+                      flex: 1,
+                      minWidth: "220px",
+                      padding: "6px 10px",
+                      fontSize: "0.85rem",
+                      borderRadius: 6,
+                      border: "1px solid #fca5a5",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={isCancelling || !onCancel}
+                    onClick={async () => {
+                      if (!cancelReasonInput.trim()) {
+                        setCancelFeedback("請填寫取消原因。");
+                        return;
+                      }
+                      if (!onCancel) return;
+                      setIsCancelling(true);
+                      setCancelFeedback("");
+                      const res = await onCancel(cancelReasonInput.trim());
+                      setIsCancelling(false);
+                      if (res.success) {
+                        setCancelFeedback(res.message || "需求已取消，預留已釋放。");
+                        setHeader((prev) => (prev ? { ...prev, status: "CANCELLED" } : null));
+                      } else {
+                        setCancelFeedback(res.message || "取消失敗，請重試。");
+                      }
+                    }}
+                    style={{
+                      borderColor: "#dc2626",
+                      color: "#dc2626",
+                      padding: "6px 12px",
+                      fontSize: "0.85rem",
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {isCancelling ? "取消中…" : "確認取消並釋放預留"}
+                  </button>
+                </div>
+                {cancelFeedback ? (
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: "0.825rem",
+                      fontWeight: 600,
+                      color: cancelFeedback.includes("已取消") ? "#15803d" : "#b91c1c",
+                    }}
+                  >
+                    {cancelFeedback}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
             {/* 品號彙總 */}
             <div>

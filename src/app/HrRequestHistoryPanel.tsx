@@ -35,6 +35,7 @@ import {
 } from "@/src/domain/hr-request-pivot-export";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
+import HrRequestDetailModal from "./HrRequestDetailModal";
 
 type RequestItem = {
   id: string;
@@ -116,6 +117,7 @@ export default function HrRequestHistoryPanel() {
   const [cancelMessage, setCancelMessage] = useState("");
   const cancelOperationsRef = useRef<Map<string, { requestId: string; reason: string; key: string }>>(new Map());
   const cancelFlightRef = useRef(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const hasSession = isAuthenticated;
   const rowsRef = useRef<HrRequestHistoryRow[]>([]);
   const selectedIdRef = useRef("");
@@ -148,106 +150,6 @@ export default function HrRequestHistoryPanel() {
   );
   const sortedRows = useMemo(() => sortHrRequestHistory(filteredRows, sortKey, sortDirection), [filteredRows, sortDirection, sortKey]);
   const selected = useMemo(() => visibleRows.find((row) => row.id === selectedId) ?? null, [selectedId, visibleRows]);
-  const parsedUnitMap = useMemo(() => {
-    let map: Record<string, string> = {};
-    if (selected?.note) {
-      const match = selected.note.match(/<!--unit_map:(.*?)-->/);
-      if (match) {
-        try {
-          map = JSON.parse(match[1]);
-        } catch {}
-      }
-    }
-    if (Object.keys(map).length === 0 && selected && typeof window !== "undefined") {
-      try {
-        const cached = localStorage.getItem(`hr_request_units_${selected.id}`)
-          || localStorage.getItem(`hr_request_units_${selected.requestNo}`);
-        if (cached) map = JSON.parse(cached);
-      } catch {}
-    }
-    return map;
-  }, [selected]);
-  const activeReserved = reservations.filter((row) => row.status === "ACTIVE").reduce((sum, row) => sum + numberValue(row.quantity), 0);
-
-  async function handleExportSelected() {
-    if (!selected) return;
-    const isReplenishment = selected.requestType === "REPLENISHMENT";
-    if (issueLines.length === 0 && items.length === 0) {
-      setMessage("目前選取的單據沒有明細可供匯出。");
-      return;
-    }
-    try {
-      const rawLines: RawIssueLineInput[] = issueLines.map((line) => {
-        const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
-        const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
-        const unitName = (selectedCode && orgMap.get(selectedCode))
-          || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
-          || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
-          || orgMap.get(unitCode)
-          || line.department_name_snapshot
-          || line.institution_name_snapshot
-          || unitCode;
-        return {
-          itemCode: line.item_code_snapshot || "",
-          itemName: line.item_name_snapshot || "",
-          size: line.size_snapshot || "",
-          unit: line.unit_snapshot || "件",
-          institutionCodeOrName: unitName || unitCode,
-          quantity: numberValue(line.quantity),
-        };
-      });
-
-      const stockMap = new Map<string, ItemStockInfo>();
-      for (const item of items) {
-        const itemCode = item.item_code_snapshot || item.item_id;
-        if (itemCode) {
-          stockMap.set(itemCode, {
-            itemCode,
-            itemName: item.item_name_snapshot || itemCode,
-            unit: item.unit_snapshot || "件",
-            increaseQuantity: numberValue(item.increase_quantity),
-          });
-        }
-      }
-
-      if (client) {
-        const availRes = await client
-          .from("v_item_availability")
-          .select("item_code, item_name, size, unit, hr_on_hand_quantity")
-          .order("item_code");
-        if (availRes.data) {
-          for (const it of availRes.data as Array<Record<string, unknown>>) {
-            const code = (typeof it.item_code === "string" && it.item_code.trim()) || "";
-            if (!code) continue;
-            const existing = stockMap.get(code);
-            const onHand = numberValue(it.hr_on_hand_quantity);
-            stockMap.set(code, {
-              itemCode: code,
-              itemName: existing?.itemName || (typeof it.item_name === "string" ? it.item_name : code),
-              size: existing?.size || (typeof it.size === "string" ? it.size : ""),
-              unit: existing?.unit || (typeof it.unit === "string" ? it.unit : "件"),
-              onHand: existing?.onHand != null ? existing.onHand : onHand,
-              increaseQuantity: existing?.increaseQuantity || 0,
-            });
-          }
-        }
-      }
-
-      const pivotData = buildPivotTableData(rawLines, stockMap);
-      const titleKind = isReplenishment ? "額外補庫表" : "平日制服領用表";
-      const selectedDate = selected.distributionDate || dateRangeLabel;
-      const itemTitle = selectedDate ? `${titleKind} ( ${selectedDate} )` : titleKind;
-      const xlsxBytes = generatePivotXlsx(pivotData, {
-        title: itemTitle,
-        dateRangeLabel: selectedDate,
-      });
-
-      downloadPivotXlsx(xlsxBytes, `${selected.requestNo}-${titleKind}.xlsx`);
-      setMessage(`已成功匯出單據 ${selected.requestNo} 的${titleKind} (Excel)`);
-    } catch (err) {
-      setMessage(`匯出發生錯誤：${err instanceof Error ? err.message : String(err)}`);
-    }
-  }
 
   async function handleExportRange() {
     if (!client) {
@@ -504,15 +406,15 @@ export default function HrRequestHistoryPanel() {
     }
   }
 
-  async function cancelSelectedRequest() {
+  async function cancelSelectedRequest(): Promise<{ success: boolean; message: string }> {
     if (!client || !identityReady || !selected || !accountId || cancelFlightRef.current
-      || !canCancelHrRequest(selected.status, roles)) return;
+      || !canCancelHrRequest(selected.status, roles)) return { success: false, message: "無權限或無法取消。" };
     const requestId = selected.id;
     const actorAccountId = accountId;
     const operationId = `${actorAccountId}:${requestId}`;
     const previous = cancelOperationsRef.current.get(operationId);
     const reason = previous?.reason ?? cancelReason.trim();
-    if (!reason) { setCancelMessage("請填寫取消原因。"); return; }
+    if (!reason) { setCancelMessage("請填寫取消原因。"); return { success: false, message: "請填寫取消原因。" }; }
     const operation = previous ?? { requestId, reason, key: `CANCEL-HR-${crypto.randomUUID()}` };
     cancelOperationsRef.current.set(operationId, operation);
     cancelFlightRef.current = true;
@@ -525,21 +427,39 @@ export default function HrRequestHistoryPanel() {
         p_idempotency_key: operation.key,
         p_request_fingerprint: JSON.stringify({ requestId: operation.requestId, reason: operation.reason }),
       }));
-      if (dataSnapshotAccountIdRef.current !== actorAccountId) return;
+      if (dataSnapshotAccountIdRef.current !== actorAccountId) return { success: false, message: "工作區變更。" };
       if (error || data?.id !== requestId || data?.status !== "CANCELLED") {
-        setCancelMessage(safeSupabaseMutationErrorMessage(error, "取消結果尚未確認；請使用相同資料重試。"));
-        return;
+        const errorMsg = safeSupabaseMutationErrorMessage(error, "取消結果尚未確認；請使用相同資料重試。");
+        setCancelMessage(errorMsg);
+        return { success: false, message: errorMsg };
       }
       cancelOperationsRef.current.delete(operationId);
       setCancelReason("");
-      setCancelMessage("需求已取消，預留已釋放；歷史資料保留。");
+      const okMsg = "需求已取消，預留已釋放；歷史資料保留。";
+      setCancelMessage(okMsg);
       window.dispatchEvent(new Event(hrRequestWorkflowChangedEvent));
+      void loadRows();
+      return { success: true, message: okMsg };
     } catch {
-      setCancelMessage("取消結果尚未確認；請使用相同資料重試。");
+      const errorMsg = "取消結果尚未確認；請使用相同資料重試。";
+      setCancelMessage(errorMsg);
+      return { success: false, message: errorMsg };
     } finally {
       cancelFlightRef.current = false;
       setCancelling(false);
     }
+  }
+
+  async function handleCancelFromModal(reason: string): Promise<{ success: boolean; message?: string }> {
+    if (!selected || !accountId) return { success: false, message: "無選取需求單" };
+    const operationId = `${accountId}:${selected.id}`;
+    cancelOperationsRef.current.set(operationId, {
+      requestId: selected.id,
+      reason: reason.trim(),
+      key: `CANCEL-HR-${crypto.randomUUID()}`,
+    });
+    setCancelReason(reason.trim());
+    return await cancelSelectedRequest();
   }
 
   async function loadRows(nextSelectedId = selectedIdRef.current) {
@@ -1119,333 +1039,34 @@ export default function HrRequestHistoryPanel() {
         { id: "shipment", label: "發貨", render: (row) => row.requestType === "REPLENISHMENT" ? "直接調撥增庫" : (row.shipmentNo ? `${row.shipmentNo}／${row.shipmentStatus === "POSTED" ? "已完成" : "草稿"}` : "尚未建立") },
         { id: "reserved", label: "有效預留", render: (row) => row.requestType === "REPLENISHMENT" ? "—" : `${row.activeReservedQuantity}`, className: "numeric-cell" },
         { id: "version", label: "版本", sortKey: "row_version", render: (row) => row.rowVersion, className: "numeric-cell" },
-        { id: "action", label: "明細", locked: true, render: (row) => <button className="text-button" type="button" onClick={() => setSelectedId(row.id)}>{selectedId === row.id ? "目前明細" : "查看"}</button> },
+        {
+          id: "action",
+          label: "明細",
+          locked: true,
+          render: (row) => (
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => {
+                setSelectedId(row.id);
+                setModalOpen(true);
+              }}
+            >
+              查看明細
+            </button>
+          ),
+        },
       ] satisfies readonly ManagementCatalogColumn<HrRequestHistoryRow, HrRequestHistorySortKey>[]}
     />
-    {selected ? <div className="panel hr-request-history-detail" aria-live="polite">
-      <div className="panel-heading">
-        <div>
-          <p className="eyebrow">{selected.requestType === "REPLENISHMENT" ? "REPLENISHMENT DETAIL" : "REQUEST DETAIL"}</p>
-          <h3>
-            {selected.requestType === "REPLENISHMENT" ? (
-              <span style={{ display: "inline-block", marginRight: 8, fontSize: "0.85rem", padding: "2px 8px", background: "#e0f2fe", color: "#0369a1", borderRadius: 4, fontWeight: 600, verticalAlign: "middle" }}>
-                額外補庫單
-              </span>
-            ) : null}
-            {selected.requestNo}
-          </h3>
-        </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void handleExportSelected()}
-            disabled={detailLoading || (issueLines.length === 0 && items.length === 0)}
-            title="將此單明細匯出為二維交叉統計表 (Excel)"
-          >
-            {selected.requestType === "REPLENISHMENT" ? "匯出此單補庫總表 (Excel)" : "匯出此單領用總表 (Excel)"}
-          </button>
-          <span className={`status-pill ${selected.status === "SHIPPED" ? "success" : selected.status === "CANCELLED" ? "danger" : ""}`}>{hrRequestStatusLabel(selected.status)}</span>
-        </div>
-      </div>
-      <div className="metric-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px", marginBottom: "16px" }}>
-        <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
-          <span style={{ fontSize: "12px", color: "#64748b" }}>{selected.requestType === "REPLENISHMENT" ? "申請日期" : "發放日期"}</span>
-          <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>{selected.distributionDate}</strong>
-        </div>
-        <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
-          <span style={{ fontSize: "12px", color: "#64748b" }}>發貨單</span>
-          <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>{selected.requestType === "REPLENISHMENT" ? "無（直接調撥增庫）" : (selected.shipmentNo ?? "—")}</strong>
-        </div>
-        <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
-          <span style={{ fontSize: "12px", color: "#64748b" }}>{selected.requestType === "REPLENISHMENT" ? "增庫總量" : "有效預留"}</span>
-          <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>
-            {selected.requestType === "REPLENISHMENT"
-              ? `${items.reduce((sum, item) => sum + numberValue(item.increase_quantity), 0)} 件`
-              : `${activeReserved} 件`}
-          </strong>
-        </div>
-        <div className="metric" style={{ padding: "10px 14px", borderRadius: "10px", gap: "4px" }}>
-          <span style={{ fontSize: "12px", color: "#64748b" }}>資料版本</span>
-          <strong style={{ fontSize: "18px", fontWeight: 700, color: "#1e293b", letterSpacing: "normal" }}>第 {selected.rowVersion} 版</strong>
-        </div>
-      </div>
-      {selected.note ? (() => {
-        const cleanNote = selected.note
-          .replace(/<!--unit_breakdown:[\s\S]*?-->/g, "")
-          .replace(/<!--unit_map:[\s\S]*?-->/g, "")
-          .replace(/<!--short_ship_notes:[\s\S]*?-->/g, "")
-          .trim();
-        return cleanNote ? <p className="auth-message">備註：{cleanNote}</p> : null;
-      })() : null}
-      {canCancelHrRequest(selected.status, roles) ? (
-        <div className="workflow-secondary-form" style={{ marginTop: 12, marginBottom: 12 }}>
-          <label className="field">
-            <span>取消需求原因</span>
-            <input
-              value={cancelOperationsRef.current.get(`${accountId}:${selected.id}`)?.reason ?? cancelReason}
-              onChange={(event) => setCancelReason(event.target.value)}
-              disabled={cancelling || cancelOperationsRef.current.has(`${accountId}:${selected.id}`)}
-              maxLength={2000}
-              placeholder="請輸入取消原因…"
-            />
-          </label>
-          <button
-            className="secondary-button"
-            type="button"
-            onClick={() => void cancelSelectedRequest()}
-            disabled={cancelling || !identityReady}
-          >
-            {cancelling ? "取消中…" : cancelOperationsRef.current.has(`${accountId}:${selected.id}`) ? "以相同資料重試取消" : "取消所選需求並釋放預留"}
-          </button>
-          <p className="muted">只能取消尚未完成發貨的需求，資料庫會再次確認狀態。</p>
-        </div>
-      ) : null}
-      {cancelMessage ? <p className={cancelMessage.includes("已取消") ? "success-note" : "auth-message"} role="status">{cancelMessage}</p> : null}
-      {detailLoading ? <p className="muted">明細讀取中…</p> : detailLoadedForRequestId !== selectedId ? <p className="auth-message">目前需求的明細尚未載入，請重新整理後再試。</p> : (
-        selected.requestType === "REPLENISHMENT" ? (
-          <>
-            <h4>增庫申請明細（額外補庫）</h4>
-            <div className="summary-list">
-              {items.map((item) => {
-                const reqQty = numberValue(item.increase_quantity);
-                const hasShipment = item.actual_transfer_quantity != null;
-                const actQty = hasShipment ? numberValue(item.actual_transfer_quantity) : null;
-                const isShort = hasShipment && actQty !== null && actQty < reqQty;
-
-                return (
-                  <div className="summary-row" key={item.id} style={{ padding: "12px 14px", alignItems: "flex-start" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
-                          {item.item_code_snapshot ?? item.item_id}
-                        </strong>
-                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
-                          {item.item_name_snapshot ?? "補庫品項"}
-                        </strong>
-                        <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
-                          （{item.unit_snapshot ?? "件"}）
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <span style={{ fontSize: "0.9rem", color: "#64748b" }}>申請增庫 {reqQty} 件</span>
-                        {hasShipment && actQty !== null ? (
-                          <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: isShort ? "#dc2626" : "#0369a1" }}>
-                            實撥增庫 {actQty} 件
-                          </strong>
-                        ) : (
-                          <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0369a1" }}>
-                            增庫 {reqQty} {item.unit_snapshot ?? "件"}
-                          </strong>
-                        )}
-                      </div>
-                      {isShort && (
-                        <span
-                          style={{
-                            background: "#fef2f2",
-                            color: "#b91c1c",
-                            border: "1px solid #fecaca",
-                            borderRadius: "4px",
-                            padding: "2px 8px",
-                            fontSize: "12px",
-                            fontWeight: 600,
-                          }}
-                        >
-                          短撥 {reqQty - (actQty ?? 0)} 件（{item.short_ship_reason_label ?? "短發出庫"}）
-                        </span>
-                      )}
-                      {hasShipment && actQty !== null && !isShort && (
-                        <span
-                          style={{
-                            background: "#f0fdf4",
-                            color: "#166534",
-                            border: "1px solid #bbf7d0",
-                            borderRadius: "4px",
-                            padding: "1px 6px",
-                            fontSize: "11px",
-                            fontWeight: 600,
-                          }}
-                        >
-                          全額增庫
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="muted">
-              額外補庫申請紀錄：共 {items.length} 個品項，總計申請增庫 {items.reduce((sum, item) => sum + numberValue(item.increase_quantity), 0)} 件。倉庫調撥確認完成後將直接增加人資常備庫存。
-            </p>
-          </>
-        ) : (
-          <>
-            <h4>品號彙總</h4>
-            <div className="summary-list">
-              {items.map((item) => {
-                const reqTransferQty = numberValue(item.requested_transfer_quantity);
-                const hasShipment = item.actual_transfer_quantity != null;
-                const actTransferQty = hasShipment ? numberValue(item.actual_transfer_quantity) : null;
-                const isShort = hasShipment && actTransferQty !== null && actTransferQty < reqTransferQty;
-
-                return (
-                  <div className="summary-row" key={item.id} style={{ padding: "12px 14px", alignItems: "flex-start" }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
-                          {item.item_code_snapshot ?? item.item_id}
-                        </strong>
-                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
-                          {item.item_name_snapshot ?? "制服品號"}
-                        </strong>
-                        <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
-                          （{item.unit_snapshot ?? "件"}）
-                        </span>
-                      </div>
-                      <div style={{ fontSize: "0.9rem", color: "#64748b" }}>
-                        發放需求 <strong>{numberValue(item.issue_quantity)}</strong> 件 ＋ 增庫需求 <strong>{numberValue(item.increase_quantity)}</strong> 件
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "6px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <span style={{ fontSize: "0.9rem", color: "#64748b" }}>
-                          總倉調庫需求 {reqTransferQty} 件
-                        </span>
-                        {hasShipment && actTransferQty !== null ? (
-                          <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: isShort ? "#dc2626" : "#15803d" }}>
-                            總倉發貨 {actTransferQty} 件
-                          </strong>
-                        ) : (
-                          <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#c65337" }}>
-                            需求 {reqTransferQty} {item.unit_snapshot ?? "件"}
-                          </strong>
-                        )}
-                      </div>
-                      {isShort && (
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                          <span
-                            style={{
-                              background: "#fef2f2",
-                              color: "#b91c1c",
-                              border: "1px solid #fecaca",
-                              borderRadius: "4px",
-                              padding: "2px 8px",
-                              fontSize: "12px",
-                              fontWeight: 600,
-                            }}
-                          >
-                            短發 {reqTransferQty - (actTransferQty ?? 0)} 件（{item.short_ship_reason_label ?? "短發出庫"}）
-                            {item.short_ship_note ? `：${item.short_ship_note}` : ""}
-                          </span>
-                        </div>
-                      )}
-                      {hasShipment && actTransferQty !== null && !isShort && (
-                        <span
-                          style={{
-                            background: "#f0fdf4",
-                            color: "#166534",
-                            border: "1px solid #bbf7d0",
-                            borderRadius: "4px",
-                            padding: "1px 6px",
-                            fontSize: "11px",
-                            fontWeight: 600,
-                          }}
-                        >
-                          全額調庫出庫
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {items.some((item) => numberValue(item.increase_quantity) > 0) ? (
-              <>
-                <h4>增庫申請明細（隨單增庫）</h4>
-                <div className="summary-list">
-                  {items.filter((item) => numberValue(item.increase_quantity) > 0).map((item) => (
-                    <div className="summary-row" key={`inc-${item.id}`} style={{ padding: "10px 14px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
-                          {item.item_code_snapshot ?? item.item_id}
-                        </strong>
-                        <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
-                          {item.item_name_snapshot ?? "制服品號"}
-                        </strong>
-                        <span style={{ fontSize: "0.9rem", color: "#64748b", fontWeight: 600 }}>
-                          （{item.unit_snapshot ?? "件"}）
-                        </span>
-                      </div>
-                      <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0369a1" }}>增庫 {numberValue(item.increase_quantity)} {item.unit_snapshot ?? "件"}</strong>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : null}
-            <h4>發放明細</h4>
-            <div className="summary-list">
-              {issueLines.map((line) => {
-                const selectedCode = parsedUnitMap[line.line_no] || parsedUnitMap[String(line.line_no)];
-                const unitCode = selectedCode || line.department_code_snapshot || line.institution_code_snapshot || "";
-                const unitName = (selectedCode && orgMap.get(selectedCode))
-                  || (unitCode === line.department_code_snapshot ? line.department_name_snapshot : null)
-                  || (unitCode === line.institution_code_snapshot ? line.institution_name_snapshot : null)
-                  || orgMap.get(unitCode)
-                  || line.department_name_snapshot
-                  || line.institution_name_snapshot
-                  || "";
-
-                const unitDisplay = unitName && unitName !== unitCode ? `${unitCode}｜${unitName}` : (unitCode || "—");
-                return (
-                  <div className="summary-row" key={line.id} style={{ padding: "10px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                      <span style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        padding: "3px 8px",
-                        background: "#f1f5f9",
-                        color: "#1e293b",
-                        borderRadius: 6,
-                        fontWeight: 700,
-                        fontSize: "0.95rem",
-                        border: "1px solid #cbd5e1"
-                      }}>
-                        {unitDisplay}
-                      </span>
-                      <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#0f172a" }}>
-                        {line.item_code_snapshot ?? "—"}
-                      </strong>
-                      <strong style={{ fontSize: "1.1rem", fontWeight: 700, color: "#1e293b" }}>
-                        {line.item_name_snapshot ?? ""}
-                      </strong>
-                      {line.size_snapshot ? (
-                        <span style={{
-                          display: "inline-block",
-                          fontSize: "0.9rem",
-                          fontWeight: 600,
-                          color: "#475569",
-                          background: "#f8fafc",
-                          padding: "1px 6px",
-                          borderRadius: 4,
-                          border: "1px solid #e2e8f0"
-                        }}>
-                          {line.size_snapshot}
-                        </span>
-                      ) : null}
-                    </div>
-                    <strong style={{ fontSize: "1.15rem", fontWeight: 700, color: "#0f172a" }}>
-                      {numberValue(line.quantity)} {line.unit_snapshot ?? ""}
-                    </strong>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="muted">預留紀錄：{reservations.length} 筆；有效 {reservations.filter((row) => row.status === "ACTIVE").length} 筆，已關閉／釋放 {reservations.filter((row) => row.status !== "ACTIVE").length} 筆。</p>
-          </>
-        )
-      )}
-    </div> : null}
+    <HrRequestDetailModal
+      isOpen={modalOpen && Boolean(selected)}
+      onClose={() => setModalOpen(false)}
+      client={client}
+      sourceNo={selected?.requestNo ?? ""}
+      postingId={selected?.id}
+      postingKind={selected?.requestType === "REPLENISHMENT" ? "REPLENISHMENT" : "HR_REQUEST"}
+      canCancel={Boolean(selected && canCancelHrRequest(selected.status, roles))}
+      onCancel={handleCancelFromModal}
+    />
   </section>;
 }
