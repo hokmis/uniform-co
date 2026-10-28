@@ -19,6 +19,10 @@ describe("warehouse shipment queue", () => {
 
     expect(changedWarehouseShipmentLines(current, persisted)).toEqual([current[1]]);
     expect(changedWarehouseShipmentLines(persisted, persisted)).toEqual([]);
+
+    const withNote = [{ ...persisted[1], short_ship_reason_code: "OTHER", short_ship_note: "瑕疵更換" }];
+    const withoutNote = [{ ...persisted[1], short_ship_reason_code: "OTHER" }];
+    expect(changedWarehouseShipmentLines(withNote, withoutNote)).toEqual([withNote[0]]);
   });
 
   it("treats a newly added draft line as unsaved", () => {

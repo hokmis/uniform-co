@@ -15,6 +15,7 @@ export type WarehouseShipmentLineEdit = {
   id: string;
   actual_transfer_quantity: number;
   short_ship_reason_code: string | null;
+  short_ship_note?: string | null;
 };
 
 /** Returns only edits that have not reached the persisted shipment draft yet. */
@@ -27,7 +28,8 @@ export function changedWarehouseShipmentLines<T extends WarehouseShipmentLineEdi
     const saved = persistedById.get(line.id);
     return !saved
       || saved.actual_transfer_quantity !== line.actual_transfer_quantity
-      || saved.short_ship_reason_code !== line.short_ship_reason_code;
+      || saved.short_ship_reason_code !== line.short_ship_reason_code
+      || (saved.short_ship_note ?? null) !== (line.short_ship_note ?? null);
   });
 }
 

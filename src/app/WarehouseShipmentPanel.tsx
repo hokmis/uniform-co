@@ -27,6 +27,7 @@ type ShipmentLine = WarehouseShipmentLineEdit & {
   maximum_transfer_quantity_snapshot: number;
   actual_transfer_quantity: number;
   short_ship_reason_code: string | null;
+  short_ship_note?: string | null;
   issue_quantity?: number;
   increase_quantity?: number;
 };
@@ -36,6 +37,7 @@ function cleanDisplayNote(note: string | null | undefined): string {
   return note
     .replace(/<!--unit_breakdown:.*?-->/g, "")
     .replace(/<!--unit_map:.*?-->/g, "")
+    .replace(/<!--short_ship_notes:.*?-->/g, "")
     .trim();
 }
 
@@ -264,8 +266,17 @@ export default function WarehouseShipmentPanel() {
       try {
         const loadedLines = await loadReplenishmentLines(selected.id);
         if (!readController.isCurrent(readSequence)) return;
-        setLines(loadedLines);
-        persistedLinesRef.current = loadedLines;
+        let savedNotes: Record<string, string> = {};
+        try {
+          const rawNotes = window.localStorage.getItem(`${shipmentOperationStoragePrefix}:notes:replenishment:${selected.id}`);
+          if (rawNotes) savedNotes = JSON.parse(rawNotes);
+        } catch {}
+        const linesWithNotes = loadedLines.map((l) => ({
+          ...l,
+          short_ship_note: savedNotes[l.id] ?? null,
+        }));
+        setLines(linesWithNotes);
+        persistedLinesRef.current = linesWithNotes;
         setMessage("已載入補庫單；請核對實際調庫量後直接確認完成。庫存上限會在送出時再次驗證。");
       } catch (error) {
         if (!readController.isCurrent(readSequence)) return;
@@ -286,11 +297,33 @@ export default function WarehouseShipmentPanel() {
       const loadedLines = await loadShipmentLines(selected.shipment_id, selected.id);
       const linesWithMeta = await enrichLinesWithQuantities(loadedLines, selected.id);
       if (!readController.isCurrent(readSequence)) return;
+      let noteMap: Record<string, string> = {};
+      try {
+        const { data: shipData } = await client
+          .from("warehouse_shipments")
+          .select("note")
+          .eq("id", selected.shipment_id)
+          .maybeSingle();
+        if (shipData?.note) {
+          const match = shipData.note.match(/<!--short_ship_notes:(.*?)-->/);
+          if (match && match[1]) {
+            noteMap = JSON.parse(match[1]);
+          }
+        }
+      } catch {}
+      try {
+        const rawNotes = window.localStorage.getItem(`${shipmentOperationStoragePrefix}:notes:${selected.shipment_id}`);
+        if (rawNotes) noteMap = { ...noteMap, ...JSON.parse(rawNotes) };
+      } catch {}
+      const linesWithNotes = linesWithMeta.map((l) => ({
+        ...l,
+        short_ship_note: noteMap[l.id] ?? null,
+      }));
       setShipmentId(selected.shipment_id);
       setShipmentNo(selected.shipment_no ?? "");
       setShipmentOwnerId(selected.shipment_created_by ?? "");
-      setLines(linesWithMeta);
-      persistedLinesRef.current = linesWithMeta;
+      setLines(linesWithNotes);
+      persistedLinesRef.current = linesWithNotes;
       setDraftDirty(false);
       setPosted(selected.shipment_status === "POSTED");
       postKeyRef.current = window.localStorage.getItem(`${shipmentOperationStoragePrefix}:post:${selected.shipment_id}`);
@@ -333,11 +366,20 @@ export default function WarehouseShipmentPanel() {
     try {
       const loadedLines = await loadShipmentLines(data.id, selected.id);
       const linesWithMeta = await enrichLinesWithQuantities(loadedLines, selected.id);
+      let noteMap: Record<string, string> = {};
+      try {
+        const rawNotes = window.localStorage.getItem(`${shipmentOperationStoragePrefix}:notes:${data.id}`);
+        if (rawNotes) noteMap = JSON.parse(rawNotes);
+      } catch {}
+      const linesWithNotes = linesWithMeta.map((l) => ({
+        ...l,
+        short_ship_note: noteMap[l.id] ?? null,
+      }));
       setShipmentId(data.id);
       setShipmentNo(data.shipment_no ?? shipmentNo.trim());
       setShipmentOwnerId(data.created_by ?? accountId);
-      setLines(linesWithMeta);
-      persistedLinesRef.current = linesWithMeta;
+      setLines(linesWithNotes);
+      persistedLinesRef.current = linesWithNotes;
       setDraftDirty(false);
       setPosted(false);
       setRequests((current) => current.map((request) => request.queue_key === selected.queue_key ? {
@@ -359,18 +401,55 @@ export default function WarehouseShipmentPanel() {
     }
   }
 
-  function updateLine(lineId: string, field: "actual_transfer_quantity" | "short_ship_reason_code", value: string) {
+  function updateLine(
+    lineId: string,
+    field: "actual_transfer_quantity" | "short_ship_reason_code" | "short_ship_note",
+    value: string
+  ) {
     if (!posted && (shipmentId || selectedRequest?.source === "REPLENISHMENT")) {
       postKeyRef.current = null;
       const operationId = shipmentId || `replenishment:${selectedRequest?.id ?? ""}`;
       window.localStorage.removeItem(`${shipmentOperationStoragePrefix}:post:${operationId}`);
     }
-    const updatedLines = lines.map((line) => line.id === lineId ? {
-      ...line,
-      [field]: field === "actual_transfer_quantity" ? Math.max(0, Number(value) || 0) : value || null,
-    } : line);
+    const updatedLines = lines.map((line) => {
+      if (line.id !== lineId) return line;
+      if (field === "actual_transfer_quantity") {
+        const nextQty = Math.max(0, Number(value) || 0);
+        return {
+          ...line,
+          actual_transfer_quantity: nextQty,
+          ...(nextQty >= line.requested_transfer_quantity_snapshot ? { short_ship_reason_code: null, short_ship_note: null } : {}),
+        };
+      }
+      if (field === "short_ship_reason_code") {
+        return {
+          ...line,
+          short_ship_reason_code: value || null,
+          ...(value !== "OTHER" ? { short_ship_note: null } : {}),
+        };
+      }
+      return {
+        ...line,
+        short_ship_note: value,
+      };
+    });
     setLines(updatedLines);
     setDraftDirty(changedWarehouseShipmentLines(updatedLines, persistedLinesRef.current).length > 0);
+
+    const operationId = shipmentId || (selectedRequest?.source === "REPLENISHMENT" ? `replenishment:${selectedRequest?.id}` : null);
+    if (operationId) {
+      const notesMap: Record<string, string> = {};
+      for (const l of updatedLines) {
+        if (l.short_ship_note?.trim()) {
+          notesMap[l.id] = l.short_ship_note.trim();
+        }
+      }
+      if (Object.keys(notesMap).length > 0) {
+        window.localStorage.setItem(`${shipmentOperationStoragePrefix}:notes:${operationId}`, JSON.stringify(notesMap));
+      } else {
+        window.localStorage.removeItem(`${shipmentOperationStoragePrefix}:notes:${operationId}`);
+      }
+    }
   }
 
   async function postShipment(override?: { shipmentId: string; lines: ShipmentLine[] }) {
@@ -383,6 +462,16 @@ export default function WarehouseShipmentPanel() {
       setMessage("實際調庫量低於需求時，必須選擇短發原因。");
       return;
     }
+    const invalidOtherNote = activeLines.some(
+      (line) =>
+        line.actual_transfer_quantity < line.requested_transfer_quantity_snapshot &&
+        line.short_ship_reason_code === "OTHER" &&
+        !line.short_ship_note?.trim()
+    );
+    if (invalidOtherNote) {
+      setMessage("短發原因選擇「其他（需備註）」時，必須填寫備註內容。");
+      return;
+    }
     setBusy(true);
     setMessage("");
     const operationId = selectedRequest.source === "REPLENISHMENT" ? `replenishment:${selectedRequest.id}` : activeShipmentId;
@@ -390,6 +479,46 @@ export default function WarehouseShipmentPanel() {
     const key = postKeyRef.current ?? window.localStorage.getItem(storageKey) ?? crypto.randomUUID();
     postKeyRef.current = key;
     window.localStorage.setItem(storageKey, key);
+
+    // 若有短發備註且有 activeShipmentId，在草稿為 DRAFT 時寫入 warehouse_shipments.note
+    if (activeShipmentId && selectedRequest.source === "HR_REQUEST") {
+      try {
+        const notesMap: Record<string, string> = {};
+        const noteTexts: string[] = [];
+        for (const line of activeLines) {
+          if (
+            line.actual_transfer_quantity < line.requested_transfer_quantity_snapshot &&
+            line.short_ship_reason_code === "OTHER" &&
+            line.short_ship_note?.trim()
+          ) {
+            notesMap[line.id] = line.short_ship_note.trim();
+            const itemLabel = line.item_code_snapshot || line.item_name_snapshot || line.id;
+            noteTexts.push(`【短發備註】${itemLabel}: ${line.short_ship_note.trim()}`);
+          }
+        }
+        if (Object.keys(notesMap).length > 0) {
+          const { data: currentShip } = await client
+            .from("warehouse_shipments")
+            .select("note")
+            .eq("id", activeShipmentId)
+            .maybeSingle();
+          let baseNote = cleanDisplayNote(currentShip?.note ?? "");
+          baseNote = baseNote.replace(/【短發備註】[^\n]*\n?/g, "").trim();
+          const combinedNote = [
+            `<!--short_ship_notes:${JSON.stringify(notesMap)}-->`,
+            baseNote,
+            ...noteTexts,
+          ].filter(Boolean).join("\n");
+          await client
+            .from("warehouse_shipments")
+            .update({ note: combinedNote })
+            .eq("id", activeShipmentId);
+        }
+      } catch (e) {
+        console.warn("Failed to persist short ship notes to shipment note:", e);
+      }
+    }
+
     const requestFingerprint = JSON.stringify({ shipmentId: activeShipmentId, lines: activeLines });
     let postResult: WarehousePostResult | null = null;
     const canSubmitLines = selectedRequest.source === "HR_REQUEST" && Boolean(activeShipmentId) && Boolean(override || canEditShipment);
@@ -488,6 +617,7 @@ export default function WarehouseShipmentPanel() {
       setMessage("理貨完成結果尚未確認；請使用相同操作重試。");
     } else {
       window.localStorage.removeItem(storageKey);
+      if (operationId) window.localStorage.removeItem(`${shipmentOperationStoragePrefix}:notes:${operationId}`);
       postKeyRef.current = null;
       setPosted(true);
       setDraftDirty(false);
@@ -639,21 +769,47 @@ export default function WarehouseShipmentPanel() {
                         onChange={(event) => updateLine(line.id, "actual_transfer_quantity", event.target.value)}
                       />
                     </label>
-                    <label className="field" style={{ minWidth: "120px", margin: 0 }}>
-                      <span className="sr-only">短發原因</span>
-                      <select
-                        value={line.short_ship_reason_code ?? ""}
-                        disabled={posted || busy || returnPending || detailsLoading || !canEditShipment || line.actual_transfer_quantity >= line.requested_transfer_quantity_snapshot}
-                        onChange={(event) => updateLine(line.id, "short_ship_reason_code", event.target.value)}
-                      >
-                        <option value="">短發原因</option>
-                        {reasons.map((reason) => (
-                          <option key={reason.code} value={reason.code}>
-                            {reason.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: "150px" }}>
+                      <label className="field" style={{ minWidth: "150px", margin: 0 }}>
+                        <span className="sr-only">短發原因</span>
+                        <select
+                          value={line.short_ship_reason_code ?? ""}
+                          disabled={posted || busy || returnPending || detailsLoading || !canEditShipment || line.actual_transfer_quantity >= line.requested_transfer_quantity_snapshot}
+                          onChange={(event) => updateLine(line.id, "short_ship_reason_code", event.target.value)}
+                        >
+                          <option value="">短發原因</option>
+                          {reasons.map((reason) => (
+                            <option key={reason.code} value={reason.code}>
+                              {reason.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {line.actual_transfer_quantity < line.requested_transfer_quantity_snapshot && line.short_ship_reason_code === "OTHER" && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                          <label className="field" style={{ margin: 0 }}>
+                            <span className="sr-only">短發備註內容</span>
+                            <input
+                              type="text"
+                              placeholder="請輸入其他備註內容…"
+                              value={line.short_ship_note ?? ""}
+                              disabled={posted || busy || returnPending || detailsLoading || !canEditShipment}
+                              onChange={(event) => updateLine(line.id, "short_ship_note", event.target.value)}
+                              style={{
+                                fontSize: "12px",
+                                padding: "4px 8px",
+                                borderColor: !line.short_ship_note?.trim() && !posted ? "var(--danger-border, #fca5a5)" : undefined,
+                              }}
+                            />
+                          </label>
+                          {!line.short_ship_note?.trim() && !posted && (
+                            <span style={{ fontSize: "11px", color: "var(--danger, #dc2626)" }}>
+                              * 需填寫備註
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
