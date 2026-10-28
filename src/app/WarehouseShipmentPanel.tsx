@@ -298,19 +298,21 @@ export default function WarehouseShipmentPanel() {
       const linesWithMeta = await enrichLinesWithQuantities(loadedLines, selected.id);
       if (!readController.isCurrent(readSequence)) return;
       let noteMap: Record<string, string> = {};
-      try {
-        const { data: shipData } = await client
-          .from("warehouse_shipments")
-          .select("note")
-          .eq("id", selected.shipment_id)
-          .maybeSingle();
-        if (shipData?.note) {
-          const match = shipData.note.match(/<!--short_ship_notes:(.*?)-->/);
-          if (match && match[1]) {
-            noteMap = JSON.parse(match[1]);
+      if (client) {
+        try {
+          const { data: shipData } = await client
+            .from("warehouse_shipments")
+            .select("note")
+            .eq("id", selected.shipment_id)
+            .maybeSingle();
+          if (shipData?.note) {
+            const match = shipData.note.match(/<!--short_ship_notes:(.*?)-->/);
+            if (match && match[1]) {
+              noteMap = JSON.parse(match[1]);
+            }
           }
-        }
-      } catch {}
+        } catch {}
+      }
       try {
         const rawNotes = window.localStorage.getItem(`${shipmentOperationStoragePrefix}:notes:${selected.shipment_id}`);
         if (rawNotes) noteMap = { ...noteMap, ...JSON.parse(rawNotes) };
