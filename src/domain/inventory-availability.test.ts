@@ -57,6 +57,28 @@ describe("inventory availability", () => {
     expect(inventoryAvailabilityStatusLabel("GENERAL_OUT_OF_STOCK")).toBe("總倉無庫存");
   });
 
+  it("marks item as BELOW_SAFETY_STOCK when available quantity is at or below safety stock", () => {
+    const row = normalizeInventoryAvailabilityRow({
+      is_active: true,
+      hr_on_hand_quantity: 5,
+      general_on_hand_quantity: 5,
+      available_to_request_quantity: 5,
+    });
+    // 設定安全庫存為 10，可申請量為 5 <= 10 -> BELOW_SAFETY_STOCK
+    expect(inventoryAvailabilityStatus(row, 10)).toBe("BELOW_SAFETY_STOCK");
+    expect(inventoryAvailabilityStatusLabel("BELOW_SAFETY_STOCK")).toBe("低於安全庫存");
+
+    // 設定安全庫存為 3，可申請量為 5 > 3 -> AVAILABLE
+    expect(inventoryAvailabilityStatus(row, 3)).toBe("AVAILABLE");
+
+    // 若可申請量已歸零，優先判定為 OUT_OF_STOCK
+    const zeroRow = normalizeInventoryAvailabilityRow({
+      is_active: true,
+      available_to_request_quantity: 0,
+    });
+    expect(inventoryAvailabilityStatus(zeroRow, 10)).toBe("OUT_OF_STOCK");
+  });
+
   it("surfaces impossible negative values as a data error", () => {
     const row = normalizeInventoryAvailabilityRow({ is_active: true, available_to_request_quantity: -1 });
     expect(inventoryAvailabilityStatus(row)).toBe("DATA_ERROR");

@@ -13,6 +13,13 @@ import { inventoryDataChangedEvent } from "@/src/domain/inventory-events";
 import { usePanelActivity } from "./RetainedPanelSet";
 import { useWorkspaceSession } from "./workspace-session";
 import ItemShortageModal, { type ItemShortageRow } from "./ItemShortageModal";
+import {
+  loadSafetyStockMap,
+  getSafetyStockThreshold,
+  isBelowSafetyStock,
+  safetyStockChangedEvent,
+  type SafetyStockMap,
+} from "@/src/domain/safety-stock";
 
 type Row = Record<string, unknown>;
 
@@ -165,6 +172,22 @@ export default function OverviewDashboard({ onNavigate }: Props) {
   const [reloadRequest, setReloadRequest] = useState<{ token: number; scope: OverviewReloadScope }>({ token: 0, scope: "all" });
   const [exactAbnormalCount, setExactAbnormalCount] = useState<number | null>(null);
   const [dataSnapshotAccountId, setDataSnapshotAccountId] = useState<string | null>(null);
+  const [safetyStockMap, setSafetyStockMap] = useState<SafetyStockMap>(() => {
+    return typeof window !== "undefined" ? loadSafetyStockMap() : {};
+  });
+
+  useEffect(() => {
+    function handleSafetyStockChanged() {
+      setSafetyStockMap(loadSafetyStockMap());
+    }
+    window.addEventListener(safetyStockChangedEvent, handleSafetyStockChanged);
+    window.addEventListener("storage", handleSafetyStockChanged);
+    return () => {
+      window.removeEventListener(safetyStockChangedEvent, handleSafetyStockChanged);
+      window.removeEventListener("storage", handleSafetyStockChanged);
+    };
+  }, []);
+
   const dataSnapshotAccountIdRef = useRef<string | null>(null);
   const dataRef = useRef<DashboardData>(emptyData);
   const wasPanelActive = useRef(false);
@@ -342,7 +365,12 @@ export default function OverviewDashboard({ onNavigate }: Props) {
       const avail = numberValue(row.available_to_request_quantity);
       const hasGen = row.general_on_hand_quantity !== undefined && row.general_on_hand_quantity !== null;
       const gen = hasGen ? numberValue(row.general_on_hand_quantity) : null;
-      return avail <= 0 || (gen !== null && gen <= 0);
+      const threshold = getSafetyStockThreshold(
+        { itemId: textValue(row.item_id), itemCode: textValue(row.item_code) },
+        safetyStockMap,
+      );
+      const belowSafety = isBelowSafetyStock(avail, threshold);
+      return avail <= 0 || (gen !== null && gen <= 0) || belowSafety;
     }).length;
     const month = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).format(new Date());
     const monthlyIssued = visibleData.distributions
@@ -397,7 +425,7 @@ export default function OverviewDashboard({ onNavigate }: Props) {
       receiptProgress: percent(accepted, ordered),
       availabilityProgress: percent(healthyAvailability, visibleData.availability.length),
     };
-  }, [visibleData]);
+  }, [safetyStockMap, visibleData]);
 
   const [showAbnormalModal, setShowAbnormalModal] = useState(false);
   const [enrichedAbnormalItems, setEnrichedAbnormalItems] = useState<ItemShortageRow[] | null>(null);
@@ -409,17 +437,30 @@ export default function OverviewDashboard({ onNavigate }: Props) {
         const avail = numberValue(row.available_to_request_quantity);
         const hasGen = row.general_on_hand_quantity !== undefined && row.general_on_hand_quantity !== null;
         const gen = hasGen ? numberValue(row.general_on_hand_quantity) : null;
-        return avail <= 0 || (gen !== null && gen <= 0);
+        const threshold = getSafetyStockThreshold(
+          { itemId: textValue(row.item_id), itemCode: textValue(row.item_code) },
+          safetyStockMap,
+        );
+        const belowSafety = isBelowSafetyStock(avail, threshold);
+        return avail <= 0 || (gen !== null && gen <= 0) || belowSafety;
       })
       .map((row) => {
         const avail = numberValue(row.available_to_request_quantity);
         const hasGen = row.general_on_hand_quantity !== undefined && row.general_on_hand_quantity !== null;
         const gen = hasGen ? numberValue(row.general_on_hand_quantity) : 0;
+        const threshold = getSafetyStockThreshold(
+          { itemId: textValue(row.item_id), itemCode: textValue(row.item_code) },
+          safetyStockMap,
+        );
+        const belowSafety = isBelowSafetyStock(avail, threshold);
         let statusLabel = "無可申請量";
         if (avail < 0) statusLabel = "資料異常";
-        else if (avail > 0 && gen <= 0) statusLabel = "總倉無庫存";
         else if (avail <= 0 && gen <= 0) statusLabel = "全倉缺貨";
+        else if (avail <= 0) statusLabel = "無可申請量";
+        else if (belowSafety) statusLabel = "低於安全庫存";
+        else if (gen <= 0) statusLabel = "總倉無庫存";
         return {
+          itemId: textValue(row.item_id),
           itemCode: textValue(row.item_code),
           itemName: textValue(row.item_name),
           combinedOnHand: numberValue(row.combined_on_hand_quantity),
@@ -430,9 +471,11 @@ export default function OverviewDashboard({ onNavigate }: Props) {
           statusLabel,
           isDataError: avail < 0,
           isGeneralOutOfStock: gen <= 0,
+          safetyStock: threshold,
+          isBelowSafetyStock: belowSafety,
         };
       });
-  }, [visibleData.availability]);
+  }, [safetyStockMap, visibleData.availability]);
 
   const handleOpenAbnormalModal = async () => {
     setShowAbnormalModal(true);
@@ -441,33 +484,55 @@ export default function OverviewDashboard({ onNavigate }: Props) {
     try {
       const { data: queryData, error } = await client
         .from("v_item_availability")
-        .select("item_code,item_name,unit,size,category,hr_on_hand_quantity,general_on_hand_quantity,combined_on_hand_quantity,active_reserved_quantity,available_to_request_quantity")
-        .or("available_to_request_quantity.lte.0,general_on_hand_quantity.lte.0")
-        .order("item_code");
+        .select("item_id,item_code,item_name,unit,size,category,hr_on_hand_quantity,general_on_hand_quantity,combined_on_hand_quantity,active_reserved_quantity,available_to_request_quantity")
+        .order("item_code")
+        .limit(500);
       if (!error && queryData && queryData.length > 0) {
-        const enriched: ItemShortageRow[] = (queryData as unknown as Array<Record<string, unknown>>).map((r) => {
-          const avail = numberValue(r.available_to_request_quantity);
-          const gen = numberValue(r.general_on_hand_quantity);
-          let statusLabel = "無可申請量";
-          if (avail < 0) statusLabel = "資料異常";
-          else if (avail > 0 && gen <= 0) statusLabel = "總倉無庫存";
-          else if (avail <= 0 && gen <= 0) statusLabel = "全倉缺貨";
-          return {
-            itemCode: textValue(r.item_code),
-            itemName: textValue(r.item_name),
-            unit: textValue(r.unit),
-            size: r.size ? String(r.size) : null,
-            category: r.category ? String(r.category) : null,
-            hrOnHand: numberValue(r.hr_on_hand_quantity),
-            generalOnHand: gen,
-            combinedOnHand: numberValue(r.combined_on_hand_quantity),
-            activeReserved: numberValue(r.active_reserved_quantity),
-            availableToRequest: avail,
-            statusLabel,
-            isDataError: avail < 0,
-            isGeneralOutOfStock: gen <= 0,
-          };
-        });
+        const enriched: ItemShortageRow[] = (queryData as unknown as Array<Record<string, unknown>>)
+          .filter((r) => {
+            const avail = numberValue(r.available_to_request_quantity);
+            const hasGen = r.general_on_hand_quantity !== undefined && r.general_on_hand_quantity !== null;
+            const gen = hasGen ? numberValue(r.general_on_hand_quantity) : null;
+            const threshold = getSafetyStockThreshold(
+              { itemId: textValue(r.item_id), itemCode: textValue(r.item_code) },
+              safetyStockMap,
+            );
+            const belowSafety = isBelowSafetyStock(avail, threshold);
+            return avail <= 0 || (gen !== null && gen <= 0) || belowSafety;
+          })
+          .map((r) => {
+            const avail = numberValue(r.available_to_request_quantity);
+            const gen = numberValue(r.general_on_hand_quantity);
+            const threshold = getSafetyStockThreshold(
+              { itemId: textValue(r.item_id), itemCode: textValue(r.item_code) },
+              safetyStockMap,
+            );
+            const belowSafety = isBelowSafetyStock(avail, threshold);
+            let statusLabel = "無可申請量";
+            if (avail < 0) statusLabel = "資料異常";
+            else if (avail <= 0 && gen <= 0) statusLabel = "全倉缺貨";
+            else if (avail <= 0) statusLabel = "無可申請量";
+            else if (belowSafety) statusLabel = "低於安全庫存";
+            else if (gen <= 0) statusLabel = "總倉無庫存";
+            return {
+              itemId: textValue(r.item_id),
+              itemCode: textValue(r.item_code),
+              itemName: textValue(r.item_name),
+              unit: textValue(r.unit),
+              size: r.size ? String(r.size) : null,
+              category: r.category ? String(r.category) : null,
+              hrOnHand: numberValue(r.hr_on_hand_quantity),
+              generalOnHand: gen,
+              combinedOnHand: numberValue(r.combined_on_hand_quantity),
+              activeReserved: numberValue(r.active_reserved_quantity),
+              availableToRequest: avail,
+              statusLabel,
+              isDataError: avail < 0,
+              isGeneralOutOfStock: gen <= 0,
+              safetyStock: threshold,
+              isBelowSafetyStock: belowSafety,
+            };
+          });
         setEnrichedAbnormalItems(enriched);
       }
     } catch {
@@ -495,8 +560,8 @@ export default function OverviewDashboard({ onNavigate }: Props) {
         <Metric label="待入庫數量" value={readPresentation.showCorePlaceholder ? "—" : derived.remainingToAccept} note="採購進度尚未驗收" tone="amber" />
         <Metric
           label="可申請量異常"
-          value={readPresentation.showCorePlaceholder ? "—" : (exactAbnormalCount ?? derived.lowAvailability)}
-          note="缺貨、總倉為 0 或資料異常（點擊查看）"
+          value={readPresentation.showCorePlaceholder ? "—" : (Object.keys(safetyStockMap).length > 0 ? derived.lowAvailability : (exactAbnormalCount ?? derived.lowAvailability))}
+          note="缺貨、低於安全庫存或總倉為 0（點擊查看）"
           tone="red"
           clickable={!readPresentation.showCorePlaceholder}
           onClick={handleOpenAbnormalModal}
@@ -554,8 +619,8 @@ export default function OverviewDashboard({ onNavigate }: Props) {
           setShowAbnormalModal(false);
           setEnrichedAbnormalItems(null);
         }}
-        title="可申請量異常品項清單（缺量）"
-        subtitle="以下品項目前兩倉合計扣除預留後，可申請量小於等於 0"
+        title="可申請量異常品項清單（缺貨或低於安全庫存）"
+        subtitle="以下品項目前無可申請量、低於設定的安全庫存或總倉無庫存，請留意庫存與補庫"
         items={enrichedAbnormalItems ?? lowAvailabilityRows}
         loading={abnormalLoading}
         onNavigateToWarehouse={() => {

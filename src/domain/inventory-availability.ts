@@ -20,6 +20,7 @@ export type InventoryAvailabilityStatus =
   | "AVAILABLE"
   | "OUT_OF_STOCK"
   | "GENERAL_OUT_OF_STOCK"
+  | "BELOW_SAFETY_STOCK"
   | "INACTIVE"
   | "DATA_ERROR";
 export type InventoryAvailabilityStatusFilter = "ALL" | InventoryAvailabilityStatus;
@@ -32,6 +33,7 @@ export type InventoryAvailabilitySortKey =
   | "combined_on_hand"
   | "active_reserved"
   | "available_to_request"
+  | "safety_stock"
   | "status";
 export type InventoryAvailabilitySortDirection = "asc" | "desc";
 
@@ -39,6 +41,7 @@ export type InventoryAvailabilityFilters = {
   query: string;
   category: string;
   status: InventoryAvailabilityStatusFilter;
+  safetyStockMap?: Record<string, number>;
 };
 
 type InventoryAvailabilityError = {
@@ -98,12 +101,18 @@ export function normalizeInventoryAvailabilityRow(row: Record<string, unknown>):
   };
 }
 
-export function inventoryAvailabilityStatus(row: InventoryAvailabilityRow): InventoryAvailabilityStatus {
+export function inventoryAvailabilityStatus(
+  row: InventoryAvailabilityRow,
+  safetyStock?: number | null,
+): InventoryAvailabilityStatus {
   if (!row.isActive) return "INACTIVE";
   if ([row.hrOnHand, row.generalOnHand, row.combinedOnHand, row.activeReserved, row.availableToRequest].some((value) => value < 0)) {
     return "DATA_ERROR";
   }
   if (row.availableToRequest <= 0) return "OUT_OF_STOCK";
+  if (safetyStock !== null && safetyStock !== undefined && safetyStock > 0 && row.availableToRequest <= safetyStock) {
+    return "BELOW_SAFETY_STOCK";
+  }
   if (row.generalOnHand <= 0) return "GENERAL_OUT_OF_STOCK";
   return "AVAILABLE";
 }
@@ -113,10 +122,11 @@ export function inventoryAvailabilityStatusLabel(status: InventoryAvailabilitySt
     AVAILABLE: "可申請",
     OUT_OF_STOCK: "無可申請量",
     GENERAL_OUT_OF_STOCK: "總倉無庫存",
+    BELOW_SAFETY_STOCK: "低於安全庫存",
     INACTIVE: "已停用",
     DATA_ERROR: "資料異常",
   };
-  return labels[status];
+  return labels[status] ?? "";
 }
 
 export function inventoryAvailabilityCategories(rows: readonly InventoryAvailabilityRow[]): string[] {
@@ -130,7 +140,10 @@ export function filterInventoryAvailability(
 ): InventoryAvailabilityRow[] {
   const query = filters.query.trim().toLocaleLowerCase("zh-TW");
   return rows.filter((row) => {
-    const status = inventoryAvailabilityStatus(row);
+    const safetyStock = filters.safetyStockMap
+      ? (filters.safetyStockMap[row.itemId] ?? filters.safetyStockMap[row.itemCode] ?? null)
+      : null;
+    const status = inventoryAvailabilityStatus(row, safetyStock);
     if (filters.status !== "ALL" && status !== filters.status) return false;
     if (filters.category !== "ALL" && row.category !== filters.category) return false;
     if (!query) return true;
@@ -146,6 +159,7 @@ export function sortInventoryAvailability(
   rows: readonly InventoryAvailabilityRow[],
   sortKey: InventoryAvailabilitySortKey,
   direction: InventoryAvailabilitySortDirection,
+  safetyStockMap?: Record<string, number>,
 ): InventoryAvailabilityRow[] {
   const factor = direction === "asc" ? 1 : -1;
   const numericValues: Partial<Record<InventoryAvailabilitySortKey, (row: InventoryAvailabilityRow) => number>> = {
@@ -154,12 +168,21 @@ export function sortInventoryAvailability(
     combined_on_hand: (row) => row.combinedOnHand,
     active_reserved: (row) => row.activeReserved,
     available_to_request: (row) => row.availableToRequest,
+    safety_stock: (row) => {
+      const val = safetyStockMap ? (safetyStockMap[row.itemId] ?? safetyStockMap[row.itemCode]) : undefined;
+      return val ?? 0;
+    },
   };
   const numericValue = numericValues[sortKey];
   function textSortValue(row: InventoryAvailabilityRow): string {
     if (sortKey === "item_name") return row.itemName;
     if (sortKey === "category") return row.category ?? "";
-    if (sortKey === "status") return inventoryAvailabilityStatusLabel(inventoryAvailabilityStatus(row));
+    if (sortKey === "status") {
+      const safetyStock = safetyStockMap
+        ? (safetyStockMap[row.itemId] ?? safetyStockMap[row.itemCode] ?? null)
+        : null;
+      return inventoryAvailabilityStatusLabel(inventoryAvailabilityStatus(row, safetyStock));
+    }
     return row.itemCode;
   }
   return [...rows].sort((left, right) => {

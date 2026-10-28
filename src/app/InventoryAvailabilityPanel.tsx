@@ -29,13 +29,21 @@ import { retrySupabaseQueriesAfterSessionRefresh } from "@/src/lib/supabase-sess
 import type { AccountScopedReadOutcome } from "@/src/domain/account-scoped-read";
 import { useAccountScopedReadSnapshot } from "./use-account-scoped-read-snapshot";
 import ItemShortageModal, { type ItemShortageRow } from "./ItemShortageModal";
+import SafetyStockEditModal from "./SafetyStockEditModal";
+import {
+  loadSafetyStockMap,
+  saveSafetyStock,
+  getSafetyStockThreshold,
+  safetyStockChangedEvent,
+  type SafetyStockMap,
+} from "@/src/domain/safety-stock";
 
 const EMPTY_INVENTORY_ROWS: InventoryAvailabilityRow[] = [];
 
 function statusTone(status: InventoryAvailabilityStatus): string {
   if (status === "AVAILABLE") return "success";
   if (status === "DATA_ERROR" || status === "OUT_OF_STOCK") return "danger";
-  if (status === "GENERAL_OUT_OF_STOCK") return "warning";
+  if (status === "GENERAL_OUT_OF_STOCK" || status === "BELOW_SAFETY_STOCK") return "warning";
   return "";
 }
 
@@ -98,6 +106,23 @@ export default function InventoryAvailabilityPanel() {
   const [sortKey, setSortKey] = useState<InventoryAvailabilitySortKey>("item_code");
   const [sortDirection, setSortDirection] = useState<InventoryAvailabilitySortDirection>("asc");
   const [page, setPage] = useState(1);
+
+  const [safetyStockMap, setSafetyStockMap] = useState<SafetyStockMap>(() => {
+    return typeof window !== "undefined" ? loadSafetyStockMap() : {};
+  });
+  const [editingSafetyStockItem, setEditingSafetyStockItem] = useState<InventoryAvailabilityRow | null>(null);
+
+  useEffect(() => {
+    function handleSafetyStockChanged() {
+      setSafetyStockMap(loadSafetyStockMap());
+    }
+    window.addEventListener(safetyStockChangedEvent, handleSafetyStockChanged);
+    window.addEventListener("storage", handleSafetyStockChanged);
+    return () => {
+      window.removeEventListener(safetyStockChangedEvent, handleSafetyStockChanged);
+      window.removeEventListener("storage", handleSafetyStockChanged);
+    };
+  }, []);
   const readInventory = useCallback(async (): Promise<AccountScopedReadOutcome<InventoryAvailabilityRow[]>> => {
     if (!client) {
       return { status: "failure", errors: [], message: "庫存清單尚未連線。請登入後重試。" };
@@ -190,7 +215,7 @@ export default function InventoryAvailabilityPanel() {
   }, [categoryCounts]);
 
   const filteredRows = useMemo(() => {
-    let rows = filterInventoryAvailability(visibleRows, { query, category, status: statusFilter });
+    let rows = filterInventoryAvailability(visibleRows, { query, category, status: statusFilter, safetyStockMap });
 
     if (uniformCategory !== "ALL") {
       rows = rows.filter((row) => getUniformCategory(row.itemName, row.itemCode) === uniformCategory);
@@ -219,19 +244,32 @@ export default function InventoryAvailabilityPanel() {
       return [...rows].sort((a, b) => compareUniformItems(a, b) * factor);
     }
 
-    return sortInventoryAvailability(rows, sortKey, sortDirection);
-  }, [category, genderFilter, query, seasonFilter, sizeFilter, sortDirection, sortKey, statusFilter, uniformCategory, visibleRows]);
+    return sortInventoryAvailability(rows, sortKey, sortDirection, safetyStockMap);
+  }, [category, genderFilter, query, safetyStockMap, seasonFilter, sizeFilter, sortDirection, sortKey, statusFilter, uniformCategory, visibleRows]);
 
   const [showAttentionModal, setShowAttentionModal] = useState(false);
 
-  const availableCount = visibleRows.filter((row) => inventoryAvailabilityStatus(row) === "AVAILABLE").length;
-  const attentionCount = visibleRows.filter((row) => ["OUT_OF_STOCK", "GENERAL_OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row))).length;
+  const availableCount = visibleRows.filter((row) => {
+    const threshold = getSafetyStockThreshold(row, safetyStockMap);
+    return inventoryAvailabilityStatus(row, threshold) === "AVAILABLE";
+  }).length;
+
+  const attentionCount = visibleRows.filter((row) => {
+    const threshold = getSafetyStockThreshold(row, safetyStockMap);
+    const status = inventoryAvailabilityStatus(row, threshold);
+    return ["OUT_OF_STOCK", "GENERAL_OUT_OF_STOCK", "BELOW_SAFETY_STOCK", "DATA_ERROR"].includes(status);
+  }).length;
 
   const attentionRows: ItemShortageRow[] = useMemo(() => {
     return visibleRows
-      .filter((row) => ["OUT_OF_STOCK", "GENERAL_OUT_OF_STOCK", "DATA_ERROR"].includes(inventoryAvailabilityStatus(row)))
+      .filter((row) => {
+        const threshold = getSafetyStockThreshold(row, safetyStockMap);
+        const status = inventoryAvailabilityStatus(row, threshold);
+        return ["OUT_OF_STOCK", "GENERAL_OUT_OF_STOCK", "BELOW_SAFETY_STOCK", "DATA_ERROR"].includes(status);
+      })
       .map((row) => {
-        const status = inventoryAvailabilityStatus(row);
+        const threshold = getSafetyStockThreshold(row, safetyStockMap);
+        const status = inventoryAvailabilityStatus(row, threshold);
         return {
           itemId: row.itemId,
           itemCode: row.itemCode,
@@ -247,9 +285,11 @@ export default function InventoryAvailabilityPanel() {
           statusLabel: inventoryAvailabilityStatusLabel(status),
           isDataError: status === "DATA_ERROR",
           isGeneralOutOfStock: status === "GENERAL_OUT_OF_STOCK",
+          safetyStock: threshold,
+          isBelowSafetyStock: status === "BELOW_SAFETY_STOCK",
         };
       });
-  }, [visibleRows]);
+  }, [visibleRows, safetyStockMap]);
 
   function toggleSort(nextKey: InventoryAvailabilitySortKey) {
     if (sortKey === nextKey) setSortDirection((direction) => direction === "asc" ? "desc" : "asc");
@@ -315,7 +355,7 @@ export default function InventoryAvailabilityPanel() {
             <span style={{ fontSize: "11px", color: attentionCount > 0 ? "var(--danger, #dc2626)" : "var(--muted)", fontWeight: 700 }}>點擊查看 🔍</span>
           </span>
           <strong style={{ color: attentionCount > 0 ? "var(--danger, #dc2626)" : "inherit" }}>{attentionCount}</strong>
-          <small style={{ color: attentionCount > 0 ? "var(--danger, #dc2626)" : undefined }}>缺貨、總倉無庫存或異常（點擊顯示清單）</small>
+          <small style={{ color: attentionCount > 0 ? "var(--danger, #dc2626)" : undefined }}>缺貨、低於安全庫存或異常（點擊顯示清單）</small>
         </button>
         <div className="metric"><span>商品分類</span><strong>{categories.length}</strong><small>依目前可讀取主檔統計</small></div>
       </div>
@@ -514,6 +554,7 @@ export default function InventoryAvailabilityPanel() {
             <option value="ALL">全部</option>
             <option value="AVAILABLE">可申請</option>
             <option value="OUT_OF_STOCK">無可申請量</option>
+            <option value="BELOW_SAFETY_STOCK">低於安全庫存</option>
             <option value="GENERAL_OUT_OF_STOCK">總倉無庫存</option>
             <option value="INACTIVE">已停用</option>
             <option value="DATA_ERROR">資料異常</option>
@@ -548,7 +589,36 @@ export default function InventoryAvailabilityPanel() {
         tableClassName="inventory-availability-table"
         emptyState={<p className="empty-state">尚無符合條件的庫存資料，或目前帳號沒有此報表的讀取權限。</p>}
         columns={[
-          { id: "item-code", label: "品號", sortKey: "item_code", locked: true, render: (row) => <strong>{row.itemCode || "—"}</strong> },
+          {
+            id: "item-code",
+            label: "品號",
+            sortKey: "item_code",
+            locked: true,
+            render: (row) => (
+              <button
+                type="button"
+                onClick={() => setEditingSafetyStockItem(row)}
+                title="點擊設定此品項安全庫存"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  fontWeight: 700,
+                  color: "#0369a1",
+                  textDecoration: "underline",
+                  textUnderlineOffset: "2px",
+                  cursor: "pointer",
+                  padding: 0,
+                  background: "none",
+                  border: "none",
+                  font: "inherit",
+                  textAlign: "left",
+                }}
+              >
+                {row.itemCode || "—"}
+              </button>
+            ),
+          },
           { id: "item-name", label: "品名／規格", sortKey: "item_name", render: (row) => <>{row.itemName || "—"}{row.size ? `／${row.size}` : ""}</> },
           { id: "category", label: "分類／季別", sortKey: "category", render: (row) => [row.category, row.season].filter(Boolean).join("／") || "—" },
           { id: "hr", label: "人資倉", sortKey: "hr_on_hand", render: (row) => `${row.hrOnHand} ${row.unit}` },
@@ -556,14 +626,66 @@ export default function InventoryAvailabilityPanel() {
           { id: "combined", label: "兩倉合計", sortKey: "combined_on_hand", render: (row) => `${row.combinedOnHand} ${row.unit}` },
           { id: "reserved", label: "有效預留", sortKey: "active_reserved", defaultVisible: false, render: (row) => `${row.activeReserved} ${row.unit}` },
           { id: "available", label: "可申請量", sortKey: "available_to_request", render: (row) => <strong>{row.availableToRequest} {row.unit}</strong> },
-          { id: "status", label: "狀態", sortKey: "status", locked: true, render: (row) => { const status = inventoryAvailabilityStatus(row); return <span className={`status-pill ${statusTone(status)}`}>{inventoryAvailabilityStatusLabel(status)}</span>; } },
+          {
+            id: "safety-stock",
+            label: "安全庫存",
+            sortKey: "safety_stock",
+            render: (row) => {
+              const threshold = getSafetyStockThreshold(row, safetyStockMap);
+              return (
+                <button
+                  type="button"
+                  onClick={() => setEditingSafetyStockItem(row)}
+                  title="點擊設定或調整此品項安全庫存量"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "3px 8px",
+                    borderRadius: "6px",
+                    fontSize: "12px",
+                    cursor: "pointer",
+                    border: threshold !== null ? "1px solid #93c5fd" : "1px dashed #cbd5e1",
+                    background: threshold !== null ? "#eff6ff" : "#f8fafc",
+                    color: threshold !== null ? "#1d4ed8" : "#64748b",
+                    fontWeight: threshold !== null ? 700 : 400,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  {threshold !== null ? (
+                    <>
+                      <span>{threshold} {row.unit}</span>
+                      <span style={{ fontSize: "11px", opacity: 0.8 }}>⚙️</span>
+                    </>
+                  ) : (
+                    <span style={{ color: "#94a3b8" }}>＋設定</span>
+                  )}
+                </button>
+              );
+            },
+          },
+          {
+            id: "status",
+            label: "狀態",
+            sortKey: "status",
+            locked: true,
+            render: (row) => {
+              const threshold = getSafetyStockThreshold(row, safetyStockMap);
+              const status = inventoryAvailabilityStatus(row, threshold);
+              return (
+                <span className={`status-pill ${statusTone(status)}`}>
+                  {inventoryAvailabilityStatusLabel(status)}
+                </span>
+              );
+            },
+          },
         ]}
       />
       <ItemShortageModal
         isOpen={showAttentionModal}
         onClose={() => setShowAttentionModal(false)}
-        title="需注意品號清單（缺貨或資料異常）"
-        subtitle="以下品項目前無可申請量或庫存資料異常，請確認庫存或進貨補庫"
+        title="需注意品號清單（缺貨、低於安全庫存或異常）"
+        subtitle="以下品項目前無可申請量、低於設定的安全庫存或庫存資料異常，請確認庫存或進貨補庫"
         items={attentionRows}
         onFilterInTable={() => {
           setShowAttentionModal(false);
@@ -575,6 +697,19 @@ export default function InventoryAvailabilityPanel() {
               tableElem.scrollIntoView({ behavior: "smooth", block: "start" });
             }
           }
+        }}
+      />
+      <SafetyStockEditModal
+        key={editingSafetyStockItem ? (editingSafetyStockItem.itemId || editingSafetyStockItem.itemCode) : "none"}
+        isOpen={Boolean(editingSafetyStockItem)}
+        item={editingSafetyStockItem}
+        currentThreshold={editingSafetyStockItem ? getSafetyStockThreshold(editingSafetyStockItem, safetyStockMap) : null}
+        onClose={() => setEditingSafetyStockItem(null)}
+        onSave={(newThreshold) => {
+          if (!editingSafetyStockItem) return;
+          const key = editingSafetyStockItem.itemId || editingSafetyStockItem.itemCode;
+          saveSafetyStock(key, newThreshold);
+          setEditingSafetyStockItem(null);
         }}
       />
     </section>

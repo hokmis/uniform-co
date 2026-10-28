@@ -14,6 +14,8 @@ export type ItemShortageRow = {
   combinedOnHand: number;
   activeReserved: number;
   availableToRequest: number;
+  safetyStock?: number | null;
+  isBelowSafetyStock?: boolean;
   statusLabel?: string;
   isDataError?: boolean;
   isGeneralOutOfStock?: boolean;
@@ -61,8 +63,16 @@ export default function ItemShortageModal({
     return items.some((item) => item.hrOnHand !== undefined || item.generalOnHand !== undefined);
   }, [items]);
 
+  const hasSafetyStockConfigured = useMemo(() => {
+    return items.some((item) => item.safetyStock !== undefined && item.safetyStock !== null);
+  }, [items]);
+
   const zeroStockCount = useMemo(() => {
     return items.filter((item) => item.availableToRequest === 0 && !item.isGeneralOutOfStock && item.statusLabel !== "總倉無庫存").length;
+  }, [items]);
+
+  const belowSafetyStockCount = useMemo(() => {
+    return items.filter((item) => item.isBelowSafetyStock || item.statusLabel === "低於安全庫存").length;
   }, [items]);
 
   const generalZeroCount = useMemo(() => {
@@ -259,6 +269,21 @@ export default function ItemShortageModal({
             >
               可申請量為 0（缺貨）：{zeroStockCount} 筆
             </span>
+            {belowSafetyStockCount > 0 && (
+              <span
+                style={{
+                  fontSize: "12px",
+                  background: "#fef3c7",
+                  border: "1px solid #fcd34d",
+                  color: "#b45309",
+                  padding: "3px 8px",
+                  borderRadius: "6px",
+                  fontWeight: 600,
+                }}
+              >
+                低於安全庫存：{belowSafetyStockCount} 筆
+              </span>
+            )}
             {generalZeroCount > 0 && (
               <span
                 style={{
@@ -379,7 +404,12 @@ export default function ItemShortageModal({
                   <th style={{ padding: "10px 12px", textAlign: "right", width: "95px" }}>
                     可申請量
                   </th>
-                  <th style={{ padding: "10px 12px", textAlign: "center", width: "110px" }}>
+                  {hasSafetyStockConfigured && (
+                    <th style={{ padding: "10px 12px", textAlign: "right", width: "85px" }}>
+                      安全庫存
+                    </th>
+                  )}
+                  <th style={{ padding: "10px 12px", textAlign: "center", width: "115px" }}>
                     狀態
                   </th>
                 </tr>
@@ -478,12 +508,27 @@ export default function ItemShortageModal({
                       >
                         {item.availableToRequest}
                       </td>
+                      {hasSafetyStockConfigured && (
+                        <td
+                          style={{
+                            padding: "10px 12px",
+                            textAlign: "right",
+                            fontVariantNumeric: "tabular-nums",
+                            color: item.safetyStock ? "#334155" : "#94a3b8",
+                            fontWeight: item.safetyStock ? 600 : 400,
+                          }}
+                        >
+                          {item.safetyStock !== null && item.safetyStock !== undefined ? item.safetyStock : "—"}
+                        </td>
+                      )}
                       <td style={{ padding: "10px 12px", textAlign: "center" }}>
                         {(() => {
+                          const isBelowSafety = item.isBelowSafetyStock || item.statusLabel === "低於安全庫存";
                           const isGenZero = item.isGeneralOutOfStock || item.statusLabel === "總倉無庫存";
-                          const bg = isNegative ? "#fef2f2" : isGenZero ? "#fff7ed" : "#fee2e2";
-                          const color = isNegative ? "#991b1b" : isGenZero ? "#c2410c" : "#b91c1c";
-                          const border = isNegative ? "1px solid #f87171" : isGenZero ? "1px solid #fed7aa" : "1px solid #fca5a5";
+                          const bg = isNegative ? "#fef2f2" : isBelowSafety ? "#fef3c7" : isGenZero ? "#fff7ed" : "#fee2e2";
+                          const color = isNegative ? "#991b1b" : isBelowSafety ? "#b45309" : isGenZero ? "#c2410c" : "#b91c1c";
+                          const border = isNegative ? "1px solid #f87171" : isBelowSafety ? "1px solid #fcd34d" : isGenZero ? "1px solid #fed7aa" : "1px solid #fca5a5";
+                          const defaultLabel = isNegative ? "資料異常" : isBelowSafety ? "低於安全庫存" : isGenZero ? "總倉無庫存" : "無可申請量";
                           return (
                             <span
                               style={{
@@ -497,7 +542,7 @@ export default function ItemShortageModal({
                                 border: border,
                               }}
                             >
-                              {item.statusLabel || (isNegative ? "資料異常" : isGenZero ? "總倉無庫存" : "無可申請量")}
+                              {item.statusLabel || defaultLabel}
                             </span>
                           );
                         })()}
